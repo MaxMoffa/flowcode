@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { attachPty, detachPty, forgetPty, killPty, MAX_PTY_QUEUED_BYTES, onPtyWriteError, ptyInputBytes, resizePty, spawnPty, writePty, type PtyWriteError } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
@@ -33,7 +34,12 @@ import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
 import { currentAgentToolsConfig } from "../agents/agentToolsSettings";
 import { AGENT_CLIS, cliName } from "../agents/cliInfo";
-import { routeAgentOpen } from "../browser/agentOpen";
+import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { parseDelegate, parseDelegateRequest, requestIdOf, type DelegateInfo } from "../chat/chatModel";
+import type { ChatEvent } from "../chat/chatTypes";
+import { publishTabDelegation } from "../chat/delegateStore";
+import { addTerminalRequest, EMPTY_TERMINAL_DELEGATES, resolveTerminalRequest, seedTerminalDelegates, upsertTerminalDelegate, type TerminalDelegates } from "./terminalDelegates";
+import { TerminalDelegateCard } from "./TerminalDelegateCard";
 import { addCall } from "../calls/callStore";
 import { useOptionalConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
@@ -116,12 +122,16 @@ interface TerminalViewProps {
    * is redrawn from the snapshot and it keeps running - nothing is spawned.
    * Only read once, at mount. */
   attach?: TerminalTransfer;
+  /** The distro this tab's shell runs in (null: not WSL) - where the pages and tabs its agent's delegates open belong. */
+  wslDistro?: string | null;
+  /** The user opened a task this tab's agent delegated: its chat goes in a tab of its own. */
+  onOpenDelegate?: (delegate: DelegateInfo, wslDistro: string | null) => void;
 }
 
 // memo: the parent re-renders on every title/agent-poll change, and a
 // terminal has nothing to redraw unless one of its own props moved.
 export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, interceptCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, interceptCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach, wslDistro = null, onOpenDelegate }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -219,10 +229,34 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const confirm = useOptionalConfirmDialog();
   const confirmRef = useRef(confirm);
   confirmRef.current = confirm;
+  // What this tab's agent delegated to others (Flowcode's MCP tools), from the backend's events.
+  const [delegation, setDelegation] = useState<TerminalDelegates>(EMPTY_TERMINAL_DELEGATES);
+  const [ptyEnded, setPtyEnded] = useState(false);
+  const wslDistroRef = useRef(wslDistro);
+  wslDistroRef.current = wslDistro;
+  const onOpenDelegateRef = useRef(onOpenDelegate);
+  onOpenDelegateRef.current = onOpenDelegate;
+  const delegationRef = useRef(delegation);
+  delegationRef.current = delegation;
+  /** The tasks already running or finished when this view started watching (spawn, or a move from another window). */
+  const seedDelegates = (ptyId: string) => {
+    invoke<unknown[]>("terminal_delegates", { ptyId })
+      .then((raw) => setDelegation((prev) => seedTerminalDelegates(prev, raw)))
+      .catch(() => {});
+  };
   // Flowcode's MCP tools (see `tools` in spawnPty). Refs, so the handlers handed to the channel at spawn time stay current.
   const onExt = (method: string, params: unknown) => {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
-    if (method === "_flowcode/open" && typeof p.target === "string" && p.target) {
+    if (method === "_flowcode/delegate") {
+      const delegate = parseDelegate(params);
+      if (delegate) setDelegation((prev) => upsertTerminalDelegate(prev, delegate));
+    } else if (method === "_flowcode/delegate_request") {
+      const request = parseDelegateRequest(params);
+      if (request) setDelegation((prev) => addTerminalRequest(prev, request));
+    } else if (method === "_flowcode/delegate_request_resolved") {
+      const requestId = requestIdOf(p.requestId);
+      if (requestId !== null && typeof p.childChatId === "string") setDelegation((prev) => resolveTerminalRequest(prev, p.childChatId as string, requestId));
+    } else if (method === "_flowcode/open" && typeof p.target === "string" && p.target) {
       // The backend names the distro of a WSL tab, null elsewhere.
       void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, typeof p.distro === "string" && p.distro ? p.distro : null, confirmRef.current, tabIdRef.current);
     } else if (method === "_flowcode/call" && typeof p.message === "string" && p.message.trim()) {
@@ -895,6 +929,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         },
         onExit: () => {
           forgetPty(attached.ptyId);
+          if (!disposed) setPtyEnded(true);
           if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
         },
         onExt,
@@ -907,6 +942,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
             return;
           }
           ptyIdRef.current = attached.ptyId;
+          seedDelegates(attached.ptyId);
           onPtyReadyRef.current?.();
           // The tab may have moved while a phone had it open: that phone's
           // size was pinned in the old window, so ask for it here.
@@ -1036,6 +1072,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           },
           onExit: () => {
             if (ptyIdRef.current) forgetPty(ptyIdRef.current);
+            if (!disposed) setPtyEnded(true);
             if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
           },
           onExt,
@@ -1054,6 +1091,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         return;
       }
       ptyIdRef.current = id;
+      seedDelegates(id);
       watchWriteErrors(id);
       onPtyReadyRef.current?.();
       ptySizeRef.current = { cols: term.cols, rows: term.rows };
@@ -1190,6 +1228,29 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     };
   }, []);
 
+  // The agents panel and the History read the delegation state from here.
+  useEffect(() => {
+    if (delegation.delegates.length === 0) publishTabDelegation(tabId, null);
+    else publishTabDelegation(tabId, { delegates: delegation.delegates, requests: delegation.requests, task: null, wslDistro, ended: ptyEnded });
+  }, [tabId, delegation, wslDistro, ptyEnded]);
+  useEffect(() => () => publishTabDelegation(tabId, null), [tabId]);
+
+  // The pages this tab's delegates open (their own events reach no one when their tab is closed): live events only.
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let gone = false;
+    const track = createAgentOpenTracker(cwdRef.current ?? "");
+    void listen<{ chatId: string; event: ChatEvent }>("chat-event", (e) => {
+      if (!delegationRef.current.delegates.some((d) => d.childChatId === e.payload.chatId)) return;
+      const open = track(e.payload.event);
+      if (open) void routeAgentOpen(open, wslDistroRef.current, confirmRef.current, tabIdRef.current);
+    }).then((stop) => (gone ? stop() : (off = stop)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -1233,6 +1294,16 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     >
       {phoneSized && <div className="terminal-phone-banner">{t("terminal.phoneSized")}</div>}
       <div ref={hostRef} className="terminal-host" />
+      <TerminalDelegateCard
+        delegates={delegation.delegates}
+        requests={delegation.requests}
+        hidden={hidden}
+        onOpen={(d) => onOpenDelegateRef.current?.(d, wslDistroRef.current)}
+        onPermission={(childChatId, requestId, optionId) => {
+          invoke("chat_permission", { chatId: childChatId, requestId, optionId }).catch(() => {});
+        }}
+        onAsk={(childChatId, requestId, action, content) => invoke<void>("chat_ask", { chatId: childChatId, requestId, action, content })}
+      />
     </div>
   );
 }));

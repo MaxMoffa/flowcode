@@ -1,5 +1,5 @@
 //! What the agents of a terminal tab get from Flowcode's MCP server
-//! (`chat_mcp.rs`): `open_in_browser` and `call_user`. The tab's PTY carries the
+//! (`chat_mcp.rs`): `open_in_browser`, `call_user` and the delegation tools. The tab's PTY carries the
 //! server's settings in its environment; the shims of `provider_launcher.rs`
 //! (Windows tabs) and `wsl-shell/shim.sh` (WSL tabs), which every `claude` /
 //! `codex` typed in the tab goes through, turn them into the CLI's own flags, so
@@ -14,7 +14,7 @@ use std::sync::{Mutex, OnceLock};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
-use crate::chat::delegate::{call_params, CALL_METHOD, OPEN_METHOD};
+use crate::chat::delegate::{call_params, ParentCtx, CALL_METHOD, OPEN_METHOD};
 use crate::chat_mcp::{self, CALL_USER, OPEN};
 use crate::pty::PtyState;
 
@@ -27,6 +27,10 @@ const SHIM_SH: &str = include_str!("wsl-shell/shim.sh");
 pub(crate) struct TerminalMcp {
     token: String,
     tools: Vec<&'static str>,
+    /// The settings the tab was given its tools by, for the delegations it asks for.
+    cfg: chat_mcp::ToolsConfig,
+    app: AppHandle,
+    pty_id: String,
     /// The tab's folder (a Linux path for a WSL tab, whose folder may be unknown).
     cwd: Option<String>,
     /// A WSL tab: its distro's name, empty for the default distro.
@@ -39,6 +43,7 @@ pub(crate) struct TerminalMcp {
 /// What `call` needs to know of a tab.
 pub(crate) struct Info {
     pub(crate) tools: Vec<&'static str>,
+    pub(crate) cfg: chat_mcp::ToolsConfig,
     pub(crate) cwd: Option<String>,
     pub(crate) wsl: Option<String>,
 }
@@ -121,7 +126,7 @@ impl TerminalMcp {
         if let Some(config) = opencode_config(existing.as_deref(), &script, &dir_text, &token, &tools_text) {
             env.push(("OPENCODE_CONFIG_CONTENT".to_string(), config));
         }
-        Some(TerminalMcp { token, tools, cwd, wsl, claude_config, env })
+        Some(TerminalMcp { token, tools, cfg: cfg.clone(), app: app.clone(), pty_id: pty_id.to_string(), cwd, wsl, claude_config, env })
     }
 
     pub(crate) fn env(&self) -> &[(String, String)] {
@@ -129,7 +134,7 @@ impl TerminalMcp {
     }
 
     pub(crate) fn info(&self) -> Info {
-        Info { tools: self.tools.clone(), cwd: self.cwd.clone(), wsl: self.wsl.clone() }
+        Info { tools: self.tools.clone(), cfg: self.cfg.clone(), cwd: self.cwd.clone(), wsl: self.wsl.clone() }
     }
 }
 
@@ -139,6 +144,8 @@ impl Drop for TerminalMcp {
         if let Some(path) = &self.claude_config {
             let _ = std::fs::remove_file(path);
         }
+        // Its tasks end with the tab. This may run under the pty map lock: the work is on another thread.
+        crate::chat::delegate::terminal_closed(&self.app, &self.pty_id);
     }
 }
 
@@ -234,29 +241,51 @@ fn is_absolute(path: &str) -> bool {
     path.starts_with('/') || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'))
 }
 
+/// Where a tab's agent is: its distro (WSL tabs), the folders it may name, and the folder relative paths mean.
+struct Place {
+    distro: Option<String>,
+    homes: Vec<String>,
+    base: String,
+}
+
+fn locate(wsl: Option<String>, cwd: Option<String>, reported_cwd: Option<&str>) -> Place {
+    let mut homes: Vec<String> = crate::fs::user_home().map(|p| p.to_string_lossy().into_owned()).into_iter().collect();
+    // Looked up here, never at spawn: asking WSL may run wsl.exe.
+    let distro = wsl.map(|d| if d.is_empty() { crate::util::wsl_default_distro().unwrap_or_default() } else { d });
+    let tab_cwd = match &distro {
+        Some(distro) => {
+            homes.extend(homes.clone().iter().filter_map(|home| crate::chat::to_wsl_path(home)));
+            let wsl_home = Some(distro).filter(|d| !d.is_empty()).and_then(|d| crate::util::wsl_home(d));
+            homes.extend(wsl_home.clone());
+            cwd.or(wsl_home).or_else(|| homes.iter().find(|h| h.starts_with('/')).cloned()).unwrap_or_default()
+        }
+        None => cwd.unwrap_or_default(),
+    };
+    let base = base_folder(reported_cwd, &tab_cwd, &homes);
+    Place { distro, homes, base }
+}
+
+/// The folder and shell a child chat of a delegation asked from a tab starts with: the Windows-side
+/// path of the agent's folder, and `wsl:<distro>` when the tab is a WSL one (a chat takes the shell from there).
+fn child_place(place: &Place, wsl_tab: bool) -> Result<(String, Option<String>), String> {
+    if !wsl_tab {
+        return Ok((place.base.clone(), None));
+    }
+    let distro = Some(place.distro.as_deref().unwrap_or("")).filter(|d| !d.is_empty()).ok_or("could not find the WSL distro of this tab")?;
+    Ok((crate::chat_images::from_wsl_path(&place.base, distro)?, Some(format!("wsl:{distro}"))))
+}
+
 /// Runs a tool call of a terminal tab; see `chat_mcp::dispatch`. The tab must be
 /// open and have been given the tool - the caller's word is not enough.
-pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>) -> Result<String, String> {
+pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>, deadline_ms: Option<u64>) -> Result<String, String> {
     let state = app.state::<PtyState>();
-    let Info { tools, cwd, wsl } = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
+    let Info { tools, cfg, cwd, wsl } = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
     if !tools.contains(&tool) {
         return Err(format!("the tool `{tool}` is not available in terminal tabs"));
     }
     match tool {
         OPEN => {
-            let mut homes: Vec<String> = crate::fs::user_home().map(|p| p.to_string_lossy().into_owned()).into_iter().collect();
-            // Looked up here, never at spawn: asking WSL may run wsl.exe.
-            let distro = wsl.map(|d| if d.is_empty() { crate::util::wsl_default_distro().unwrap_or_default() } else { d });
-            let tab_cwd = match &distro {
-                Some(distro) => {
-                    homes.extend(homes.clone().iter().filter_map(|home| crate::chat::to_wsl_path(home)));
-                    let wsl_home = Some(distro).filter(|d| !d.is_empty()).and_then(|d| crate::util::wsl_home(d));
-                    homes.extend(wsl_home.clone());
-                    cwd.or(wsl_home).or_else(|| homes.iter().find(|h| h.starts_with('/')).cloned()).unwrap_or_default()
-                }
-                None => cwd.unwrap_or_default(),
-            };
-            let base = base_folder(reported_cwd, &tab_cwd, &homes);
+            let Place { distro, homes, base } = locate(wsl, cwd, reported_cwd);
             let target = args.get("target").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("`target` is required")?;
             let target = chat_mcp::open_target(target, &base, &homes, distro.as_deref())?;
             crate::pty::emit_ext(&state, pty_id, OPEN_METHOD, json!({ "target": target, "cwd": base, "distro": distro }))?;
@@ -267,6 +296,24 @@ pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, repo
             params["agent"] = agent.map_or(Value::Null, |a| json!(a));
             crate::pty::emit_ext(&state, pty_id, CALL_METHOD, params)?;
             Ok("The user has been notified.".to_string())
+        }
+        chat_mcp::LIST_AGENTS | chat_mcp::DELEGATE_TASK | chat_mcp::GET_TASK_RESULT | chat_mcp::CANCEL_TASK => {
+            let (window, profile) = crate::pty::window_and_profile(&state, pty_id)?;
+            let wsl_tab = wsl.is_some();
+            let place = locate(wsl, cwd, reported_cwd);
+            let (cwd, shell) = child_place(&place, wsl_tab)?;
+            let ctx = ParentCtx {
+                owner: chat_mcp::Owner::Terminal(pty_id.to_string()),
+                window,
+                agent: agent.map(str::to_string),
+                cwd,
+                profile,
+                shell,
+                tools: cfg,
+                mode: None,
+                depth: 0,
+            };
+            crate::chat::delegate::terminal_delegation_call(app, ctx, tool, args, deadline_ms)
         }
         _ => Err(format!("unknown tool `{tool}`")),
     }
@@ -286,6 +333,18 @@ mod tests {
         assert_eq!(base_folder(Some("sub"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(Some("//host/share"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(None, "C:/repo", &homes), "C:/repo");
+    }
+
+    #[test]
+    fn a_wsl_tabs_children_start_on_the_windows_side() {
+        let place = |distro: Option<&str>, base: &str| Place { distro: distro.map(str::to_string), homes: vec![], base: base.to_string() };
+        assert_eq!(child_place(&place(None, "C:/repo"), false).unwrap(), ("C:/repo".to_string(), None));
+        let (cwd, shell) = child_place(&place(Some("Ubuntu"), "/mnt/c/repo/sub"), true).unwrap();
+        assert_eq!((cwd.as_str(), shell.as_deref()), (r"C:\repo\sub", Some("wsl:Ubuntu")));
+        assert_eq!(child_place(&place(Some("Ubuntu"), "/mnt/c"), true).unwrap().0, r"C:\");
+        assert_eq!(child_place(&place(Some("Debian"), "/home/me/app"), true).unwrap().0, r"\\wsl.localhost\Debian\home\me\app");
+        assert!(child_place(&place(Some(""), "/home/me"), true).is_err());
+        assert!(child_place(&place(None, "/home/me"), true).is_err());
     }
 
     fn opencode(existing: Option<&str>) -> Option<Value> {

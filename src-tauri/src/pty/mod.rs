@@ -262,6 +262,19 @@ pub(crate) fn mcp_of(state: &PtyState, id: &str) -> Option<crate::terminal_mcp::
     Some(sessions.get(id)?.mcp.as_ref()?.info())
 }
 
+/// The window showing the tab and the account profile it runs under, for a delegation asked from it.
+pub(crate) fn window_and_profile(state: &PtyState, id: &str) -> Result<(String, Option<String>), String> {
+    let sessions = lock(&state.0);
+    let session = sessions.get(id).ok_or("this terminal tab is closed")?;
+    let window = session.owner.clone().ok_or("this terminal tab is moving between windows")?;
+    Ok((window, session.profile.clone()))
+}
+
+/// Whether tab `id` still exists.
+pub(crate) fn exists(state: &PtyState, id: &str) -> bool {
+    lock(&state.0).contains_key(id)
+}
+
 /// Sends an `Ext` event to the tab showing session `id`. The sink is pushed to
 /// outside the map lock, which `push` and the channel have no business under.
 pub(crate) fn emit_ext(state: &PtyState, id: &str, method: &str, params: serde_json::Value) -> Result<(), String> {

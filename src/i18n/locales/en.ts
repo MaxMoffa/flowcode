@@ -133,6 +133,8 @@ export const en: Record<MessageKey, string> = {
   // Terminal
   "terminal.phoneSized": "Shown on a phone - size adapted",
   "terminal.exited": "process exited",
+  "terminal.delegates.hide": "Hide delegations",
+  "terminal.delegates.show": "Show delegations",
   "terminal.moveFailed": "couldn't move the terminal: {error}",
   "terminal.spawnFailed": "couldn't start the shell: {error}",
   "edit.cut": "Cut",

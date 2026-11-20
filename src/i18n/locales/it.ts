@@ -133,6 +133,8 @@ export const it = {
   // Terminal
   "terminal.phoneSized": "Visualizzato dal telefono - dimensione adattata",
   "terminal.exited": "processo terminato",
+  "terminal.delegates.hide": "Nascondi le deleghe",
+  "terminal.delegates.show": "Mostra le deleghe",
   "terminal.moveFailed": "impossibile spostare il terminale: {error}",
   "terminal.spawnFailed": "impossibile avviare la shell: {error}",
   "edit.cut": "Taglia",

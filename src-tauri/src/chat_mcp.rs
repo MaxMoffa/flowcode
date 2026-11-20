@@ -83,11 +83,10 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     tools
 }
 
-/// What a terminal tab's agent gets: delegation in tabs is a later phase.
+/// What a terminal tab's agent gets: the same as a chat's own (depth 0),
+/// delegation included. The tab asks for the tasks, the child chats run beside it.
 pub(crate) fn terminal_tools(cfg: &ToolsConfig) -> Vec<&'static str> {
-    let mut tools = enabled_tools(cfg, 0);
-    tools.retain(|t| matches!(*t, OPEN | CALL_USER));
-    tools
+    enabled_tools(cfg, 0)
 }
 
 /// What owns a token: a chat, or a terminal tab (by its pty id).
@@ -298,7 +297,7 @@ fn dispatch(app: &AppHandle, request: Request) -> Result<String, String> {
     match &caller.owner {
         Owner::Chat(_) => crate::chat::delegate::mcp_call(app, &caller, &request.tool, &request.args, request.deadline_ms),
         Owner::Terminal(pty_id) => {
-            crate::terminal_mcp::call(app, pty_id, &request.tool, &request.args, request.cwd.as_deref(), request.agent.as_deref())
+            crate::terminal_mcp::call(app, pty_id, &request.tool, &request.args, request.cwd.as_deref(), request.agent.as_deref(), request.deadline_ms)
         }
     }
 }
@@ -713,10 +712,11 @@ mod tests {
     }
 
     #[test]
-    fn terminals_only_get_open_and_call() {
-        assert_eq!(terminal_tools(&on()), [OPEN, CALL_USER]);
+    fn terminals_get_the_chat_tools_including_delegation() {
+        assert_eq!(terminal_tools(&on()), [OPEN, CALL_USER, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+        assert_eq!(terminal_tools(&ToolsConfig { delegate: false, ..on() }), [OPEN, CALL_USER]);
         assert!(terminal_tools(&ToolsConfig { enabled: false, ..on() }).is_empty());
-        assert!(terminal_tools(&ToolsConfig { open: false, call: false, ..on() }).is_empty());
+        assert!(terminal_tools(&ToolsConfig { open: false, call: false, delegate: false, ..on() }).is_empty());
     }
 
     #[test]

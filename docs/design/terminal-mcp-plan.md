@@ -1,6 +1,6 @@
 # Flowcode MCP nelle tab terminale — piano
 
-Stato: fasi 1 e 2 implementate 2026-11-20 (non provate nell'app). Fase 2 = WSL (Claude, Codex) + OpenCode via env; Cline e Gemini rimandati (vedi sotto). Verificato a mano con i CLI veri (senza app): Claude carica `--mcp-config=<file>` e `--allowedTools=` lascia passare `call_user` senza chiedere; Codex 0.166 accetta gli override `-c`, inoltra l'env con `env_vars` e `tools.<tool>.approval_mode='approve'` evita la richiesta di approvazione. Entrambi scrivono la richiesta con `cwd` e `agent`.
+Stato: fasi 1, 2 e 3 implementate 2026-11-20 (non provate nell'app). Fase 2 = WSL (Claude, Codex) + OpenCode via env; Cline e Gemini rimandati (vedi sotto). Verificato a mano con i CLI veri (senza app): Claude carica `--mcp-config=<file>` e `--allowedTools=` lascia passare `call_user` senza chiedere; Codex 0.166 accetta gli override `-c`, inoltra l'env con `env_vars` e `tools.<tool>.approval_mode='approve'` evita la richiesta di approvazione. Entrambi scrivono la richiesta con `cwd` e `agent`.
 
 ## Obiettivo
 
@@ -75,10 +75,9 @@ Oggi `provider_launcher::install` è saltato per le tab WSL (`pty/mod.rs:475`). 
 
 1. **Fase 1 — Windows nativo, Claude + Codex, `open_in_browser` + `call_user`.** `Owner` in `chat_mcp.rs`, token per PTY, `PtyEvent::Ext`, iniezione in `run_if_requested`, lista sottocomandi, frontend (`ptyClient.ts` + gestore tab). Test: unit test dei builder di argomenti (come `shim_target`), poi prova reale in app.
 2. **Fase 2 — WSL + OpenCode + Cline + Gemini.** Shim Linux via `node --launch`, integrazione bash/zsh/fish, iniezione via env per OpenCode/Cline/Gemini. Test sulla distro dell'utente prima di tutto.
-3. **Fase 3 — Delega dalle tab.** `Owner` nei task, tratto `Parent`, UI dei figli (scelta aperta: card nella tab / drawer laterale / solo notifica).
+3. **Fase 3 — Delega dalle tab.** ✅ `Task.parent: Owner`, `ParentCtx` (chat o tab) in `delegate.rs`, eventi `_flowcode/delegate*` sul canale della PTY, comando `terminal_delegates` per riagganciarsi, figli chiusi con la tab (`terminal_closed` nel Drop di `TerminalMcp`). Figlio di una tab WSL: cwd tradotto lato Windows (`/mnt/c/..` → `C:\..`, resto `\wsl.localhost\<distro>\..`), shell `wsl:<distro>`. UI scelta: card nella tab (in basso a destra, riducibile a pillola; `TerminalDelegateCard.tsx`) + pannello agenti; i figli si aprono come tab chat accanto al terminale.
 4. **Fase 4 — Telefono e mappa.** Le tab aperte dal telefono passano lo stesso `tools`; aggiornare `docs/agents-integration-map.md` (nuova riga "Flowcode MCP nei terminali").
 
 ## Scelte aperte
 
-- UI dei figli delegati da una tab (fase 3).
 - Integrazione della shell (fase 2) cambia il modo in cui parte bash/zsh nelle tab: attivarla sempre o dietro un'impostazione "Integrazione shell"?

@@ -64,6 +64,8 @@ export interface ChatTaskInfo {
   parentAgent: string;
   parentTitle: string | null;
   prompt: string;
+  /** What the orchestrator is: a terminal tab's agent (the pty id is `parentChatId`) or a chat. */
+  parentKind?: "terminal" | "chat";
 }
 
 /** One thing in the conversation, in the order it happened. */
@@ -235,12 +237,12 @@ const DELEGATE_STATUSES: readonly string[] = ["running", "waiting_for_user", "do
 export const delegateFinished = (d: Pick<DelegateInfo, "status">): boolean => d.status === "done" || d.status === "failed" || d.status === "cancelled";
 
 /** A JSON-RPC request id as the backend sends it: a string or a number, handed back as it came. */
-const requestIdOf = (v: unknown): string | null => (typeof v === "string" && v !== "") || typeof v === "number" ? (v as string) : null;
+export const requestIdOf = (v: unknown): string | null => (typeof v === "string" && v !== "") || typeof v === "number" ? (v as string) : null;
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
 
 /** The `_flowcode/delegate` params, checked; null when they are not a delegate. */
-function parseDelegate(raw: unknown): DelegateInfo | null {
+export function parseDelegate(raw: unknown): DelegateInfo | null {
   const p = record(raw);
   const taskId = str(p.taskId);
   const childChatId = str(p.childChatId);
@@ -267,7 +269,7 @@ function parseDelegate(raw: unknown): DelegateInfo | null {
 export const delegateRequestKey = (childChatId: string, requestId: string) => JSON.stringify([childChatId, requestId]);
 
 /** The `_flowcode/delegate_request` params, checked. */
-function parseDelegateRequest(raw: unknown): DelegateRequest | null {
+export function parseDelegateRequest(raw: unknown): DelegateRequest | null {
   const p = record(raw);
   const taskId = str(p.taskId);
   const childChatId = str(p.childChatId);
@@ -291,7 +293,7 @@ function parseTask(raw: unknown): ChatTaskInfo | null {
   const taskId = str(p.taskId);
   const parentChatId = str(p.parentChatId);
   if (!taskId || !parentChatId) return null;
-  return { taskId, parentChatId, parentAgent: str(p.parentAgent) ?? "", parentTitle: str(p.parentTitle), prompt: typeof p.prompt === "string" ? p.prompt : "" };
+  return { taskId, parentChatId, parentAgent: str(p.parentAgent) ?? "", parentTitle: str(p.parentTitle), prompt: typeof p.prompt === "string" ? p.prompt : "", ...(p.parentKind === "terminal" || p.parentKind === "chat" ? { parentKind: p.parentKind } : {}) };
 }
 
 /** Every delegate of the conversation, in the order they started. */

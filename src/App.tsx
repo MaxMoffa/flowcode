@@ -135,6 +135,15 @@ const isMainWindow = appWindow.label === "main";
 
 /** What a terminal reports to the New Tab page turning into it: where its
  * prompt will land, and (`null`: never) where it did. */
+/** The tab whose agent delegated a task: what a delegate's own tab needs from it (a terminal tab has no agent or profile of its own here). */
+interface DelegateParent {
+  id: string;
+  cwd: string;
+  shell?: string;
+  profileId?: string;
+  agent: AgentCli | null;
+}
+
 interface Handoff {
   anchor?: PromptAnchor;
   promptShown?: PromptAnchor | null;
@@ -1286,6 +1295,7 @@ function Shell() {
     commandLine: handleCommandLine,
     interceptCommandLine,
     patchHandoff,
+    openDelegate: openDelegateTab,
   });
   handlersRef.current = {
     title: handleTitleChange,
@@ -1293,6 +1303,7 @@ function Shell() {
     commandLine: handleCommandLine,
     interceptCommandLine,
     patchHandoff,
+    openDelegate: openDelegateTab,
   };
   const termCallbacksRef = useRef(
     new Map<
@@ -1306,6 +1317,7 @@ function Shell() {
         onAnchor: (anchor: PromptAnchor) => void;
         onPromptShown: (anchor: PromptAnchor | null) => void;
         onPtyReady: () => void;
+        onOpenDelegate: (delegate: DelegateInfo, wslDistro: string | null) => void;
       }
     >(),
   );
@@ -1324,6 +1336,7 @@ function Shell() {
         onAnchor: (anchor) => handlersRef.current.patchHandoff(tabId, { anchor }),
         onPromptShown: (promptShown) => handlersRef.current.patchHandoff(tabId, { promptShown }),
         onPtyReady: () => setPtyVersion((v) => v + 1),
+        onOpenDelegate: (delegate, wslDistro) => handlersRef.current.openDelegate(tabId, delegate, wslDistro),
       };
       termCallbacksRef.current.set(tabId, callbacks);
     }
@@ -2090,9 +2103,18 @@ function Shell() {
       setActiveTabId(open.id);
       return;
     }
-    const parent = all.find((t): t is ChatTab => t.id === parentTabId && t.kind === "chat");
+    const found = all.find((t) => t.id === parentTabId);
+    // The orchestrator is a chat or a terminal tab (whose agent delegated through Flowcode's MCP tools).
+    const parent: DelegateParent | null =
+      found?.kind === "chat"
+        ? { id: found.id, cwd: found.cwd, shell: found.shell, profileId: found.profileId, agent: found.agent }
+        : found?.kind === "terminal"
+          ? { id: found.id, cwd: found.cwd, shell: tabShell(found) ?? "host", profileId: undefined, agent: null }
+          : null;
     if (!parent) return;
-    const agent = (AGENT_CLIS as readonly string[]).includes(delegate.agent) ? (delegate.agent as AgentCli) : parent.agent;
+    const known = (AGENT_CLIS as readonly string[]).includes(delegate.agent) ? (delegate.agent as AgentCli) : parent.agent;
+    if (!known) return;
+    const agent: AgentCli = known;
     // A finished child may be one the backend already let go (it keeps only the last few): a tab would attach to
     // nothing, so its saved conversation resumes as a chat instead.
     const sessionId = delegate.childSessionId;
@@ -2111,7 +2133,7 @@ function Shell() {
   }
 
   /** The tab of `openDelegateTab`, attached to the child's running chat. */
-  function attachDelegateTab(parent: ChatTab, delegate: DelegateInfo, agent: AgentCli, wslDistro: string | null) {
+  function attachDelegateTab(parent: DelegateParent, delegate: DelegateInfo, agent: AgentCli, wslDistro: string | null) {
     const parentTabId = parent.id;
     const { tabs: all } = latestRef.current;
     // Asked twice while the check above ran: one tab.
@@ -2946,6 +2968,8 @@ function Shell() {
                         onAnchor={callbacks.onAnchor}
                         onPromptShown={callbacks.onPromptShown}
                         onPtyReady={callbacks.onPtyReady}
+                        wslDistro={wslDistroOfShell(tabShell(tab)) ?? null}
+                        onOpenDelegate={callbacks.onOpenDelegate}
                       />
                       </div>
                     )}

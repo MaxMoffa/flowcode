@@ -92,9 +92,9 @@ export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab }:
 function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onOpenDelegate" | "onFocusTab">) {
   const { t } = useI18n();
   const agentTools = useAgentToolsSettings();
-  const delegation = useTabDelegation(agent.kind === "chat" ? agent.tabId : null);
-  // Only a chat can delegate; the tab shows while the feature is on, or when this chat has (or is) a delegate.
-  const showDelegates = agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || delegation.delegates.length > 0 || !!agent.delegateOf);
+  const delegation = useTabDelegation(agent.tabId);
+  // A chat shows the tab while the feature is on, or when it has (or is) a delegate; a terminal's agent only once it has delegated.
+  const showDelegates = (agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || !!agent.delegateOf)) || delegation.delegates.length > 0;
   const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
   const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
   const cli = agent.cli;

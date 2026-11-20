@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{broadcast, watch};
 
-use crate::chat_mcp::ToolsConfig;
+use crate::chat_mcp::{Owner, ToolsConfig};
 use crate::util::{lock, now_ms};
 
 pub(crate) mod delegate;

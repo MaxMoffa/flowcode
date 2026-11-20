@@ -209,6 +209,7 @@ pub fn run() {
             chat::chat_goal,
             chat::chat_close,
             chat::delegate::delegate_cancel,
+            chat::delegate::terminal_delegates,
             chat::chat_adapter_ready,
             chat::chat_events,
             chat::chat_image,

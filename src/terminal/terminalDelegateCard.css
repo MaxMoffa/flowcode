@@ -1,0 +1,79 @@
+/* Docked over the terminal's bottom-right corner: it never takes part in the terminal's layout (xterm keeps its fit),
+   and only the card itself catches the pointer. */
+.term-deleg {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  width: min(420px, calc(100% - 28px));
+  max-height: calc(100% - 28px);
+  overflow-y: auto;
+  padding: 6px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb)));
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+
+.term-deleg.is-pill {
+  width: auto;
+  padding: 0;
+  overflow: visible;
+  border-radius: 999px;
+}
+
+.term-deleg-x {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.term-deleg-x:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+/* The strip's own head leaves room for the x. */
+.term-deleg .chat-dstrip {
+  margin: 0 0 4px;
+  padding-right: 18px;
+}
+
+.term-deleg-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: none;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.term-deleg-pill.is-asking {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.term-deleg-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+}

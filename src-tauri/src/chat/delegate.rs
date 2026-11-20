@@ -1,11 +1,11 @@
-//! What chat agents do through Flowcode's MCP server (`chat_mcp.rs`): open a
-//! page in the app, and delegate tasks to other agents.
+//! What chat agents (and the agents of terminal tabs) do through Flowcode's MCP
+//! server (`chat_mcp.rs`): open a page in the app, and delegate tasks to other agents.
 //!
 //! A delegated task is a real chat (a child) that receives only the prompt,
 //! runs one turn and hands its last message back. It is an ordinary entry of
-//! `ChatState::sessions`, owned by the window of the chat that asked (the
+//! `ChatState::sessions`, owned by the window of the chat or terminal tab that asked (the
 //! parent), so the window and the phones show it like any other chat. The
-//! parent's log carries what happens to it (`_flowcode/delegate`, and the
+//! parent's log (a tab's output stream, for a terminal) carries what happens to it (`_flowcode/delegate`, and the
 //! child's permission requests and questions as `_flowcode/delegate_request`),
 //! the child's log says whose task it is (`_flowcode/task`).
 //!
@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 use super::{launch_command, start_blocking, Chat, ChatBody, ChatState, Extras};
-use crate::chat_mcp::{self, Caller, ToolsConfig};
+use crate::chat_mcp::{self, Caller, Owner, ToolsConfig};
 use crate::util::{lock, now_ms};
 
 const DELEGATE_METHOD: &str = "_flowcode/delegate";
@@ -44,7 +44,39 @@ const KEEP_FINISHED: usize = 3;
 #[derive(Clone, Debug)]
 pub(super) struct TaskLink {
     pub task_id: String,
-    pub parent_chat_id: String,
+    pub parent: Owner,
+}
+
+/// What a delegation needs of whoever asks for it: a chat, or a terminal tab
+/// (which has none of a chat's fields, so the caller fills them in).
+pub(crate) struct ParentCtx {
+    pub owner: Owner,
+    /// The window that shows the parent; the child chat belongs to it too.
+    pub window: String,
+    /// The parent's agent, when known (a terminal's is only the caller's word).
+    pub agent: Option<String>,
+    pub cwd: String,
+    pub profile: Option<String>,
+    pub shell: Option<String>,
+    pub tools: ToolsConfig,
+    pub mode: Option<String>,
+    pub depth: u8,
+}
+
+impl ParentCtx {
+    fn of_chat(chat: &Chat) -> Self {
+        ParentCtx {
+            owner: Owner::Chat(chat.id.clone()),
+            window: chat.owner.clone(),
+            agent: Some(chat.agent.clone()),
+            cwd: chat.cwd.clone(),
+            profile: chat.profile.clone(),
+            shell: chat.shell.clone(),
+            tools: chat.tools.clone(),
+            mode: lock(&chat.current_mode).clone(),
+            depth: chat.depth(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -197,7 +229,7 @@ struct Report {
 /// One delegated task.
 pub(super) struct Task {
     id: String,
-    parent_chat_id: String,
+    parent: Owner,
     /// Known once the child has started.
     child_chat_id: OnceLock<String>,
     /// The child's agent session id (known once it started), for the history to find the conversation again.
@@ -212,10 +244,10 @@ pub(super) struct Task {
 }
 
 impl Task {
-    fn new(id: String, parent_chat_id: String, agent: String, title: String, prompt: String) -> Self {
+    fn new(id: String, parent: Owner, agent: String, title: String, prompt: String) -> Self {
         Task {
             id,
-            parent_chat_id,
+            parent,
             child_chat_id: OnceLock::new(),
             child_session_id: OnceLock::new(),
             agent,
@@ -285,12 +317,12 @@ impl Delegations {
         // Keep recent results queryable without retaining every prompt forever.
         let mut retired: Vec<_> = tasks.values().filter_map(|old| {
             let state = lock(&old.state);
-            (old.parent_chat_id == task.parent_chat_id && state.retired).then_some((old.started_at, old.id.clone()))
+            (old.parent == task.parent && state.retired).then_some((old.started_at, old.id.clone()))
         }).collect();
         retired.sort();
         let excess = retired.len().saturating_sub(99);
         for (_, id) in retired.into_iter().take(excess) { tasks.remove(&id); }
-        let running = tasks.values().filter(|t| t.parent_chat_id == task.parent_chat_id && !t.is_terminal()).count();
+        let running = tasks.values().filter(|t| t.parent == task.parent && !t.is_terminal()).count();
         if running >= max {
             return Err(format!("{running} tasks are already running (at most {max} at once): wait for one with get_task_result, or cancel one"));
         }
@@ -306,15 +338,22 @@ impl Delegations {
         lock(&self.tasks).remove(task_id);
     }
 
-    fn running(&self, parent_id: &str) -> usize {
-        lock(&self.tasks).values().filter(|t| t.parent_chat_id == parent_id && !t.is_terminal()).count()
+    fn running(&self, parent: &Owner) -> usize {
+        lock(&self.tasks).values().filter(|t| &t.parent == parent && !t.is_terminal()).count()
+    }
+
+    /// The parent's tasks, oldest first.
+    fn of_parent(&self, parent: &Owner) -> Vec<Arc<Task>> {
+        let mut tasks: Vec<_> = lock(&self.tasks).values().filter(|t| &t.parent == parent).cloned().collect();
+        tasks.sort_by(|a, b| (a.started_at, &a.id).cmp(&(b.started_at, &b.id)));
+        tasks
     }
 
     /// Removes the parent's tasks and settles those interrupted by its shutdown.
-    pub(super) fn forget_parent(&self, parent_id: &str) -> Vec<Arc<Task>> {
+    pub(super) fn forget_parent(&self, parent: &Owner) -> Vec<Arc<Task>> {
         let mut cancelled = Vec::new();
         lock(&self.tasks).retain(|_, task| {
-            if task.parent_chat_id != parent_id {
+            if &task.parent != parent {
                 return true;
             }
             let mut state = lock(&task.state);
@@ -329,11 +368,11 @@ impl Delegations {
     }
 
     /// Selects each excess finished child once, oldest completion first.
-    fn finished_to_close(&self, parent_id: &str) -> Vec<String> {
+    fn finished_to_close(&self, parent: &Owner) -> Vec<String> {
         let tasks = lock(&self.tasks);
         let mut finished: Vec<_> = tasks.values().filter_map(|task| {
             let state = lock(&task.state);
-            (task.parent_chat_id == parent_id && state.status.is_terminal() && !state.retired)
+            (&task.parent == parent && state.status.is_terminal() && !state.retired)
                 .then(|| task.child_chat_id.get().map(|child| (state.ended_at.unwrap_or(task.started_at), task.id.clone(), child.clone())))
                 .flatten()
         }).collect();
@@ -377,8 +416,42 @@ fn request_event(task: &Task, child_chat_id: &str, body: &ChatBody) -> Option<(&
     }
 }
 
-fn emit_delegate(parent: &Chat, task: &Task) {
-    parent.emit(ChatBody::Ext { method: DELEGATE_METHOD.to_string(), params: task.params() });
+/// Whether the parent still exists: its chat is in the state, or its tab is open.
+fn parent_exists(app: &AppHandle, owner: &Owner) -> bool {
+    match owner {
+        Owner::Chat(id) => app.state::<ChatState>().get(id).is_ok(),
+        Owner::Terminal(id) => crate::pty::exists(&app.state::<crate::pty::PtyState>(), id),
+    }
+}
+
+/// Whether the parent can still use a result: a chat must also be neither closed nor exited.
+fn parent_live(app: &AppHandle, owner: &Owner) -> bool {
+    match owner {
+        Owner::Chat(id) => app
+            .state::<ChatState>()
+            .get(id)
+            .is_ok_and(|chat| !chat.closed.load(Ordering::Relaxed) && !chat.exited.load(Ordering::Acquire)),
+        Owner::Terminal(_) => parent_exists(app, owner),
+    }
+}
+
+/// Tells the parent: into its chat's log, or onto its tab's output stream.
+/// Nothing happens when it is gone. Never called under a task lock.
+fn emit_to_parent(app: &AppHandle, owner: &Owner, method: &str, params: Value) {
+    match owner {
+        Owner::Chat(id) => {
+            if let Ok(chat) = app.state::<ChatState>().get(id) {
+                chat.emit(ChatBody::Ext { method: method.to_string(), params });
+            }
+        }
+        Owner::Terminal(id) => {
+            let _ = crate::pty::emit_ext(&app.state::<crate::pty::PtyState>(), id, method, params);
+        }
+    }
+}
+
+fn emit_delegate(app: &AppHandle, task: &Task) {
+    emit_to_parent(app, &task.parent, DELEGATE_METHOD, task.params());
 }
 
 /// Called by a delegated chat after each event it emits: moves its task along
@@ -403,16 +476,18 @@ pub(super) fn child_event(chat: &Chat, body: &ChatBody) {
     if !changed && request.is_none() {
         return;
     }
-    let Ok(parent) = state.get(&task.parent_chat_id) else { return };
+    if !parent_exists(&chat.app, &task.parent) {
+        return;
+    }
     if changed {
-        emit_delegate(&parent, &task);
+        emit_delegate(&chat.app, &task);
     }
     if let Some((method, params)) = request {
-        parent.emit(ChatBody::Ext { method: method.to_string(), params });
+        emit_to_parent(&chat.app, &task.parent, method, params);
     }
     if changed && task.is_terminal() {
         stop_finished(&chat.app, &chat.id);
-        prune_finished(&chat.app, &state, &task.parent_chat_id);
+        prune_finished(&chat.app, &state, &task.parent);
     }
 }
 
@@ -424,11 +499,9 @@ pub(super) fn prompt_failed(chat: &Chat, message: &str) {
         return;
     }
     task.changed.notify_all();
-    if let Ok(parent) = state.get(&task.parent_chat_id) {
-        emit_delegate(&parent, &task);
-    }
+    emit_delegate(&chat.app, &task);
     stop_finished(&chat.app, &chat.id);
-    prune_finished(&chat.app, &state, &task.parent_chat_id);
+    prune_finished(&chat.app, &state, &task.parent);
 }
 
 /// A child whose task ended has nothing left to do (its chat is read-only and
@@ -456,8 +529,8 @@ fn close_child(state: &ChatState, child_id: &str) {
     }
 }
 
-fn prune_finished(app: &AppHandle, state: &ChatState, parent_id: &str) {
-    let ids = state.delegations.finished_to_close(parent_id);
+fn prune_finished(app: &AppHandle, state: &ChatState, parent: &Owner) {
+    let ids = state.delegations.finished_to_close(parent);
     if ids.is_empty() {
         return;
     }
@@ -531,11 +604,23 @@ pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Valu
     match tool {
         chat_mcp::OPEN => open_in_browser(&chat, args),
         chat_mcp::CALL_USER => call_user(&chat, args),
-        chat_mcp::LIST_AGENTS => Ok(list_agents(app, &state, &chat)),
-        chat_mcp::DELEGATE_TASK => delegate_task(app, &state, &chat, args, deadline_ms),
-        chat_mcp::GET_TASK_RESULT => get_task_result(&state, &chat, args),
+        _ => delegation_call(app, &state, &ParentCtx::of_chat(&chat), tool, args, deadline_ms),
+    }
+}
+
+/// A delegation tool asked for by an agent of a terminal tab; `ctx` describes the tab.
+/// The caller has checked the tab was given the tool.
+pub(crate) fn terminal_delegation_call(app: &AppHandle, ctx: ParentCtx, tool: &str, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
+    delegation_call(app, &app.state::<ChatState>(), &ctx, tool, args, deadline_ms)
+}
+
+fn delegation_call(app: &AppHandle, state: &ChatState, ctx: &ParentCtx, tool: &str, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
+    match tool {
+        chat_mcp::LIST_AGENTS => Ok(list_agents(app, state, ctx)),
+        chat_mcp::DELEGATE_TASK => delegate_task(app, state, ctx, args, deadline_ms),
+        chat_mcp::GET_TASK_RESULT => get_task_result(state, &ctx.owner, args),
         chat_mcp::CANCEL_TASK => {
-            let task = owned_task(&state, &chat, args)?;
+            let task = owned_task(state, &ctx.owner, args)?;
             cancel(app, &task)?;
             Ok(format!("Task {} cancelled.", task.id))
         }
@@ -573,60 +658,61 @@ pub(crate) fn call_params(args: &Value) -> Result<Value, String> {
     Ok(json!({ "message": message, "reason": reason }))
 }
 
-fn list_agents(app: &AppHandle, state: &ChatState, chat: &Chat) -> String {
-    let mut lines: Vec<String> = chat
+fn list_agents(app: &AppHandle, state: &ChatState, ctx: &ParentCtx) -> String {
+    let mut lines: Vec<String> = ctx
         .tools
         .delegate_agents
         .iter()
         .map(|agent| format!("- {agent}: {}", if agent_ready(app, agent) { "available" } else { "not available (not installed)" }))
         .collect();
-    lines.push(format!("Tasks running now: {} (at most {} at once).", state.delegations.running(&chat.id), chat.tools.max_parallel.max(1)));
+    lines.push(format!("Tasks running now: {} (at most {} at once).", state.delegations.running(&ctx.owner), ctx.tools.max_parallel.max(1)));
     lines.join("\n")
 }
 
-fn owned_task(state: &ChatState, chat: &Chat, args: &Value) -> Result<Arc<Task>, String> {
+fn owned_task(state: &ChatState, owner: &Owner, args: &Value) -> Result<Arc<Task>, String> {
     let id = string_arg(args, "task_id")?;
-    state.delegations.get(id).filter(|t| t.parent_chat_id == chat.id).ok_or_else(|| format!("unknown task_id `{id}`"))
+    state.delegations.get(id).filter(|t| &t.parent == owner).ok_or_else(|| format!("unknown task_id `{id}`"))
 }
 
-fn get_task_result(state: &ChatState, chat: &Chat, args: &Value) -> Result<String, String> {
-    let task = owned_task(state, chat, args)?;
+fn get_task_result(state: &ChatState, owner: &Owner, args: &Value) -> Result<String, String> {
+    let task = owned_task(state, owner, args)?;
     let wait = args.get("wait_seconds").and_then(Value::as_f64).map_or(WAIT_MAX, |s| Duration::from_secs_f64(s.clamp(0.0, WAIT_MAX.as_secs_f64())));
     Ok(describe(&task.id, &task.wait_terminal(wait)))
 }
 
 /// Records why the task failed (and tells the parent) before its child is closed: the Exit the closing
 /// emits would otherwise make it fail with a bare "the agent exited". No effect on an ended task.
-fn fail_task(parent: &Chat, task: &Task, message: &str) {
+fn fail_task(app: &AppHandle, task: &Task, message: &str) {
     if lock(&task.state).fail(message, now_ms()) {
         task.changed.notify_all();
-        emit_delegate(parent, task);
+        emit_delegate(app, task);
     }
 }
 
 /// Starts the child chat of `task` and gives it its prompt.
-fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, deadline_ms: Option<u64>) -> Result<(), String> {
-    let parent_live = || state.get(&parent.id).is_ok() && !parent.closed.load(Ordering::Relaxed) && !parent.exited.load(Ordering::Acquire);
+fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Task, deadline_ms: Option<u64>) -> Result<(), String> {
+    let parent_live = || parent_live(app, &parent.owner);
     let check = || {
         chat_mcp::check_deadline(deadline_ms, now_ms())?;
         if !parent_live() || task.is_terminal() {
-            return Err("the chat that asked for this task was closed or the task was cancelled".to_string());
+            return Err("the chat or tab that asked for this task was closed or the task was cancelled".to_string());
         }
         Ok(())
     };
     check()?;
     // Same CLI: same account; another one never gets the parent's profile.
-    let profile = parent.profile.clone().filter(|_| parent.agent == task.agent);
-    let link = TaskLink { task_id: task.id.clone(), parent_chat_id: parent.id.clone() };
+    let same_agent = parent.agent.as_deref() == Some(task.agent.as_str());
+    let profile = parent.profile.clone().filter(|_| same_agent);
+    let link = TaskLink { task_id: task.id.clone(), parent: parent.owner.clone() };
     let extras = Extras { tools: parent.tools.clone(), link: Some(link) };
     let (child, _) =
-        start_blocking(app.clone(), parent.owner.clone(), task.agent.clone(), parent.cwd.clone(), profile, None, false, parent.shell.clone(), extras)?;
+        start_blocking(app.clone(), parent.window.clone(), task.agent.clone(), parent.cwd.clone(), profile, None, false, parent.shell.clone(), extras)?;
     // The parent or the script may have gone away while the adapter started.
     if let Err(error) = check() {
         child.kill();
         return Err(error);
     }
-    let inherited = inherited_mode(parent.agent == child.agent, lock(&parent.current_mode).as_deref(), child.modes.get());
+    let inherited = inherited_mode(same_agent, parent.mode.as_deref(), child.modes.get());
     let inherit = inherited.and_then(|mode| {
         if let Some(mode) = mode {
             child.request("session/set_mode", json!({ "sessionId": child.session_id()?, "modeId": mode }), super::MODE_TIMEOUT)?;
@@ -638,7 +724,7 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
     if let Err(error) = inherit { child.kill(); return Err(error); }
     state.adopt(app, Arc::clone(&child))?;
     if let Err(error) = check() {
-        fail_task(parent, task, &error);
+        fail_task(app, task, &error);
         close_child(state, &child.id);
         return Err(error);
     }
@@ -646,15 +732,21 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
     if let Some(session_id) = child.session_id.get() {
         let _ = task.child_session_id.set(session_id.clone());
     }
+    // A terminal parent's id goes in `parentChatId` too: the field names whoever asked, `parentKind` which kind it is.
+    let (parent_id, parent_kind) = match &parent.owner {
+        Owner::Chat(id) => (id, "chat"),
+        Owner::Terminal(id) => (id, "terminal"),
+    };
     let params = json!({
         "taskId": task.id,
-        "parentChatId": parent.id,
+        "parentChatId": parent_id,
+        "parentKind": parent_kind,
         "parentAgent": parent.agent,
         "parentTitle": Value::Null,
         "prompt": task.prompt,
     });
     child.emit(ChatBody::Ext { method: TASK_METHOD.to_string(), params });
-    emit_delegate(parent, task);
+    emit_delegate(app, task);
     if let Err(e) = state.prompt(&child.id, task.prompt.clone(), Vec::new()) {
         prompt_failed(&child, &e);
         close_child(state, &child.id);
@@ -663,29 +755,29 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
     // Cancellation can race the final check and the prompt write. Never leave that turn running.
     if !parent_live() || lock(&task.state).status == TaskStatus::Cancelled || chat_mcp::check_deadline(deadline_ms, now_ms()).is_err() {
         let error = "the task was interrupted while starting";
-        fail_task(parent, task, error);
+        fail_task(app, task, error);
         close_child(state, &child.id);
         return Err(error.into());
     }
     Ok(())
 }
 
-fn delegate_task(app: &AppHandle, state: &ChatState, parent: &Arc<Chat>, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
+fn delegate_task(app: &AppHandle, state: &ChatState, parent: &ParentCtx, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
     let agent = string_arg(args, "agent")?;
     let prompt = string_arg(args, "prompt")?;
-    check_delegation(&parent.tools, parent.depth(), agent, agent_ready(app, agent))?;
+    check_delegation(&parent.tools, parent.depth, agent, agent_ready(app, agent))?;
     let title = clean_title(args.get("title").and_then(Value::as_str), prompt);
-    let task = Arc::new(Task::new(uuid::Uuid::new_v4().to_string(), parent.id.clone(), agent.to_string(), title, prompt.to_string()));
+    let task = Arc::new(Task::new(uuid::Uuid::new_v4().to_string(), parent.owner.clone(), agent.to_string(), title, prompt.to_string()));
     state.delegations.reserve(&task, parent.tools.max_parallel)?;
     if let Err(e) = start_child(app, state, parent, &task, deadline_ms) {
         if lock(&task.state).fail(&e, now_ms()) {
             task.changed.notify_all();
-            emit_delegate(parent, &task);
+            emit_delegate(app, &task);
         }
         state.delegations.remove(&task.id);
         return Err(format!("could not start {agent}: {e}"));
     }
-    emit_delegate(parent, &task);
+    emit_delegate(app, &task);
     // Back at once: the agent can start more tasks in parallel, then wait with get_task_result.
     Ok(format!("task_id: {}\nStarted. Wait for the answer with get_task_result.", task.id))
 }
@@ -702,9 +794,7 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
         task_state.finish(TaskStatus::Cancelled, now_ms());
         task.changed.notify_all();
     }
-    if let Ok(parent) = state.get(&task.parent_chat_id) {
-        emit_delegate(&parent, task);
-    }
+    emit_delegate(app, task);
     let result = match task.child_chat_id.get() {
         Some(child) => {
             let result = state.cancel(child);
@@ -713,7 +803,7 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
         }
         None => Ok(()),
     };
-    prune_finished(app, &state, &task.parent_chat_id);
+    prune_finished(app, &state, &task.parent);
     result
 }
 
@@ -772,6 +862,24 @@ pub async fn delegate_cancel(app: AppHandle, task_id: String) -> Result<(), Stri
     .await
 }
 
+/// The tasks a terminal tab asked for, oldest first (the `_flowcode/delegate` params), for a tab that
+/// re-attaches after moving to another window or a reload and missed their events.
+#[tauri::command]
+pub async fn terminal_delegates(app: AppHandle, pty_id: String) -> Vec<Value> {
+    app.state::<ChatState>().delegations.of_parent(&Owner::Terminal(pty_id)).iter().map(|t| t.params()).collect()
+}
+
+/// A terminal tab was closed: its tasks end with it and their child chats are shut down. Runs on its own
+/// thread because it is called from the tab's drop, which may hold the pty map lock; no event is sent, the tab is gone.
+pub(crate) fn terminal_closed(app: &AppHandle, pty_id: &str) {
+    let (app, owner) = (app.clone(), Owner::Terminal(pty_id.to_string()));
+    std::thread::spawn(move || {
+        let Some(state) = app.try_state::<ChatState>() else { return };
+        state.delegations.forget_parent(&owner);
+        drop(state.take_children_of(&owner));
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -827,8 +935,20 @@ mod tests {
         ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false }
     }
 
+    fn chat(id: &str) -> Owner {
+        Owner::Chat(id.into())
+    }
+
+    fn tab(id: &str) -> Owner {
+        Owner::Terminal(id.into())
+    }
+
     fn task(id: &str, parent: &str) -> Arc<Task> {
-        Arc::new(Task::new(id.into(), parent.into(), "codex".into(), "Check".into(), "do it".into()))
+        task_of(id, chat(parent))
+    }
+
+    fn task_of(id: &str, parent: Owner) -> Arc<Task> {
+        Arc::new(Task::new(id.into(), parent, "codex".into(), "Check".into(), "do it".into()))
     }
 
     fn update(body: Value) -> ChatBody {
@@ -859,12 +979,40 @@ mod tests {
         let first = tasks.get("1").unwrap();
         lock(&first.state).finish(TaskStatus::Done, 1);
         assert!(tasks.reserve(&task("5", "p"), 2).is_ok());
-        assert_eq!(tasks.running("p"), 2);
+        assert_eq!(tasks.running(&chat("p")), 2);
         // Never below one.
         assert!(tasks.reserve(&task("6", "r"), 0).is_ok());
         assert!(tasks.reserve(&task("7", "r"), 0).is_err());
-        tasks.forget_parent("p");
+        tasks.forget_parent(&chat("p"));
         assert!(tasks.get("2").is_none() && tasks.get("4").is_some());
+    }
+
+    #[test]
+    fn a_terminal_tab_has_its_own_budget_and_is_forgotten_apart_from_a_chat() {
+        let tasks = Delegations::default();
+        // The same id as a chat's and a tab's are two parents.
+        assert!(tasks.reserve(&task_of("1", tab("p")), 1).is_ok());
+        assert!(tasks.reserve(&task_of("2", tab("p")), 1).unwrap_err().contains("at most 1"));
+        assert!(tasks.reserve(&task_of("3", chat("p")), 1).is_ok());
+        assert!(tasks.reserve(&task_of("4", tab("q")), 1).is_ok());
+        assert_eq!((tasks.running(&tab("p")), tasks.running(&chat("p"))), (1, 1));
+        let cancelled = tasks.forget_parent(&tab("p"));
+        assert_eq!(cancelled.len(), 1);
+        assert!(tasks.get("1").is_none() && tasks.get("3").is_some() && tasks.get("4").is_some());
+        assert!(tasks.forget_parent(&chat("q")).is_empty());
+        assert!(tasks.get("4").is_some());
+    }
+
+    #[test]
+    fn a_tab_lists_its_own_tasks_oldest_first() {
+        let tasks = Delegations::default();
+        for (id, parent, at) in [("b", tab("p"), 2), ("a", tab("p"), 1), ("c", chat("p"), 0), ("d", tab("q"), 0)] {
+            let task = Arc::new(Task { started_at: at, ..Task::new(id.into(), parent, "codex".into(), "t".into(), "p".into()) });
+            tasks.reserve(&task, 5).unwrap();
+        }
+        let ids: Vec<_> = tasks.of_parent(&tab("p")).iter().map(|t| t.id.clone()).collect();
+        assert_eq!(ids, ["a", "b"]);
+        assert!(tasks.of_parent(&tab("nobody")).is_empty());
     }
 
     #[test]
@@ -918,13 +1066,13 @@ mod tests {
         let live = task("live", "p");
         tasks.reserve(&live, 3).unwrap();
         tasks.reserve(&task("other", "q"), 3).unwrap();
-        let cancelled = tasks.forget_parent("p");
+        let cancelled = tasks.forget_parent(&chat("p"));
         assert_eq!(cancelled.len(), 1);
         assert_eq!(cancelled[0].params()["status"], "cancelled");
         assert!(cancelled[0].params()["endedAt"].is_u64());
         assert_eq!(done.params()["result"], "answer");
         assert!(tasks.get("live").is_none() && tasks.get("other").is_some());
-        assert!(tasks.forget_parent("p").is_empty());
+        assert!(tasks.forget_parent(&chat("p")).is_empty());
     }
 
     #[test]
@@ -941,11 +1089,11 @@ mod tests {
         other.child_chat_id.set("other-child".into()).unwrap();
         lock(&other.state).finish(TaskStatus::Done, 0);
         tasks.reserve(&other, 3).unwrap();
-        assert_eq!(tasks.finished_to_close("p"), ["child-0", "child-1"]);
-        assert!(tasks.finished_to_close("p").is_empty());
-        assert!(tasks.finished_to_close("q").is_empty());
+        assert_eq!(tasks.finished_to_close(&chat("p")), ["child-0", "child-1"]);
+        assert!(tasks.finished_to_close(&chat("p")).is_empty());
+        assert!(tasks.finished_to_close(&chat("q")).is_empty());
         assert_eq!(tasks.get("0").unwrap().params()["status"], "done");
-        assert_eq!(tasks.running("p"), 1);
+        assert_eq!(tasks.running(&chat("p")), 1);
     }
 
     #[test]
@@ -981,7 +1129,7 @@ mod tests {
 
     #[test]
     fn waiting_ends_with_the_task() {
-        let task = Task::new("t".into(), "p".into(), "codex".into(), "Check".into(), "do it".into());
+        let task = Task::new("t".into(), chat("p"), "codex".into(), "Check".into(), "do it".into());
         let task = Arc::new(task);
         let waiter = {
             let task = Arc::clone(&task);
@@ -997,7 +1145,7 @@ mod tests {
         let report = waiter.join().unwrap();
         assert_eq!((report.status, report.result.as_deref()), (TaskStatus::Done, Some("ok")));
         // A task still running gives up at the timeout.
-        let report = Task::new("u".into(), "p".into(), "codex".into(), "t".into(), "p".into()).wait_terminal(Duration::from_millis(10));
+        let report = Task::new("u".into(), chat("p"), "codex".into(), "t".into(), "p".into()).wait_terminal(Duration::from_millis(10));
         assert_eq!(report.status, TaskStatus::Running);
     }
 

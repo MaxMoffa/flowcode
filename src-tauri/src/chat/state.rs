@@ -26,7 +26,7 @@ impl Default for ChatState {
 impl ChatState {
     pub(crate) fn shutdown(&self) {
         let sessions = std::mem::take(&mut *lock(&self.sessions));
-        for session in sessions.values() { self.delegations.forget_parent(&session.chat.id); }
+        for session in sessions.values() { self.delegations.forget_parent(&Owner::Chat(session.chat.id.clone())); }
         drop(sessions);
     }
     pub(super) fn changed(&self) {
@@ -349,15 +349,20 @@ impl ChatState {
     /// Takes out the chats carrying out the tasks `parent_id` delegated, and
     /// forgets those tasks; dropping what is returned kills the agents.
     pub(super) fn take_children(&self, parent: &Chat) -> Vec<ChatSession> {
-        let parent_id = parent.id.as_str();
-        for task in self.delegations.forget_parent(parent_id) {
+        let owner = Owner::Chat(parent.id.clone());
+        for task in self.delegations.forget_parent(&owner) {
             parent.emit(ChatBody::Ext { method: "_flowcode/delegate".into(), params: task.params() });
         }
+        self.take_children_of(&owner)
+    }
+
+    /// Takes out the chats whose task `parent` (a chat or a terminal tab) asked for.
+    pub(super) fn take_children_of(&self, parent: &Owner) -> Vec<ChatSession> {
         let kids: Vec<ChatSession> = {
             let mut sessions = lock(&self.sessions);
             let ids: Vec<String> = sessions
                 .iter()
-                .filter(|(_, s)| s.chat.link.as_ref().is_some_and(|l| l.parent_chat_id == parent_id))
+                .filter(|(_, s)| s.chat.link.as_ref().is_some_and(|l| &l.parent == parent))
                 .map(|(id, _)| id.clone())
                 .collect();
             ids.iter().filter_map(|id| sessions.remove(id)).collect()
@@ -395,7 +400,7 @@ impl ChatState {
         };
         // Children share their parent's window, so they are in `doomed` too.
         for session in &doomed {
-            self.delegations.forget_parent(&session.chat.id);
+            self.delegations.forget_parent(&Owner::Chat(session.chat.id.clone()));
         }
         if !doomed.is_empty() {
             self.changed();
