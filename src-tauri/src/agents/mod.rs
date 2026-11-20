@@ -27,6 +27,9 @@ mod codex;
 pub use self::codex::*;
 pub(crate) use self::codex::find_codex_rollout;
 use self::codex::{host_live_threads, rollout_meta, rollout_turn_open, thread_names_in};
+mod tracker;
+mod diagnostics;
+pub use self::diagnostics::*;
 mod wsl;
 use self::wsl::{find_wsl_client, wsl_agents, wsl_codex_sessions_root, wsl_live_threads, WSL_SCAN_TTL};
 
@@ -61,17 +64,107 @@ impl ProbePids {
 const AGENT_BINARIES: &[(&str, &str)] =
     &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI"), ("opencode", "OpenCode"), ("cline", "Cline")];
 
-/// Matches a process name against `AGENT_BINARIES` - the binary itself or a
-/// `<bin>-...` variant of it, except for Vibe's editor/desktop servers
-/// (`vibe-acp`, `vibe-app-server`), which aren't a session in a terminal.
+/// Matches a normalised process name (see `norm_name`) against `AGENT_BINARIES`
+/// - the binary itself, a `<bin>-...` variant of it (`codex-aarch64-apple-darwin`)
+/// or `<bin> ...` (a `setproctitle` such as `Vibe CLI`), except for what isn't a
+/// session in a terminal: Vibe's editor/desktop servers (`vibe-acp`,
+/// `vibe-app-server`) and `codex-acp`, the adapter Flowcode's own chat runs.
 fn agent_binary(name: &str) -> Option<(&'static str, &'static str)> {
-    if name.starts_with("vibe-acp") || name.starts_with("vibe-app") {
+    if ["vibe-acp", "vibe-app", "codex-acp", "codex-command-runner", "codex-code-mode", "codex-windows-sandbox"]
+        .iter()
+        .any(|p| name.starts_with(p))
+    {
         return None;
     }
     AGENT_BINARIES
         .iter()
-        .find(|(bin, _)| name.strip_prefix(bin).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')))
+        .find(|(bin, _)| name.strip_prefix(bin).is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', ' '])))
         .copied()
+}
+
+/// A process name or path reduced to what is compared: last path segment
+/// (either slash), lowercase, no extension, no leading dot (`.cline`).
+fn norm_name(raw: &str) -> String {
+    let lower = raw.trim().trim_matches(['"', '\'']).to_lowercase().replace('\\', "/");
+    let base = lower.rsplit('/').next().unwrap_or(&lower);
+    let stem = Path::new(base).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| base.to_string());
+    stem.trim_start_matches('.').to_string()
+}
+
+/// Interpreters a CLI written in JS or Python runs under (a normalised name).
+fn is_interpreter(name: &str) -> bool {
+    matches!(name, "node" | "bun" | "deno" | "pythonw" | "python")
+        || name.strip_prefix("python").is_some_and(|v| v.bytes().all(|b| b.is_ascii_digit() || b == b'.'))
+}
+
+/// The npm/pip package (a `node_modules/<pkg>` or `@scope/<pkg>` folder name) of an agent CLI.
+fn package_agent(pkg: &str) -> Option<(&'static str, &'static str)> {
+    let bin = match pkg {
+        "codex" => "codex",
+        "gemini-cli" | "gemini" => "gemini",
+        "claude-code" | "claude" => "claude",
+        "cline" => "cline",
+        "opencode-ai" | "opencode" => "opencode",
+        "mistral-vibe" | "vibe" => "vibe",
+        _ => return None,
+    };
+    AGENT_BINARIES.iter().find(|(b, _)| *b == bin).copied()
+}
+
+/// Which agent the script an interpreter runs belongs to: the script itself, or
+/// the package it lives in - never a folder on the way
+/// (`/home/u/codex-project/server.js` is no Codex).
+fn script_agent(script: &str) -> Option<(&'static str, &'static str)> {
+    let script = script.trim_matches(['"', '\'']).to_lowercase().replace('\\', "/");
+    let parts: Vec<&str> = script.split('/').collect();
+    let stem = |p: &str| p.trim_end_matches(".mjs").trim_end_matches(".cjs").trim_end_matches(".js").trim_end_matches(".py").to_string();
+    parts.last().and_then(|p| agent_binary(&stem(p))).or_else(|| {
+        parts.windows(2).find_map(|w| if w[0] == "node_modules" || w[0].starts_with('@') { package_agent(w[1]) } else { None })
+    })
+}
+
+/// Which agent CLI a process is, from what is known of it (`name`: its
+/// process name; `exe`: its executable; `argv`: its command line, program first).
+/// - the provider-launch shim (`flowcode --flowcode-provider <cli> ...`) is that CLI;
+/// - the name, the exe's file name or `argv[0]` (a `process.title` rewrite) is the binary;
+/// - an interpreter (`node`, `bun`, `deno`, `python*`) is judged by the first
+///   argument that isn't a flag: its script or npm package;
+/// - Claude Code's native build lives at `.../claude/versions/<n>`.
+fn classify(name: &str, exe: Option<&Path>, argv: &[String]) -> Option<(&'static str, &'static str)> {
+    if let Some(cli) = argv.iter().position(|a| a == crate::provider_launcher::ARGUMENT).and_then(|i| argv.get(i + 1)) {
+        if let Some(found) = AGENT_BINARIES.iter().find(|(bin, _)| *bin == cli.as_str()) {
+            return Some(*found);
+        }
+    }
+    // Background servers a CLI starts (and may leave behind, orphaned, still
+    // carrying the tab's FLOWCODE_PTY_ID): not a session in a terminal.
+    if argv.iter().skip(1).any(|a| matches!(a.as_str(), "app-server" | "mcp-server" | "--cline-hub-daemon")) {
+        return None;
+    }
+    let argv0 = argv.first().map(|a| a.trim().trim_matches(['"', '\'']).to_lowercase().replace('\\', "/"));
+    let names = [
+        Some(norm_name(name)),
+        exe.and_then(|p| p.file_name()).map(|n| norm_name(&n.to_string_lossy())),
+        argv0.as_deref().map(norm_name),
+    ];
+    if let Some(found) = names.iter().flatten().find_map(|n| agent_binary(n)) {
+        return Some(found);
+    }
+    // `setproctitle` can put the whole title ("Vibe CLI", "claude --resume") in argv[0].
+    if let Some(found) = argv0.as_deref().and_then(agent_binary) {
+        return Some(found);
+    }
+    if names.iter().flatten().any(|n| is_interpreter(n)) {
+        let script = argv.iter().skip(1).map(String::as_str).find(|a| !a.trim_matches(['"', '\'']).starts_with('-'));
+        if let Some(found) = script.and_then(script_agent) {
+            return Some(found);
+        }
+    }
+    let exe_path = exe?.to_string_lossy().to_lowercase().replace('\\', "/");
+    let (dir, file) = exe_path.rsplit_once('/')?;
+    let version = file.trim_end_matches(".exe");
+    (dir.ends_with("/claude/versions") && version.starts_with(|c: char| c.is_ascii_digit()) && version.bytes().all(|b| b.is_ascii_digit() || b == b'.'))
+        .then(|| AGENT_BINARIES[0])
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -110,12 +203,59 @@ pub struct AgentSession {
     pub(crate) profile: Option<String>,
 }
 
+/// What `probe_process` made of a process.
+enum Probe {
+    Hit(&'static str, &'static str),
+    /// Another Flowcode instance (say `tauri dev` of this very app) is its own
+    /// world: the `claude` probes and sessions it spawns aren't this tab's agent.
+    OtherFlowcode,
+    No,
+}
+
+/// Judges one process with `classify`, on both its (possibly stale) cached name
+/// and its exe. `fresh_comm`: on Linux sysinfo's name is never refreshed after an
+/// `exec`/`prctl`, so the pid's `/proc/<pid>/comm` is read too (cheap; only
+/// meant for the few processes in a tab's tree).
+fn probe_process(process: &sysinfo::Process, fresh_comm: Option<Pid>) -> Probe {
+    static OWN_NAME: LazyLock<Option<String>> = LazyLock::new(|| {
+        std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
+    });
+    let argv: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let raw_name = process.name().to_string_lossy().into_owned();
+    // The provider-launch shim is Flowcode too, but it's this tab's CLI on its
+    // way in (its parent on Windows): `classify` reads the CLI off its argument.
+    if !argv.iter().any(|a| a == crate::provider_launcher::ARGUMENT) {
+        if let Some(own) = OWN_NAME.as_deref() {
+            let exe_name = process.exe().and_then(|p| p.file_name()).map(|n| norm_name(&n.to_string_lossy()));
+            if norm_name(&raw_name) == own || exe_name.as_deref() == Some(own) {
+                return Probe::OtherFlowcode;
+            }
+        }
+    }
+    if let Some((bin, label)) = classify(&raw_name, process.exe(), &argv) {
+        return Probe::Hit(bin, label);
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(pid) = fresh_comm {
+        if let Ok(comm) = std::fs::read_to_string(format!("/proc/{}/comm", pid.as_u32())) {
+            let comm = comm.trim();
+            if !comm.is_empty() && comm != raw_name {
+                if let Some((bin, label)) = classify(comm, process.exe(), &argv) {
+                    return Probe::Hit(bin, label);
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = fresh_comm;
+    Probe::No
+}
+
 /// BFS over `root_pid` and its descendants (a pty's shell may exec an agent),
-/// returning the first process matching a known agent CLI binary - a plain
-/// prefix/equality check on the process name, not a guess at what it's
-/// doing, so an unrelated process that happens to also be named "claude"
-/// would still show up; that's an acceptable false positive for a dev tool
-/// like this one.
+/// returning the first process `classify` takes for a known agent CLI - a check
+/// on the process's name, exe and command line, not a guess at what it's
+/// doing, so an unrelated process that happens to also be named "claude" would
+/// still show up; that's an acceptable false positive for a dev tool like this one.
 fn find_agent(
     sys: &System,
     root_pid: Pid,
@@ -124,68 +264,26 @@ fn find_agent(
     let mut queue: VecDeque<Pid> = VecDeque::new();
     queue.push_back(root_pid);
     let mut visited: HashSet<Pid> = HashSet::new();
-    // Another Flowcode instance (say `tauri dev` of this very app) is its own
-    // world: the `claude` probes and sessions it spawns aren't this tab's agent.
-    static OWN_NAME: LazyLock<Option<String>> = LazyLock::new(|| {
-        std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
-    });
-    let own_name = OWN_NAME.as_deref();
+    // The provider-launch shim names the CLI, but on Windows the real CLI is
+    // its child - the pid the Claude registry and Cline's store know. Keep the
+    // shim only for until that child shows up.
+    let mut shim: Option<AgentHit> = None;
 
     while let Some(pid) = queue.pop_front() {
         if !visited.insert(pid) {
             continue;
         }
         if let Some(process) = sys.process(pid) {
-            // `Process::name()` on Windows is the raw NT image name and
-            // keeps its `.exe` suffix (sysinfo never strips it, on any
-            // version) - comparing the bare name against "claude"/"codex"
-            // silently never matches there, so this strips any extension
-            // via `file_stem` first, which is a no-op on Unix where the
-            // name never had one.
-            let raw_name = process.name().to_string_lossy().to_lowercase();
-            let name = Path::new(&raw_name)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or(raw_name);
-            // macOS: sysinfo's name goes stale across exec, the exe path is
-            // kept current (system::refresh_execed) - so match on both.
-            #[cfg(target_os = "macos")]
-            let exe_name = process
-                .exe()
-                .and_then(|p| p.file_stem())
-                .map(|s| s.to_string_lossy().to_lowercase())
-                .filter(|s| *s != name);
-            #[cfg(not(target_os = "macos"))]
-            let exe_name: Option<String> = None;
-            let current = exe_name.as_deref().unwrap_or(&name);
-            // The provider-launch shim is Flowcode too, but it's this tab's
-            // CLI on its way in (its parent on Windows): look inside it.
-            if own_name == Some(current)
-                && !process.cmd().iter().any(|a| a == crate::provider_launcher::ARGUMENT)
-            {
-                continue;
-            }
-            if let Some((bin, label)) = agent_binary(&name).or_else(|| exe_name.as_deref().and_then(agent_binary)) {
-                let started_at = process.start_time().checked_mul(1000);
-                return Some((bin, label, pid.as_u32(), started_at));
-            }
-            // Node wrappers use `node` as their process name (and a .cmd
-            // shim on Windows); identify the agent by its script.
-            if name == "node" || exe_name.as_deref() == Some("node") {
-                let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
-                if node_runs_codex(&args) {
-                    let (bin, label) = agent_binary("codex")?;
-                    let started_at = process.start_time().checked_mul(1000);
-                    return Some((bin, label, pid.as_u32(), started_at));
+            match probe_process(process, Some(pid)) {
+                Probe::Hit(bin, label) => {
+                    let hit = (bin, label, pid.as_u32(), process.start_time().checked_mul(1000));
+                    if !is_shim(process) {
+                        return Some(hit);
+                    }
+                    shim.get_or_insert(hit);
                 }
-                if node_runs_gemini(&args) {
-                    let started_at = process.start_time().checked_mul(1000);
-                    return Some(("gemini", "Gemini CLI", pid.as_u32(), started_at));
-                }
-                if node_runs_opencode(&args) {
-                    let started_at = process.start_time().checked_mul(1000);
-                    return Some(("opencode", "OpenCode", pid.as_u32(), started_at));
-                }
+                Probe::OtherFlowcode => continue,
+                Probe::No => {}
             }
         }
         if let Some(children) = children_of.get(&pid) {
@@ -194,7 +292,96 @@ fn find_agent(
             }
         }
     }
-    None
+    shim
+}
+
+/// Whether `process` is the provider-launch shim (`flowcode --flowcode-provider ...`).
+fn is_shim(process: &sysinfo::Process) -> bool {
+    process.cmd().iter().any(|a| a == crate::provider_launcher::ARGUMENT)
+}
+
+/// Whether `pid` runs under another Flowcode instance (not this process).
+fn under_other_flowcode(sys: &System, pid: Pid) -> bool {
+    let own_pid = std::process::id();
+    let mut current = sys.process(pid).and_then(|p| crate::system::live_parent(sys, p));
+    for _ in 0..64 {
+        let Some(parent) = current.and_then(|c| sys.process(c)) else { return false };
+        if parent.pid().as_u32() != own_pid && matches!(probe_process(parent, None), Probe::OtherFlowcode) {
+            return true;
+        }
+        current = crate::system::live_parent(sys, parent);
+    }
+    false
+}
+
+/// Whether one of `set` is an ancestor of `pid`.
+fn has_ancestor_in(sys: &System, pid: Pid, set: &HashSet<Pid>) -> bool {
+    let mut current = sys.process(pid).and_then(|p| crate::system::live_parent(sys, p));
+    for _ in 0..64 {
+        let Some(parent) = current else { return false };
+        if set.contains(&parent) {
+            return true;
+        }
+        current = sys.process(parent).and_then(|p| crate::system::live_parent(sys, p));
+    }
+    false
+}
+
+type AgentHit = (&'static str, &'static str, u32, Option<u64>);
+
+/// For the tabs (`unmatched`: pty ids) whose shell tree held no agent: the
+/// agent processes anywhere in the table (not already `claimed` by another tab)
+/// whose environment carries the tab's `FLOWCODE_PTY_ID` - the tag every pty
+/// child inherits. Catches what the tree misses (Git Bash's MSYS fork leaves
+/// the agent with a dead parent pid, launchers that exit). Of several in one
+/// tab the oldest that isn't a descendant of another wins (the launcher).
+/// Environments are read only for those few candidates.
+fn env_tag_fallback(sys: &mut System, unmatched: &HashSet<String>, claimed: &HashSet<u32>) -> Vec<(String, AgentHit)> {
+    let candidates: Vec<(Pid, &'static str, &'static str)> = {
+        let table: &System = sys;
+        table
+            .processes()
+            .iter()
+            .filter(|(pid, _)| !claimed.contains(&pid.as_u32()))
+            .filter_map(|(pid, p)| match probe_process(p, None) {
+                Probe::Hit(bin, label) => Some((*pid, bin, label)),
+                _ => None,
+            })
+            .filter(|(pid, _, _)| !under_other_flowcode(table, *pid))
+            .collect()
+    };
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let pids: Vec<Pid> = candidates.iter().map(|c| c.0).collect();
+    crate::system::refresh_environ(sys, &pids);
+    let prefix = format!("{}=", crate::pty::PTY_ID_ENV);
+    let mut by_tab: HashMap<String, Vec<(Pid, u64, &'static str, &'static str)>> = HashMap::new();
+    for (pid, bin, label) in candidates {
+        let Some(process) = sys.process(pid) else { continue };
+        // Only this one variable is kept from the environment.
+        let Some(tag) = process.environ().iter().find_map(|e| e.to_str().and_then(|e| e.strip_prefix(prefix.as_str()))) else {
+            continue;
+        };
+        if unmatched.contains(tag) {
+            by_tab.entry(tag.to_string()).or_default().push((pid, process.start_time(), bin, label));
+        }
+    }
+    let mut found = Vec::new();
+    for (pty_id, list) in by_tab {
+        // The real CLI over the shim that launched it (see `find_agent`).
+        let real: Vec<_> = list.iter().copied().filter(|c| sys.process(c.0).is_none_or(|p| !is_shim(p))).collect();
+        let list = if real.is_empty() { list } else { real };
+        let set: HashSet<Pid> = list.iter().map(|c| c.0).collect();
+        let best = list
+            .iter()
+            .filter(|(pid, ..)| !has_ancestor_in(sys, *pid, &set))
+            .min_by_key(|(pid, start, ..)| (*start, pid.as_u32()));
+        if let Some(&(pid, start, bin, label)) = best {
+            found.push((pty_id, (bin, label, pid.as_u32(), start.checked_mul(1000))));
+        }
+    }
+    found
 }
 
 /// One entry per terminal tab that currently has a recognized agent CLI
@@ -269,8 +456,9 @@ pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec
     let pty_state = app.state::<PtyState>();
     let window_tabs = app.state::<WindowTabs>();
     let shell_pids = pty_state.shell_pids();
+    let live_ptys: HashSet<String> = shell_pids.iter().map(|(id, _)| id.clone()).collect();
     if shell_pids.is_empty() {
-        return Ok(Vec::new());
+        return Ok(tracker::apply(Vec::new(), &live_ptys));
     }
     let tabs = window_tabs.by_pty();
     let profiles: HashMap<String, Option<String>> = shell_pids
@@ -280,7 +468,11 @@ pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec
     let homes = ProfileHomes::of(app);
     // Threads a chat owns are not a terminal tab's.
     let chat_ids = app.state::<crate::chat::ChatState>().live_session_ids();
-    let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids, &homes, &profiles, &chat_ids))).await?;
+    let mut sessions = crate::blocking(move || {
+        let detected = find_agent_sessions(shell_pids, &homes, &profiles, &chat_ids);
+        Ok(tracker::apply(detected, &live_ptys))
+    })
+    .await?;
     for session in &mut sessions {
         if let Some((window, tab)) = tabs.get(&session.pty_id) {
             session.window = Some(window.clone());
@@ -337,12 +529,31 @@ fn find_agent_sessions(
     profiles: &HashMap<String, Option<String>>,
     chat_ids: &HashSet<String>,
 ) -> Vec<AgentSession> {
-    let (mut sessions, codex_tabs, vibe_tabs, opencode_tabs, cline_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
+    let (mut sessions, codex_tabs, vibe_tabs, opencode_tabs, cline_tabs, wsl_tabs) = crate::system::with_processes_mut(|sys| {
         let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
         for (pid, process) in sys.processes() {
-            if let Some(parent) = process.parent() {
+            if let Some(parent) = crate::system::live_parent(sys, process) {
                 children_of.entry(parent).or_default().push(*pid);
             }
+        }
+
+        let mut hits: Vec<(String, AgentHit)> = Vec::new();
+        let mut unmatched: HashSet<String> = HashSet::new();
+        // Distro -> the tabs whose agent can only be found inside it.
+        let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
+        for (pty_id, shell_pid) in shell_pids {
+            let root = Pid::from_u32(shell_pid);
+            if let Some(hit) = find_agent(sys, root, &children_of) {
+                hits.push((pty_id, hit));
+            } else if let Some(distro) = find_wsl_client(sys, root, &children_of) {
+                wsl_tabs.entry(distro).or_default().insert(pty_id);
+            } else {
+                unmatched.insert(pty_id);
+            }
+        }
+        if !unmatched.is_empty() {
+            let claimed: HashSet<u32> = hits.iter().map(|(_, h)| h.2).collect();
+            hits.extend(env_tag_fallback(sys, &unmatched, &claimed));
         }
 
         let mut sessions = Vec::new();
@@ -350,73 +561,84 @@ fn find_agent_sessions(
         let mut vibe_tabs: Vec<usize> = Vec::new();
         let mut opencode_tabs: Vec<usize> = Vec::new();
         let mut cline_tabs: Vec<usize> = Vec::new();
-        // Distro -> the tabs whose agent can only be found inside it.
-        let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
-        for (pty_id, shell_pid) in shell_pids {
-            let root = Pid::from_u32(shell_pid);
-            if let Some((cli, cli_label, pid, started_at)) = find_agent(sys, root, &children_of) {
-                let cwd = sys
-                    .process(Pid::from_u32(pid))
-                    .and_then(|p| p.cwd())
-                    .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
-                let profile = profiles.get(&pty_id).cloned().flatten();
-                let session = AgentSession {
-                    pty_id,
-                    cli: cli.to_string(),
-                    cli_label: cli_label.to_string(),
-                    pid,
-                    started_at,
-                    cwd: cwd.clone(),
-                    profile: profile.clone(),
-                    ..AgentSession::default()
-                };
-                if cli == "codex" {
-                    // Threads are paired with the tabs below, once all are known.
-                    codex_tabs.push(sessions.len());
-                } else if cli == "vibe" {
-                    vibe_tabs.push(sessions.len());
-                } else if cli == "opencode" {
-                    opencode_tabs.push(sessions.len());
-                } else if cli == "cline" {
-                    cline_tabs.push(sessions.len());
-                }
-                sessions.push(session);
-            } else if let Some(distro) = find_wsl_client(sys, root, &children_of) {
-                wsl_tabs.entry(distro).or_default().insert(pty_id);
+        for (pty_id, (cli, cli_label, pid, started_at)) in hits {
+            let cwd = sys
+                .process(Pid::from_u32(pid))
+                .and_then(|p| p.cwd())
+                .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
+            let profile = profiles.get(&pty_id).cloned().flatten();
+            let session = AgentSession {
+                pty_id,
+                cli: cli.to_string(),
+                cli_label: cli_label.to_string(),
+                pid,
+                started_at,
+                cwd: cwd.clone(),
+                profile: profile.clone(),
+                ..AgentSession::default()
+            };
+            if cli == "codex" {
+                // Threads are paired with the tabs below, once all are known.
+                codex_tabs.push(sessions.len());
+            } else if cli == "vibe" {
+                vibe_tabs.push(sessions.len());
+            } else if cli == "opencode" {
+                opencode_tabs.push(sessions.len());
+            } else if cli == "cline" {
+                cline_tabs.push(sessions.len());
             }
+            sessions.push(session);
         }
         (sessions, codex_tabs, vibe_tabs, opencode_tabs, cline_tabs, wsl_tabs)
     });
     // Registry/transcript reads can be slow: no filesystem I/O under the process lock.
-    for session in &mut sessions {
-        if !matches!(session.cli.as_str(), "codex" | "vibe" | "opencode" | "cline") {
-            if let Some(entry) = claude_registry_entry(session.pid, &homes.claude) {
-                session.apply_claude_entry(&entry);
+    // Each reader is isolated: a panic in one leaves the sessions bare, not the call failed.
+    isolated("claude registry", || {
+        for session in &mut sessions {
+            if !matches!(session.cli.as_str(), "codex" | "vibe" | "opencode" | "cline") {
+                if let Some(entry) = claude_registry_entry(session.pid, &homes.claude) {
+                    session.apply_claude_entry(&entry);
+                }
             }
         }
-    }
+    });
     if !codex_tabs.is_empty() {
-        assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
+        isolated("codex threads", || {
+            assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
+        });
     }
     // Newest process first, so it takes the newest session; each session once.
     let mut claimed = chat_ids.clone();
-    claim_live_sessions(&mut sessions, vibe_tabs, &mut claimed, |s, claimed| {
-        let home = homes.vibe_of(&s.profile)?;
-        crate::vibe::live_session_in(home, s.cwd.as_deref()?, s.started_at, claimed)
+    isolated("vibe sessions", || {
+        claim_live_sessions(&mut sessions, vibe_tabs, &mut claimed, |s, claimed| {
+            let home = homes.vibe_of(&s.profile)?;
+            crate::vibe::live_session_in(home, s.cwd.as_deref()?, s.started_at, claimed)
+        });
     });
-    claim_live_sessions(&mut sessions, opencode_tabs, &mut claimed, |s, claimed| {
-        let db = homes.opencode_of(&s.profile)?;
-        crate::opencode_db::live_session_in(db, s.cwd.as_deref()?, s.started_at, claimed)
+    isolated("opencode sessions", || {
+        claim_live_sessions(&mut sessions, opencode_tabs, &mut claimed, |s, claimed| {
+            let db = homes.opencode_of(&s.profile)?;
+            crate::opencode_db::live_session_in(db, s.cwd.as_deref()?, s.started_at, claimed)
+        });
     });
-    claim_live_sessions(&mut sessions, cline_tabs, &mut claimed, |s, claimed| {
-        let home = homes.cline_of(&s.profile)?;
-        crate::cline_db::live_session_in(home, s.pid, s.cwd.as_deref()?, s.started_at, claimed)
+    isolated("cline sessions", || {
+        claim_live_sessions(&mut sessions, cline_tabs, &mut claimed, |s, claimed| {
+            let home = homes.cline_of(&s.profile)?;
+            crate::cline_db::live_session_in(home, s.pid, s.cwd.as_deref()?, s.started_at, claimed)
+        });
     });
     // This runs `wsl.exe`, also outside the process table's lock.
     for (distro, pty_ids) in wsl_tabs {
-        sessions.extend(wsl_agents(distro.as_deref(), &pty_ids, chat_ids));
+        isolated("wsl agents", || sessions.extend(wsl_agents(distro.as_deref(), &pty_ids, chat_ids)));
     }
     sessions
+}
+
+/// Runs one enrichment step, logging (not propagating) a panic.
+fn isolated(what: &str, step: impl FnOnce()) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)).is_err() {
+        eprintln!("[agent-detection] {what}: reader panicked, sessions left un-enriched");
+    }
 }
 
 /// Pairs the tabs (`tabs`: indexes into `sessions`) of an agent that keeps its own session store
@@ -613,45 +835,14 @@ fn thread_in<'a>(threads: &[&'a LiveThread], cwd: &str) -> Option<&'a LiveThread
     threads.iter().copied().filter(|t| same_dir(&t.cwd, cwd)).max_by_key(|t| t.updated_at)
 }
 
-/// Whether a `node` command line runs Codex CLI. Only inspect the script,
-/// after any interpreter flags, so a later argument cannot name an agent.
-fn node_runs_codex(args: &[String]) -> bool {
-    let Some(script) = args.iter().skip(1).find(|a| !a.trim_matches(['\'', '"']).starts_with('-')) else {
-        return false;
-    };
-    let script = script.trim_matches(['\'', '"']).to_lowercase().replace('\\', "/");
-    script.contains("@openai/codex/") || matches!(script.rsplit('/').next(), Some("codex" | "codex.js" | "codex.mjs"))
-}
-
-/// Whether a `node` command line runs Gemini CLI: its script is `gemini` /
-/// `gemini.js` or lives in the `@google/gemini-cli` package (either slash).
-fn node_runs_gemini(args: &[String]) -> bool {
-    args.iter().skip(1).take(3).any(|a| {
-        let a = a.to_lowercase().replace('\\', "/");
-        a.contains("@google/gemini-cli") || matches!(a.rsplit('/').next(), Some("gemini" | "gemini.js" | "gemini.mjs"))
-    })
-}
-
-/// Whether a `node` command line runs OpenCode: its script lives in the
-/// `opencode-ai` package or is named `opencode` (either slash).
-fn node_runs_opencode(args: &[String]) -> bool {
-    args.iter().skip(1).take(3).any(|a| {
-        let a = a.to_lowercase().replace('\\', "/");
-        a.contains("opencode-ai") || a.ends_with("opencode")
-    })
-}
-
 /// Which agent CLI a Linux process is: by its own name, or - for a Node
 /// wrapper (`node .../codex.js`, `node .../claude/cli.js`) or Python
-/// (`python .../bin/vibe`) - by the script it runs.
+/// (`python .../bin/vibe`) - by the script it runs. `argv` is /proc's argv
+/// flattened into text; `classify` does the judging.
 fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
-    if let Some(found) = agent_binary(comm) {
-        return Some(found);
-    }
-    // WSL flattens /proc argv into text. Preserve minimally quoted paths,
-    // including an interpreter path containing spaces, and skip its flags.
+    // Preserve minimally quoted paths, including an interpreter path containing spaces.
     let mut quote = None;
-    let mut tokens = argv
+    let argv: Vec<String> = argv
         .split(|c: char| match c {
             '\'' | '"' if quote == Some(c) => {
                 quote = None;
@@ -663,16 +854,10 @@ fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
             }
             _ => c.is_whitespace() && quote.is_none(),
         })
-        .filter(|s| !s.is_empty());
-    tokens.next()?;
-    let script = tokens.map(|s| s.trim_matches(['\'', '"'])).find(|s| !s.starts_with('-'))?.to_lowercase().replace('\\', "/");
-    // The script itself, or the npm package it lives in (`node_modules/<pkg>`, `@scope/<pkg>`): not any folder on the way
-    // (`/home/u/codex-project/server.js` is no Codex).
-    let parts: Vec<&str> = script.split('/').collect();
-    let stem = |p: &str| p.trim_end_matches(".mjs").trim_end_matches(".js").trim_end_matches(".py").to_string();
-    parts.last().and_then(|p| agent_binary(&stem(p))).or_else(|| {
-        parts.windows(2).find_map(|w| if w[0] == "node_modules" || w[0].starts_with('@') { agent_binary(w[1]) } else { None })
-    })
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    classify(comm, None, &argv)
 }
 
 #[cfg(test)]
@@ -794,18 +979,81 @@ mod tests {
         assert_eq!(agent_of("node", "node /usr/lib/node_modules/@google/gemini-cli/dist/index.js").map(|a| a.0), Some("gemini"));
         assert_eq!(agent_of("node", "node /usr/bin/gemini").map(|a| a.0), Some("gemini"));
         assert_eq!(agent_of("gemini", "gemini --resume latest").map(|a| a.0), Some("gemini"));
-        assert!(super::node_runs_gemini(&["node".into(), r"C:\Users\u\AppData\Roaming\npm\node_modules\@google\gemini-cli\dist\index.js".into()]));
-        assert!(!super::node_runs_gemini(&["node".into(), "server.js".into()]));
+        assert_eq!(super::classify("node", None, &["node".into(), r"C:\Users\u\AppData\Roaming\npm\node_modules\@google\gemini-cli\dist\index.js".into()]).map(|a| a.0), Some("gemini"));
+        assert_eq!(super::classify("node", None, &["node".into(), "server.js".into()]), None);
         assert_eq!(agent_of("opencode", "opencode --standalone").map(|a| a.0), Some("opencode"));
         assert_eq!(agent_of("cline", "cline --id abc").map(|a| a.0), Some("cline"));
         assert_eq!(agent_of("node", "node /usr/lib/node_modules/opencode-ai/bin/opencode").map(|a| a.0), Some("opencode"));
-        assert!(super::node_runs_opencode(&["node".into(), r"C:\npm\node_modules\opencode-ai\bin\opencode.js".into()]));
-        assert!(super::node_runs_opencode(&["node".into(), "/usr/bin/opencode".into()]));
-        assert!(!super::node_runs_opencode(&["node".into(), "server.js".into()]));
+        assert_eq!(super::classify("node", None, &["node".into(), r"C:\npm\node_modules\opencode-ai\bin\opencode.js".into()]).map(|a| a.0), Some("opencode"));
+        assert_eq!(super::classify("node", None, &["node".into(), "/usr/bin/opencode".into()]).map(|a| a.0), Some("opencode"));
+        assert_eq!(super::classify("node", None, &["node".into(), "server.js".into()]), None);
         assert_eq!(agent_of("node", "node server.js"), None);
         assert_eq!(agent_of("node", "node /home/user/codex-project/server.js"), None);
         assert_eq!(agent_of("node", "node /home/u/claude-tools/index.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
+    }
+
+    fn cl(name: &str, exe: Option<&str>, argv: &[&str]) -> Option<&'static str> {
+        let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+        super::classify(name, exe.map(std::path::Path::new), &argv).map(|a| a.0)
+    }
+
+    #[test]
+    fn classify_names_and_titles() {
+        assert_eq!(cl("codex.exe", None, &[]), Some("codex"));
+        assert_eq!(cl("Codex.EXE", None, &[]), Some("codex"));
+        assert_eq!(cl("codex-aarch64-apple-darwin", None, &[]), Some("codex"));
+        assert_eq!(cl(".cline", None, &[]), Some("cline"));
+        assert_eq!(cl("vibe cli", None, &[]), Some("vibe"));
+        assert_eq!(cl("Vibe CLI", None, &[]), Some("vibe"));
+        assert_eq!(cl("python3.12", None, &["Vibe CLI"]), Some("vibe"));
+        assert_eq!(cl("node", None, &["claude"]), Some("claude"));
+        // Stale name, live exe.
+        assert_eq!(cl("zsh", Some("/opt/homebrew/Caskroom/codex/codex-aarch64-apple-darwin"), &[]), Some("codex"));
+        assert_eq!(cl("2.1.30", Some("/Users/u/.local/share/claude/versions/2.1.30"), &[]), Some("claude"));
+        assert_eq!(cl("2.1.30", Some(r"C:\Users\u\AppData\Local\claude\versions\2.1.30"), &[]), Some("claude"));
+        assert_eq!(cl("bash", None, &["bash"]), None);
+    }
+
+    #[test]
+    fn classify_excludes_adapters_and_servers() {
+        assert_eq!(cl("vibe-acp", None, &[]), None);
+        assert_eq!(cl("vibe-app-server", None, &[]), None);
+        assert_eq!(cl("codex-acp", None, &[]), None);
+        assert_eq!(cl("codex-acp.exe", Some(r"C:\x\codex-acp.exe"), &[r"C:\x\codex-acp.exe"]), None);
+        assert_eq!(cl("codex.exe", None, &["codex.exe", "app-server", "--managed-daemon"]), None);
+        assert_eq!(cl("codex", None, &["codex", "mcp-server"]), None);
+        assert_eq!(cl("cline.exe", None, &["cline.exe", "--cline-hub-daemon"]), None);
+        assert_eq!(cl("codex-command-runner-0.166.0.exe", None, &[]), None);
+        assert_eq!(cl("codex-windows-sandbox-setup.exe", None, &[]), None);
+        // Only a version-named binary in Claude's versions folder.
+        assert_eq!(cl("2.1.30", Some("/Users/u/.local/share/claude/versions/2.1.30"), &[]), Some("claude"));
+        assert_eq!(cl("zsh", Some("/Users/u/.local/share/claude/versions/tools/zsh"), &[]), None);
+    }
+
+    #[test]
+    fn classify_interpreters_look_at_the_script_only() {
+        assert_eq!(cl("node", None, &["node", r"C:\nvm4w\nodejs\node_modules\@openai\codex\bin\codex.js"]), Some("codex"));
+        assert_eq!(
+            cl("node", None, &["node", "--max-old-space-size=8192", "--no-warnings", "/usr/lib/node_modules/@google/gemini-cli/dist/index.js"]),
+            Some("gemini")
+        );
+        assert_eq!(cl("node", None, &["node", "/home/u/codex-project/server.js"]), None);
+        assert_eq!(cl("node", None, &["node", "x.js", "gemini"]), None);
+        assert_eq!(cl("python3", None, &["python3", "/home/u/.local/bin/vibe"]), Some("vibe"));
+        assert_eq!(cl("python3.11", None, &["python3.11", "/home/u/.local/bin/vibe"]), Some("vibe"));
+        assert_eq!(cl("bun", None, &["bun", "/x/node_modules/opencode-ai/bin/opencode"]), Some("opencode"));
+        assert_eq!(cl("node.exe", None, &["node", "/a/node_modules/@anthropic-ai/claude-code/cli.js"]), Some("claude"));
+        assert_eq!(cl("node", None, &["node", "/a/node_modules/mistral-vibe/x.js"]), Some("vibe"));
+        assert_eq!(cl("node", None, &["node", "/a/node_modules/cline/dist/cli.js"]), Some("cline"));
+        assert_eq!(cl("deno", None, &["deno", "run", "/x/codex.js"]), None);
+    }
+
+    #[test]
+    fn classify_provider_shim_wins() {
+        let shim = ["flowcode", "--flowcode-provider", "codex", "rec", r"C:\x\codex.cmd"];
+        assert_eq!(cl("flowcode.exe", None, &shim), Some("codex"));
+        assert_eq!(cl("flowcode", None, &["flowcode", "--flowcode-provider", "nope", "rec"]), None);
     }
 
     #[test]
@@ -819,7 +1067,7 @@ mod tests {
             r#""C:\Program Files\codex.js""#,
         ] {
             let args = ["node", "--no-warnings", "--trace-warnings", "--enable-source-maps", script].map(str::to_string);
-            assert!(super::node_runs_codex(&args), "{script}");
+            assert_eq!(super::classify("node", None, &args).map(|a| a.0), Some("codex"), "{script}");
         }
         for args in [
             vec!["node"],
@@ -830,7 +1078,7 @@ mod tests {
             vec!["node", "/npm/@openai/codex-tools/server.js"],
         ] {
             let args: Vec<String> = args.into_iter().map(str::to_string).collect();
-            assert!(!super::node_runs_codex(&args), "{args:?}");
+            assert_eq!(super::classify("node", None, &args), None, "{args:?}");
         }
     }
 

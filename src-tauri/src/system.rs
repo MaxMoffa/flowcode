@@ -15,6 +15,12 @@ use flowcode_shared::CREATE_NO_WINDOW;
 /// over a process's life; names and parents are refreshed every time, and
 /// exited processes dropped.
 pub fn with_processes<T>(f: impl FnOnce(&System) -> T) -> T {
+    with_processes_mut(|sys| f(&*sys))
+}
+
+/// Same table as `with_processes`, but mutable: for a caller that has to read
+/// more of some processes (see `refresh_environ`) under the same lock.
+pub fn with_processes_mut<T>(f: impl FnOnce(&mut System) -> T) -> T {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
     /// Several pollers (agents, foreground checks) land within milliseconds of
     /// each other; a refresh that fresh would just repeat the same scan.
@@ -32,27 +38,59 @@ pub fn with_processes<T>(f: impl FnOnce(&System) -> T) -> T {
                 .with_exe(UpdateKind::OnlyIfNotSet)
                 .with_cwd(UpdateKind::OnlyIfNotSet),
         );
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         refresh_execed(sys);
         *last_refresh = Some(std::time::Instant::now());
     }
     f(sys)
 }
 
-/// sysinfo (0.32, macOS) reads a process's name, argv and exe once and keeps
-/// them across `exec` (same pid, same start time). A tab polled between zsh's
-/// fork and its exec of `codex`, or while the provider-launch shim (which
+/// Reads the environment of `pids` (kept by sysinfo afterwards; read once per
+/// process, unreadable ones are retried). Only for the few processes a caller
+/// really has to look into: it is by far the costliest per-process read.
+pub fn refresh_environ(sys: &mut System, pids: &[sysinfo::Pid]) {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    // Even `Some(pids)` costs a full process query on Windows: skip it when
+    // every environment is already cached.
+    let pids: Vec<sysinfo::Pid> = pids.iter().copied().filter(|p| sys.process(*p).is_some_and(|p| p.environ().is_empty())).collect();
+    if pids.is_empty() {
+        return;
+    }
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&pids),
+        false,
+        ProcessRefreshKind::new().with_environ(UpdateKind::OnlyIfNotSet),
+    );
+}
+
+/// The parent of `process`, unless the edge is stale: the OS keeps a dead
+/// parent's pid (or a reused one) as `ppid`, so a parent missing from the
+/// table, or one that started after its child, is no parent.
+pub fn live_parent(sys: &System, process: &sysinfo::Process) -> Option<sysinfo::Pid> {
+    let parent = process.parent()?;
+    let parent_start = sys.process(parent)?.start_time();
+    let child_start = process.start_time();
+    // A start time of 0 means "unknown": don't judge by it.
+    if child_start != 0 && parent_start != 0 && child_start < parent_start {
+        return None;
+    }
+    Some(parent)
+}
+
+/// sysinfo (0.32, macOS and Linux) reads a process's argv and exe once and
+/// keeps them across `exec` (same pid, same start time). A tab polled between
+/// zsh's fork and its exec of `codex`, or while the provider-launch shim (which
 /// execs Flowcode, then the real CLI) is still running, would stay
 /// "zsh"/"flowcode" for the whole session and never be seen as an agent.
-/// Re-read argv and exe for every pid whose live executable path moved; the
-/// agent scan then matches on the exe's file name too.
-#[cfg(target_os = "macos")]
+/// Re-read argv, exe and cwd for every pid whose live executable path moved;
+/// the agent scan then matches on the exe's file name too.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn refresh_execed(sys: &mut System) {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
     let stale: Vec<Pid> = sys
         .processes()
         .iter()
-        .filter(|(pid, p)| live_exe(pid.as_u32()).is_some_and(|exe| p.exe() != Some(exe.as_path())))
+        .filter(|(pid, p)| live_exe(pid.as_u32()).is_some_and(|live| p.exe().is_none_or(|cached| !same_exe(cached, &live))))
         .map(|(pid, _)| *pid)
         .collect();
     if stale.is_empty() {
@@ -61,8 +99,21 @@ fn refresh_execed(sys: &mut System) {
     sys.refresh_processes_specifics(
         ProcessesToUpdate::Some(&stale),
         false,
-        ProcessRefreshKind::new().with_cmd(UpdateKind::Always).with_exe(UpdateKind::Always),
+        ProcessRefreshKind::new().with_cmd(UpdateKind::Always).with_exe(UpdateKind::Always).with_cwd(UpdateKind::Always),
     );
+}
+
+/// `live` is the resolved path (`proc_pidpath`), sysinfo's `cached` may be a
+/// symlink to it (Homebrew, node): compare resolved, or every such process
+/// would be re-read on every poll.
+#[cfg(target_os = "macos")]
+fn same_exe(cached: &std::path::Path, live: &std::path::Path) -> bool {
+    cached == live || std::fs::canonicalize(cached).is_ok_and(|c| c == live)
+}
+
+#[cfg(target_os = "linux")]
+fn same_exe(cached: &std::path::Path, live: &std::path::Path) -> bool {
+    cached == live
 }
 
 #[cfg(target_os = "macos")]
@@ -75,6 +126,11 @@ fn live_exe(pid: u32) -> Option<std::path::PathBuf> {
     }
     buf.truncate(n as usize);
     Some(std::ffi::OsString::from_vec(buf).into())
+}
+
+#[cfg(target_os = "linux")]
+fn live_exe(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
 #[derive(Serialize)]

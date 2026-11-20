@@ -1600,6 +1600,18 @@ function Shell() {
     setTabs((prev) => patchTermTab(prev, id, (t) => ({ notifyMuted: !t.notifyMuted })));
   }
 
+  /** Dumps what the agent detection sees for this tab (see agent_detection_dump) to the clipboard. */
+  async function copyAgentDiagnostics(id: string) {
+    const ptyId = termRefs.current.get(id)?.getPtyId();
+    try {
+      const report = await invoke<string>("agent_detection_dump", { ptyId: ptyId ?? null });
+      await navigator.clipboard.writeText(report);
+      showPluginToast(t("tabs.agentDiagnostics.copied"));
+    } catch (e) {
+      showPluginToast(String(e));
+    }
+  }
+
   function handleEditorRenamed(id: string, newPath: string) {
     const label = basename(newPath);
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "editor" ? { ...t, path: newPath, label } : t)));
@@ -2814,6 +2826,7 @@ function Shell() {
           onRename={renameTab}
           onDuplicate={duplicateTab}
           onToggleNotifications={toggleTabNotifications}
+          onAgentDiagnostics={(id) => void copyAgentDiagnostics(id)}
           onReorder={reorderTab}
           onDragOut={(id) => void handleTabDragOut(id)}
         />

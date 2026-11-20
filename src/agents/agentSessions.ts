@@ -58,6 +58,9 @@ function sameSessions(a: AgentSession[], b: AgentSession[]): boolean {
  * spawns `wsl.exe`). */
 const POLL_MS = 2000;
 
+/** The last poll error logged (see `refresh`), so a repeating one is logged once. */
+let lastWarnedError: string | null = null;
+
 /** The agent CLIs running in any Flowcode tab right now (see
  * `list_agent_sessions`), polled while the window is visible (or always, when `pollWhenHidden` - a minimized
  * window still has to notify) - one poll
@@ -84,7 +87,13 @@ export function useAgentSessions(pollWhenHidden = false): { sessions: AgentSessi
         // re-render on every 2 s poll.
         setSessions((prev) => (prev && sameSessions(prev, result) ? prev : result));
       })
-      .catch(() => {
+      .catch((error) => {
+        // Once per distinct message: a poll every 2 s must not flood the console.
+        const message = String(error);
+        if (message !== lastWarnedError) {
+          lastWarnedError = message;
+          console.warn("[agent-detection] list_agent_sessions failed:", message);
+        }
         if (mountedRef.current) setSessions((prev) => prev ?? []);
       })
       .finally(() => {

@@ -74,6 +74,8 @@ export const it = {
   "tabs.notificationsMuted": "Notifiche silenziate",
   "tabs.muteNotifications": "Silenzia notifiche",
   "tabs.unmuteNotifications": "Riattiva notifiche",
+  "tabs.agentDiagnostics": "Diagnostica rilevamento agente",
+  "tabs.agentDiagnostics.copied": "Diagnostica copiata negli appunti",
   "notifications.body.done": "{agent} ha finito il lavoro",
   "notifications.body.input": "{agent} ha bisogno di te",
   "notifications.body.exited": "{agent} è terminato",

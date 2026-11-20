@@ -267,6 +267,7 @@ pub fn run() {
             plugins::codex_needs_no_daemon,
             plugins::open_in_vscode,
             agents::list_agent_sessions,
+            agents::agent_detection_dump,
             agents::end_pty_agent,
             agents::agent_session_saved,
             agents::list_claude_agents,

@@ -44,6 +44,8 @@ interface TabStripProps {
   onDuplicate: (id: string) => void;
   /** Mutes/unmutes a terminal tab's agent notifications. */
   onToggleNotifications: (id: string) => void;
+  /** Copies the agent-detection report of a terminal tab to the clipboard. */
+  onAgentDiagnostics: (id: string) => void;
   /** A tab dragged along the strip, moved to slot `toIndex`. */
   onReorder: (id: string, toIndex: number) => void;
   /** A tab dragged out of the strip and released - it goes to whatever is
@@ -413,6 +415,7 @@ export function TabStrip({
   onRename,
   onDuplicate,
   onToggleNotifications,
+  onAgentDiagnostics,
   onReorder,
   onDragOut,
   compact,
@@ -533,6 +536,7 @@ export function TabStrip({
         icon: tab.notifyMuted ? MenuIcons.bell : MenuIcons.bellOff,
         onSelect: () => onToggleNotifications(tab.id),
       });
+      items.push({ label: t("tabs.agentDiagnostics"), onSelect: () => onAgentDiagnostics(tab.id) });
     }
     items.push({ separator: true, label: "sep-close" });
     items.push({ label: t("common.close"), icon: MenuIcons.close, danger: true, onSelect: () => onClose(tab.id) });

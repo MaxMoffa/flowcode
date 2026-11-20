@@ -63,7 +63,7 @@ pub(super) fn classify(process: &sysinfo::Process) -> Foreground {
 pub(super) fn foreground_by_tree(sys: &sysinfo::System, root: sysinfo::Pid) -> Option<Foreground> {
     let mut children_of: HashMap<sysinfo::Pid, Vec<&sysinfo::Process>> = HashMap::new();
     for process in sys.processes().values() {
-        if let Some(parent) = process.parent() {
+        if let Some(parent) = crate::system::live_parent(sys, process) {
             children_of.entry(parent).or_default().push(process);
         }
     }

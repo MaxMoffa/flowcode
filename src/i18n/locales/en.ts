@@ -74,6 +74,8 @@ export const en: Record<MessageKey, string> = {
   "tabs.notificationsMuted": "Notifications muted",
   "tabs.muteNotifications": "Mute notifications",
   "tabs.unmuteNotifications": "Unmute notifications",
+  "tabs.agentDiagnostics": "Agent detection diagnostics",
+  "tabs.agentDiagnostics.copied": "Diagnostics copied to clipboard",
   "notifications.body.done": "{agent} finished its work",
   "notifications.body.input": "{agent} needs your input",
   "notifications.body.exited": "{agent} has exited",
