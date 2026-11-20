@@ -365,6 +365,8 @@ export type ServerMsg =
   | { t: "snapshot"; ptyId: string; data: string; cols: number; rows: number }
   | { t: "output"; ptyId: string; data: string }
   | { t: "exit"; ptyId: string }
+  /** An app event of the terminal `ptyId` (what its agent does through Flowcode's tools): `method` is `_flowcode/open`, `_flowcode/call`, `_flowcode/delegate`, `_flowcode/delegate_request` or `_flowcode/delegate_request_resolved`. Sent only while the stream is open; the tab's delegations come first, as `_flowcode/delegate`. A desktop older than this never sends it. */
+  | { t: "ext"; ptyId: string; method: string; params: unknown }
   | { t: "usage"; items: UsageItem[] }
   | { t: "actions"; actions: Action[] }
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[]; truncated?: boolean }

@@ -311,6 +311,21 @@
   backdrop-filter: blur(12px);
 }
 
+/* The tab's delegations, above the wait banner and the key bar; open rows scroll instead of eating the terminal. */
+.term-dstrip {
+  flex: none;
+  padding: 0 10px 6px;
+}
+
+.term-dstrip .chat-dstrip {
+  margin: 0;
+}
+
+.term-dstrip .chat-dstrip-rows {
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
 .term-wait {
   flex: none;
   display: flex;

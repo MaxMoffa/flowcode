@@ -199,6 +199,16 @@ impl RemoteFeed {
 pub enum RemoteOut {
     Output { data: String, seq: u64 },
     Exit,
+    /// An app event of the tab (see `remote_ext`). Best effort: dropped when the queue is full, never flags lag.
+    Ext { method: String, params: serde_json::Value },
+}
+
+/// The `Ext` methods phones are told about: what the tab's agent does through Flowcode's MCP tools.
+pub fn remote_ext(method: &str) -> bool {
+    matches!(
+        method,
+        "_flowcode/open" | "_flowcode/call" | "_flowcode/delegate" | "_flowcode/delegate_request" | "_flowcode/delegate_request_resolved"
+    )
 }
 
 impl Sink {
@@ -210,7 +220,8 @@ impl Sink {
                 let out = match &event {
                     PtyEvent::Output { data, seq } => RemoteOut::Output { data: data.clone(), seq: *seq },
                     PtyEvent::Exit => RemoteOut::Exit,
-                    // Phones don't get the app's own events (yet).
+                    // Phones get only the events about the tab's agent tools.
+                    PtyEvent::Ext { method, params } if remote_ext(method) => RemoteOut::Ext { method: method.clone(), params: params.clone() },
                     PtyEvent::Ext { .. } => return true,
                 };
                 match sub.tx.try_send(out) {
@@ -224,6 +235,8 @@ impl Sink {
                     // The exit can't be queued: dropping the sender ends the
                     // stream once the queue drains, and that reports the exit.
                     Err(mpsc::error::TrySendError::Full(RemoteOut::Exit)) => false,
+                    // Lost on a full queue: the phone is already behind, and a resync can't bring it back.
+                    Err(mpsc::error::TrySendError::Full(RemoteOut::Ext { .. })) => true,
                 }
             });
         }
@@ -990,6 +1003,28 @@ mod tests {
         drop(feed);
         sink.push(PtyEvent::Output { data: "w".into(), seq: 1002 });
         assert!(sink.remote.is_empty());
+    }
+
+    #[test]
+    fn app_events_reach_remote_subscribers_without_flagging_lag() {
+        let mut sink = Sink { channel: None, buffered: VecDeque::new(), buffered_bytes: 0, seq: 0, remote: Vec::new() };
+        let (tx, rx) = mpsc::channel(2);
+        let lag = Arc::new(RemoteLag::default());
+        sink.remote.push(RemoteSub { tx, lag: Arc::clone(&lag) });
+        let mut feed = RemoteFeed { rx, lag };
+        let ext = |method: &str| PtyEvent::Ext { method: method.into(), params: serde_json::json!({ "n": 1 }) };
+        sink.push(ext("_flowcode/delegate"));
+        // Not about the agent's tools: phones don't get it.
+        sink.push(ext("_flowcode/something_else"));
+        assert!(matches!(feed.rx.try_recv(), Ok(RemoteOut::Ext { method, params }) if method == "_flowcode/delegate" && params["n"] == 1));
+        assert!(feed.rx.try_recv().is_err());
+        // A full queue drops the event: no lag flag, subscriber stays.
+        sink.push(PtyEvent::Output { data: "a".into(), seq: 1 });
+        sink.push(PtyEvent::Output { data: "b".into(), seq: 2 });
+        sink.push(ext("_flowcode/call"));
+        assert!(!feed.is_lagged());
+        assert_eq!(sink.remote.len(), 1);
+        assert!(matches!(feed.rx.try_recv(), Ok(RemoteOut::Output { seq: 1, .. })));
     }
 
     #[test]

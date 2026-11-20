@@ -403,6 +403,11 @@ pub enum ServerMsg {
     Snapshot { pty_id: String, data: String, cols: u16, rows: u16 },
     Output { pty_id: String, data: String },
     Exit { pty_id: String },
+    /// An event of the app itself for the terminal `pty_id` (what the desktop's tab gets as
+    /// `PtyEvent::Ext`): what its agent does through Flowcode's MCP tools. `method` is one of
+    /// `_flowcode/open`, `_flowcode/call`, `_flowcode/delegate`, `_flowcode/delegate_request`,
+    /// `_flowcode/delegate_request_resolved`. A phone that predates it skips the frame (unknown tag).
+    Ext { pty_id: String, method: String, params: serde_json::Value },
     Usage { items: Vec<UsageItem> },
     Actions { actions: Vec<Action> },
     /// `truncated`: the folder had more entries than were listed (absent from older desktops: false).

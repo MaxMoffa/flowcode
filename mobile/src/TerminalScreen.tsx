@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import "./chat.css";
@@ -14,6 +14,8 @@ import { localLinkPage, parseTyped, type Page } from "./browserUrl";
 import { pathAtCell, terminalFile } from "./termPaths";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
+import { DelegateStrip } from "./ChatDelegates";
+import { onTermOpen, termOpenPage, useTermDelegates } from "./termExt";
 import { TermFiles } from "./TermFiles";
 import { openLink, TermLink } from "./TermLink";
 import { TermKeyBar } from "./TermKeyBar";
@@ -37,7 +39,7 @@ const keepFocus = {
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
 
 /** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. `onChat` turns an agent's terminal into a chat shown with the given view (App opens it once it appears). */
-export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys, onOpenPage, onOpenFile }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean; onOpenPage?: (page: Page) => void; /** Opens a text file of this terminal's folder (the tablet's file tab); without it, the files viewer shows it. */ onOpenFile?: (ptyId: string, path: string) => void }) {
+export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys, onOpenPage, onOpenFile, onOpenChat }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean; onOpenPage?: (page: Page) => void; /** Opens a text file of this terminal's folder (the tablet's file tab); without it, the files viewer shows it. */ onOpenFile?: (ptyId: string, path: string) => void; /** Opens a chat tab (a task the tab's agent delegated). */ onOpenChat?: (chatId: string) => void }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -60,6 +62,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const cancelRename = useRef(false);
   const lastLink = useRef({ url: "", at: 0 });
   const { ptyId } = tab;
+  const delegates = useTermDelegates(ptyId);
   const settings = useRemoteSelector((s) => s.settings);
   // Counts, not the tabs array: a tabs message that changes neither re-renders nothing here.
   const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length);
@@ -153,6 +156,23 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
     else send({ t: "read", ptyId, path: file.path });
     return true;
   }
+
+  // A page the tab's agent asks to open (Flowcode's `open_in_browser` tool), like a link tapped in the output.
+  const showPageRef = useRef<(page: Page) => void>(() => {});
+  showPageRef.current = (page) => {
+    if (onOpenPage) onOpenPage(page);
+    else {
+      setBrowserPage(page);
+      setBrowserOpen(true);
+    }
+  };
+  useEffect(() => {
+    if (!canBrowse) return;
+    return onTermOpen(ptyId, (open) => {
+      const page = termOpenPage(open, ptyId, tab.cwd);
+      if (page) showPageRef.current(page);
+    });
+  }, [ptyId, canBrowse, tab.cwd]);
 
   /** Types text as-is (no modifiers, never Enter), then hands the keyboard back to the terminal. */
   const typeText = useCallback(
@@ -390,6 +410,11 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
             </button>
           )}
         </div>
+        {delegates.length > 0 && (
+          <div className="term-dstrip">
+            <DelegateStrip items={delegates} onOpen={onOpenChat} />
+          </div>
+        )}
         {showWait && (
           <div className="term-wait" role="status">
             <span>{t("termWaitBanner", { cli: cliName })}</span>
@@ -406,7 +431,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
       {!embedded && keyBar}
       {browserOpen && canBrowse && <Browser ptyId={ptyId} initialPage={browserPage} onClose={() => { setBrowserOpen(false); setBrowserPage(null); }} />}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
-      {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} />}
+      {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} onOpenChat={onOpenChat} />}
       {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>

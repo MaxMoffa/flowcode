@@ -305,7 +305,7 @@ function AppContent() {
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} onChat={toChat} />
+        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} onChat={toChat} onOpenChat={(id) => { if (chats?.some((c) => c.chatId === id)) openChatTab(id); }} />
       </Suspense>
     );
   } else {

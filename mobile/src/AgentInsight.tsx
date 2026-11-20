@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { delegatesOf } from "../../src/chat/chatModel";
+import { delegatesOf, type DelegateInfo } from "../../src/chat/chatModel";
 import { activeCount } from "../../src/agents/delegateView";
 import { cacheHitRatio, contextSegments, estTokensOfChars, planKind, sparkBars } from "../../src/agents/insightMath";
 import type { AgentSessionUsage, AgentToolsInfo } from "../../shared/remote-types";
 import { useAgentInsight, type AgentInsightReply, type InsightTarget } from "./insightStore";
 import "./agent-insight.css";
 import { DelegateRow } from "./ChatDelegates";
+import { useTermDelegates } from "./termExt";
 import { emptySession } from "./chatSession";
 import { sendChatPrompt, useChatInfo, useChatSession } from "./chats";
 import { agentName } from "./common";
@@ -89,8 +90,9 @@ export function AgentInsight({ ptyId, chatId, open, onOpenChat }: { ptyId?: stri
 
 function Body({ cli, profile, status, chatId, ptyId, context, reply, supported, onOpenChat }: { cli: string; profile?: string; status?: string; chatId?: string; ptyId?: string; context: Ctx | null; reply?: AgentInsightReply; supported: boolean; onOpenChat?: (chatId: string) => void }) {
   const [stored, setTab] = useState<PanelTab>(readTab);
-  // Terminals have no delegations: a stored "delegates" reads as "context" there.
-  const tabs = TABS.filter((id) => id !== "delegates" || !!chatId);
+  const termDelegates = useTermDelegates(chatId ? "" : (ptyId ?? ""));
+  // A terminal has the tab only once its agent has delegated something: a stored "delegates" reads as "context" before.
+  const tabs = TABS.filter((id) => id !== "delegates" || !!chatId || termDelegates.length > 0);
   const tab = tabs.includes(stored) ? stored : "context";
   const pick = (v: PanelTab) => {
     setTab(v);
@@ -127,6 +129,7 @@ function Body({ cli, profile, status, chatId, ptyId, context, reply, supported, 
         {tab === "context" && <ContextPane context={context} tools={reply?.tools} loaded={reply !== undefined} supported={supported} warn={warn} />}
         {tab === "usage" && <UsagePane cli={cli} profile={profile} session={reply?.usage} loaded={reply !== undefined} supported={supported} />}
         {tab === "delegates" && chatId && <DelegatesPane chatId={chatId} onOpenChat={onOpenChat} />}
+        {tab === "delegates" && !chatId && <DelegatesList delegates={termDelegates} onOpenChat={onOpenChat} />}
       </div>
     </div>
   );
@@ -374,6 +377,11 @@ function DelegatesPane({ chatId, onOpenChat }: { chatId: string; onOpenChat?: (c
       </div>
     );
   }
+  return <DelegatesList delegates={delegates} onOpenChat={onOpenChat} />;
+}
+
+/** The delegations of one agent, newest state of each. */
+function DelegatesList({ delegates, onOpenChat }: { delegates: DelegateInfo[]; onOpenChat?: (chatId: string) => void }) {
   if (delegates.length === 0) return <div className="ai-note">{t("agentDelegEmpty")}</div>;
   const active = activeCount(delegates);
   return (

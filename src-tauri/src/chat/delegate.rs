@@ -866,7 +866,12 @@ pub async fn delegate_cancel(app: AppHandle, task_id: String) -> Result<(), Stri
 /// re-attaches after moving to another window or a reload and missed their events.
 #[tauri::command]
 pub async fn terminal_delegates(app: AppHandle, pty_id: String) -> Vec<Value> {
-    app.state::<ChatState>().delegations.of_parent(&Owner::Terminal(pty_id)).iter().map(|t| t.params()).collect()
+    terminal_delegate_params(&app, &pty_id)
+}
+
+/// `terminal_delegates` for Rust callers (a phone that starts watching the tab).
+pub(crate) fn terminal_delegate_params(app: &AppHandle, pty_id: &str) -> Vec<Value> {
+    app.state::<ChatState>().delegations.of_parent(&Owner::Terminal(pty_id.to_string())).iter().map(|t| t.params()).collect()
 }
 
 /// A terminal tab was closed: its tasks end with it and their child chats are shut down. Runs on its own

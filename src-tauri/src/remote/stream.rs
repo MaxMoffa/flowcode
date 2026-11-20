@@ -123,6 +123,12 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
     if !send_snapshot(&out, &pty_id, data, cols, rows).await {
         return;
     }
+    // What the tab's agent already delegated: the live events (queued since the subscription) come after it.
+    for params in crate::chat::delegate::terminal_delegate_params(&shared.app, &pty_id) {
+        if !send_ext(&out, &pty_id, "_flowcode/delegate".to_string(), params) {
+            return;
+        }
+    }
 
     // Set while output is being dropped; `lost_seq` is the newest dropped.
     let mut lost_seq = 0u64;
@@ -141,6 +147,13 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
             match feed.rx.try_recv() {
                 Ok(RemoteOut::Output { seq, .. }) => {
                     lost_seq = lost_seq.max(seq);
+                    continue;
+                }
+                // Not terminal output: the snapshot does not replace it.
+                Ok(RemoteOut::Ext { method, params }) => {
+                    if !send_ext(&out, &pty_id, method, params) {
+                        return;
+                    }
                     continue;
                 }
                 Ok(RemoteOut::Exit) | Err(mpsc::error::TryRecvError::Disconnected) => break,
@@ -209,7 +222,8 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
                 // Fold what is waiting, and what arrives before the batch
                 // window closes, into this frame; an exit met on the way is
                 // handled after it.
-                let (data, seq, exited) = fold_output(&mut feed.rx, data, seq, snapshot_seq, last_sent + BATCH_WINDOW).await;
+                let mut exts = Vec::new();
+                let (data, seq, exited) = fold_output(&mut feed.rx, data, seq, snapshot_seq, last_sent + BATCH_WINDOW, &mut exts).await;
                 // Keep room in the queue for replies and pushes.
                 if out.capacity() <= OUT_RESERVE {
                     lost_seq = lost_seq.max(seq);
@@ -224,11 +238,22 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
                         Err(mpsc::error::TrySendError::Closed(_)) => return,
                     }
                 }
+                // App events that came in with the batch go out right after its output.
+                for (method, params) in exts {
+                    if !send_ext(&out, &pty_id, method, params) {
+                        return;
+                    }
+                }
                 if exited {
                     break;
                 }
             }
             RemoteOut::Output { .. } => {}
+            RemoteOut::Ext { method, params } => {
+                if !send_ext(&out, &pty_id, method, params) {
+                    return;
+                }
+            }
             RemoteOut::Exit => break,
         }
     }
@@ -236,16 +261,28 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
     let _ = out.send(ServerMsg::Exit { pty_id }).await;
 }
 
+/// Queues an app event (`ServerMsg::Ext`) unless the phone's queue is nearly
+/// full: it is best effort, like the output it travels with, and keeps the
+/// reserve for replies. False when the connection is gone.
+fn send_ext(out: &mpsc::Sender<ServerMsg>, pty_id: &str, method: String, params: serde_json::Value) -> bool {
+    if out.capacity() <= OUT_RESERVE {
+        return !out.is_closed();
+    }
+    !matches!(out.try_send(ServerMsg::Ext { pty_id: pty_id.to_string(), method, params }), Err(mpsc::error::TrySendError::Closed(_)))
+}
+
 /// Folds the output events that follow `data` (up to `COALESCE_BYTES`) into
 /// it: those already queued, then any that arrive before `until`. Events the
-/// snapshot already covers are dropped. Returns the text, the newest `seq`
-/// and whether the program exited (or the feed closed) on the way.
+/// snapshot already covers are dropped; app events met on the way are set
+/// aside in `exts`, in order. Returns the text, the newest `seq` and whether
+/// the program exited (or the feed closed) on the way.
 async fn fold_output(
     rx: &mut mpsc::Receiver<RemoteOut>,
     mut data: String,
     mut seq: u64,
     snapshot_seq: u64,
     until: tokio::time::Instant,
+    exts: &mut Vec<(String, serde_json::Value)>,
 ) -> (String, u64, bool) {
     while data.len() < COALESCE_BYTES {
         let event = match rx.try_recv() {
@@ -264,6 +301,7 @@ async fn fold_output(
                     seq = next;
                 }
             }
+            RemoteOut::Ext { method, params } => exts.push((method, params)),
             RemoteOut::Exit => return (data, seq, true),
         }
     }
@@ -306,11 +344,11 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
             let _ = tx.send(output("late", 7)).await;
         });
-        let (data, seq, exited) = fold_output(&mut rx, "a".into(), 1, 0, start + BATCH_WINDOW).await;
+        let (data, seq, exited) = fold_output(&mut rx, "a".into(), 1, 0, start + BATCH_WINDOW, &mut Vec::new()).await;
         assert_eq!((data.as_str(), seq, exited), ("axxxxx", 6, false));
         // The window, not the arrival of the last chunk, ended the wait.
         assert_eq!(start.elapsed(), BATCH_WINDOW);
-        let (data, ..) = fold_output(&mut rx, "b".into(), 7, 0, tokio::time::Instant::now()).await;
+        let (data, ..) = fold_output(&mut rx, "b".into(), 7, 0, tokio::time::Instant::now(), &mut Vec::new()).await;
         assert_eq!(data, "b");
     }
 
@@ -321,7 +359,7 @@ mod tests {
         tx.send(output("new", 4)).await.unwrap();
         let before = tokio::time::Instant::now();
         // The window already closed: only what is queued is folded, no waiting.
-        let (data, seq, exited) = fold_output(&mut rx, "k".into(), 3, 3, before).await;
+        let (data, seq, exited) = fold_output(&mut rx, "k".into(), 3, 3, before, &mut Vec::new()).await;
         assert_eq!((data.as_str(), seq, exited), ("knew", 4, false));
         assert_eq!(before.elapsed(), Duration::ZERO);
     }
@@ -332,10 +370,44 @@ mod tests {
         tx.send(output("x", 2)).await.unwrap();
         tx.send(RemoteOut::Exit).await.unwrap();
         let until = tokio::time::Instant::now() + BATCH_WINDOW;
-        assert_eq!(fold_output(&mut rx, String::new(), 1, 0, until).await, ("x".to_string(), 2, true));
+        assert_eq!(fold_output(&mut rx, String::new(), 1, 0, until, &mut Vec::new()).await, ("x".to_string(), 2, true));
         let big = "y".repeat(COALESCE_BYTES);
         tx.send(output("z", 3)).await.unwrap();
-        assert_eq!(fold_output(&mut rx, big.clone(), 2, 0, until).await, (big, 2, false));
+        assert_eq!(fold_output(&mut rx, big.clone(), 2, 0, until, &mut Vec::new()).await, (big, 2, false));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn app_events_do_not_end_or_split_a_fold() {
+        let (tx, mut rx) = mpsc::channel(16);
+        tx.send(output("x", 2)).await.unwrap();
+        tx.send(RemoteOut::Ext { method: "_flowcode/call".into(), params: serde_json::json!({ "message": "hi" }) }).await.unwrap();
+        tx.send(output("y", 3)).await.unwrap();
+        let mut exts = Vec::new();
+        let until = tokio::time::Instant::now();
+        assert_eq!(fold_output(&mut rx, "a".into(), 1, 0, until, &mut exts).await, ("axy".to_string(), 3, false));
+        assert_eq!(exts, vec![("_flowcode/call".to_string(), serde_json::json!({ "message": "hi" }))]);
+    }
+
+    #[test]
+    fn app_events_go_out_as_ext_frames_while_there_is_room() {
+        let (tx, mut rx) = mpsc::channel(OUT_RESERVE + 2);
+        assert!(send_ext(&tx, "p1", "_flowcode/open".into(), serde_json::json!({ "target": "x" })));
+        let Ok(ServerMsg::Ext { pty_id, method, params }) = rx.try_recv() else { panic!("no ext frame") };
+        assert_eq!((pty_id.as_str(), method.as_str(), params["target"].as_str()), ("p1", "_flowcode/open", Some("x")));
+        // Nearly full: dropped, but the connection is still there.
+        let (tx, rx) = mpsc::channel(OUT_RESERVE);
+        assert!(send_ext(&tx, "p1", "_flowcode/call".into(), serde_json::json!({})));
+        assert_eq!(tx.capacity(), OUT_RESERVE);
+        drop(rx);
+        assert!(!send_ext(&tx, "p1", "_flowcode/call".into(), serde_json::json!({})));
+    }
+
+    #[test]
+    fn the_ext_frame_round_trips_and_an_old_phone_skips_it() {
+        let msg = ServerMsg::Ext { pty_id: "p".into(), method: "_flowcode/delegate".into(), params: serde_json::json!({ "taskId": "t" }) };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"t":"ext","ptyId":"p","method":"_flowcode/delegate","params":{"taskId":"t"}}"#);
+        assert_eq!(serde_json::from_str::<ServerMsg>(&json).unwrap(), msg);
     }
 
     #[test]
