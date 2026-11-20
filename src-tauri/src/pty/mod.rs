@@ -57,6 +57,14 @@ struct PtySession {
     /// of `PTY_ID_ENV` its processes carry: killing `wsl.exe` doesn't end
     /// what runs inside the distro, so `reap` sweeps it by that tag.
     wsl: Option<WslTag>,
+    /// Windows: a job of this tab's own holding everything its shell starts.
+    /// Dropped with the session, it kills what `taskkill /T` can't reach -
+    /// agents' background daemons (Cline's hub, Codex's app-server) orphaned
+    /// by a parent that already exited. Left alive past the tab, they lose
+    /// its pseudo console and every console program they start afterwards
+    /// pops up a visible terminal window.
+    #[allow(dead_code)]
+    job: Option<crate::process_job::TreeJob>,
 }
 
 struct WslTag {
@@ -527,6 +535,7 @@ pub fn pty_spawn(
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     if let Some(pid) = child.process_id() { crate::process_job::assign(pid); }
+    let job = child.process_id().and_then(crate::process_job::TreeJob::new);
     drop(pair.slave);
 
     // The shell is already running: a failure past this point must not leave
@@ -574,6 +583,7 @@ pub fn pty_spawn(
             cols,
             rows,
             wsl: (shell_stem == "wsl").then(|| WslTag { distro: wsl_distro.clone(), tag: id.clone() }),
+            job,
         },
     );
 
