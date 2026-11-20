@@ -1,6 +1,6 @@
 # Flowcode MCP nelle tab terminale — piano
 
-Stato: fase 1 implementata 2026-11-20 (non provata nell'app). Verificato a mano con i CLI veri (senza app): Claude carica `--mcp-config=<file>` e `--allowedTools=` lascia passare `call_user` senza chiedere; Codex 0.166 accetta gli override `-c`, inoltra l'env con `env_vars` e `tools.<tool>.approval_mode='approve'` evita la richiesta di approvazione. Entrambi scrivono la richiesta con `cwd` e `agent`.
+Stato: fasi 1 e 2 implementate 2026-11-20 (non provate nell'app). Fase 2 = WSL (Claude, Codex) + OpenCode via env; Cline e Gemini rimandati (vedi sotto). Verificato a mano con i CLI veri (senza app): Claude carica `--mcp-config=<file>` e `--allowedTools=` lascia passare `call_user` senza chiedere; Codex 0.166 accetta gli override `-c`, inoltra l'env con `env_vars` e `tools.<tool>.approval_mode='approve'` evita la richiesta di approvazione. Entrambi scrivono la richiesta con `cwd` e `agent`.
 
 ## Obiettivo
 
@@ -63,6 +63,13 @@ Oggi `provider_launcher::install` è saltato per le tab WSL (`pty/mod.rs:475`). 
 - SSH, `tmux` già avviato fuori da Flowcode, `sudo -i` → niente MCP.
 - Agente avviato prima di cambiare le impostazioni → tiene la config vecchia.
 - Il token è leggibile da ogni processo della tab (come oggi `FLOWCODE_PTY_ID`): stesso livello di fiducia dell'utente locale. Il token vale solo per quella tab e muore con lei.
+
+## Fase 2: com'è stata fatta
+
+- WSL: `src-tauri/src/wsl-shell/` (`shell.sh`, `bashrc`, `shim.sh`), scritti in `app_local_data/mcp/wsl/`. La tab parte con `wsl.exe ... -e /bin/sh -c <WSL_SHELL_START> sh <shell.sh>`: se il file non si legge (es. /mnt/c non disponibile) parte la normale shell di login. Solo bash riceve il `bashrc` (login files + cartella shim in testa al PATH); zsh/fish partono come prima, senza shim. Impostazione "Integrazione shell nelle tab WSL" (default on). Verificato in Ubuntu: shim prima di `~/.local/bin`, argomenti uguali a `mcp_args`, fallback ok.
+- OpenCode: `OPENCODE_CONFIG_CONTENT` (unito a quello già presente nell'ambiente di Flowcode, nativo). Non provato: opencode non installato qui.
+- Cline rimandato: `CLINE_MCP_SETTINGS_PATH` sostituisce il file (una copia perderebbe i server aggiunti dall'utente) e il demone hub è condiviso tra le tab.
+- Gemini rimandato: non installato qui, merge di `mcpServers` dal file di sistema non verificato.
 
 ## Fasi
 

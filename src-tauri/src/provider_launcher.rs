@@ -169,7 +169,7 @@ pub(crate) fn install(
 }
 
 /// Subcommands that are not a session (or reject unknown flags): no server for them.
-fn skips_mcp(cli: &str) -> &'static [&'static str] {
+pub(crate) fn skips_mcp(cli: &str) -> &'static [&'static str] {
     match cli {
         "claude" => &["mcp", "config", "update", "doctor", "install", "migrate-installer", "setup-token", "plugin", "plugins", "auth", "help"],
         _ => &["login", "logout", "mcp", "mcp-server", "app-server", "completion", "sandbox", "debug", "apply", "features", "help", "update"],

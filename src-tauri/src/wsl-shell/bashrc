@@ -1,0 +1,13 @@
+# Flowcode: what a login bash reads, then Flowcode's agent shims first on PATH.
+[ -r /etc/profile ] && . /etc/profile
+if [ -r ~/.bash_profile ]; then . ~/.bash_profile
+elif [ -r ~/.bash_login ]; then . ~/.bash_login
+elif [ -r ~/.profile ]; then . ~/.profile
+fi
+if [ -n "$FLOWCODE_SHIM_DIR" ]; then
+  case ":$PATH:" in
+    *":$FLOWCODE_SHIM_DIR:"*) ;;
+    *) PATH="$FLOWCODE_SHIM_DIR:$PATH" ;;
+  esac
+  export PATH
+fi

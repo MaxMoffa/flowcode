@@ -16,6 +16,8 @@ export interface AgentToolsSettings {
   delegateAgents: AgentCli[] | null;
   /** Delegated tasks running at once, per chat. */
   maxParallel: number;
+  /** WSL terminal tabs start bash through Flowcode's startup file, so agents typed by hand get the tools too (their shims lead PATH). */
+  shellIntegration: boolean;
 }
 
 export const MAX_PARALLEL_RANGE = { min: 1, max: 5 } as const;
@@ -28,6 +30,7 @@ const KEYS = {
   delegate: "flowcode.agentTools.delegate",
   delegateAgents: "flowcode.agentTools.delegateAgents",
   maxParallel: "flowcode.agentTools.maxParallel",
+  shellIntegration: "flowcode.agentTools.shellIntegration",
 } as const;
 
 const isAgentList = (v: unknown): v is AgentCli[] => Array.isArray(v) && v.every((x) => (AGENT_CLIS as readonly unknown[]).includes(x));
@@ -41,6 +44,7 @@ function load(): AgentToolsSettings {
     delegate: readBool(KEYS.delegate, true),
     delegateAgents: readJson<AgentCli[] | null>(KEYS.delegateAgents, (v): v is AgentCli[] | null => v === null || isAgentList(v), null),
     maxParallel: Math.round(readNumber(KEYS.maxParallel, 3, MAX_PARALLEL_RANGE.min, MAX_PARALLEL_RANGE.max)),
+    shellIntegration: readBool(KEYS.shellIntegration, true),
   };
 }
 
@@ -68,12 +72,13 @@ export interface AgentToolsConfig {
   delegate: boolean;
   delegateAgents: string[];
   maxParallel: number;
+  shellIntegration: boolean;
 }
 
 /** `available`: the agents offered while the settings say "every one" (those installed and signed in); all of them when unknown. */
 export function toolsConfig(s: AgentToolsSettings, available: readonly AgentCli[] = AGENT_CLIS): AgentToolsConfig {
-  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, delegateAgents: [], maxParallel: s.maxParallel };
-  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel };
+  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, delegateAgents: [], maxParallel: s.maxParallel, shellIntegration: false };
+  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel, shellIntegration: s.shellIntegration };
 }
 
 /** What a chat starting now gets (see `toolsConfig`). By default delegation offers the CLIs installed and signed in under the default profile (a failed check counts as available). */

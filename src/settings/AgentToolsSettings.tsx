@@ -47,6 +47,12 @@ export function AgentToolsSettings() {
             </SettingRow>
           </SettingsGroup>
 
+          <SettingsGroup title={t("settings.agentTools.shellIntegration.label")}>
+            <SettingRow id="agentToolsShellIntegration" label={t("settings.agentTools.shellIntegration.label")} desc={t("settings.agentTools.shellIntegration.desc")}>
+              <Switch checked={settings.shellIntegration} onChange={(on) => setAgentToolsSetting("shellIntegration", on)} label={t("settings.agentTools.shellIntegration.label")} stateLabels={onOff} />
+            </SettingRow>
+          </SettingsGroup>
+
           <SettingsGroup title={t("settings.agentTools.delegate.label")}>
             <SettingRow id="agentToolsDelegate" label={t("settings.agentTools.delegate.label")} desc={t("settings.agentTools.delegate.desc")}>
               <Switch checked={settings.delegate} onChange={(on) => setAgentToolsSetting("delegate", on)} label={t("settings.agentTools.delegate.label")} stateLabels={onOff} />

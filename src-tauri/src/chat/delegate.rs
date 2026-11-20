@@ -824,7 +824,7 @@ mod tests {
     }
 
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2 }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false }
     }
 
     fn task(id: &str, parent: &str) -> Arc<Task> {

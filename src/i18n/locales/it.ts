@@ -1476,6 +1476,8 @@ export const it = {
   "settings.agentTools.openAuto.desc": "Consenti senza conferma i server locali e i file nella cartella della chat. I siti esterni richiedono sempre la tua conferma.",
   "settings.agentTools.call.label": "Chiama l'utente",
   "settings.agentTools.call.desc": "L'agente può attirare la tua attenzione con un fumetto dalla sua scheda, quando sei in un'altra scheda: per una decisione, una revisione o per dire che ha finito.",
+  "settings.agentTools.shellIntegration.label": "Integrazione shell nelle tab WSL",
+  "settings.agentTools.shellIntegration.desc": "Le tab WSL avviano bash con un file di avvio di Flowcode, così anche Claude e Codex scritti a mano nel terminale ricevono gli strumenti. Vale per le tab aperte dopo.",
   "settings.agentTools.delegate.label": "Delega ad altri agenti",
   "settings.agentTools.delegate.desc": "L'agente può affidare un compito a un altro agente: parte una chat vera che riceve solo quel testo e restituisce l'ultimo messaggio. Permessi e domande dei delegati arrivano sempre a te.",
   "settings.agentTools.agent.desc": "Può ricevere compiti dagli altri agenti ({agent}).",

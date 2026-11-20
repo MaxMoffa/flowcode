@@ -53,7 +53,7 @@ Legenda: ✅ completo · 🟡 parziale/approssimato · ❌ assente · — non ap
 | **Compaction, ask in composer (elicitation), modello/modalità** | generico ACP | generico ACP | generico ACP | generico ACP | generico ACP | generico ACP (Plan/Act + catalogo modelli) |
 | **Handoff terminale ↔ chat** (`App.tsx:2436`, `chat.rs` attende la morte dell'agente) | ✅ | ✅ | ✅ | 🟡 serve l'id sessione, che per Gemini non viene rilevato | ✅ | ✅ |
 | **Delega cross-agente (Flowcode MCP)** (`chat/delegate.rs`, `agentToolsSettings.ts`) | ✅ | ✅ | ✅ | ✅ (lista configurabile) | ✅ | ✅ |
-| **Flowcode MCP nelle tab terminale** (`terminal_mcp.rs`, `provider_launcher.rs::mcp_args`; `open_in_browser` + `call_user`, anche con il comando scritto a mano; non in WSL) | ✅ `--mcp-config=` | ✅ `-c mcp_servers.flowcode...` | ❌ (nessun flag/env noto) | ❌ (da fare) | ❌ (da fare) | ❌ (da fare) |
+| **Flowcode MCP nelle tab terminale** (`terminal_mcp.rs`, `provider_launcher.rs::mcp_args`; `open_in_browser` + `call_user`, anche con il comando scritto a mano; WSL via shim sh + bashrc) | ✅ `--mcp-config=` | ✅ `-c mcp_servers.flowcode...` | ❌ (nessun flag/env noto) | ❌ (merge non verificato) | 🟡 `OPENCODE_CONFIG_CONTENT`, non provato | ❌ (file MCP sostituito + hub condiviso) |
 | **Pulizia della dettatura** (`dictation/cleanup.rs`, `dictationModels.ts`) | ✅ | ✅ (`codex.cmd`, file temporaneo) | ❌ | ❌ | ✅ | ❌ |
 | **Mobile: lancio/profili/login** (`mobile/src/*`) | ✅ | ✅ | ✅ | 🟡 dietro `useSupports("gemini")` (desktop recenti) | ✅ dietro `useSupports("opencode")` | ✅ dietro `useSupports("cline")` |
 | **Mobile: insight/contesto** (`remote/mod.rs`) | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |

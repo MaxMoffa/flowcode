@@ -1468,6 +1468,8 @@ export const en: Record<MessageKey, string> = {
   "settings.agentTools.openAuto.desc": "Allow local servers and files inside the chat folder without asking. External sites always require your confirmation.",
   "settings.agentTools.call.label": "Call the user",
   "settings.agentTools.call.desc": "The agent can get your attention with a bubble from its tab while you are in another tab: for a decision, a review or to say it is done.",
+  "settings.agentTools.shellIntegration.label": "Shell integration in WSL tabs",
+  "settings.agentTools.shellIntegration.desc": "WSL tabs start bash through a Flowcode startup file, so Claude and Codex typed by hand in the terminal get the tools too. Applies to tabs opened afterwards.",
   "settings.agentTools.delegate.label": "Delegate to other agents",
   "settings.agentTools.delegate.desc": "The agent can hand a task to another agent: a real chat starts, receives only that text and returns its last message. Delegates' permissions and questions always come to you.",
   "settings.agentTools.agent.desc": "Can receive tasks from the other agents ({agent}).",

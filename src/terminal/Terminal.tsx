@@ -223,8 +223,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const onExt = (method: string, params: unknown) => {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     if (method === "_flowcode/open" && typeof p.target === "string" && p.target) {
-      // WSL tabs get no tools yet, so no distro.
-      void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, null, confirmRef.current, tabIdRef.current);
+      // The backend names the distro of a WSL tab, null elsewhere.
+      void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, typeof p.distro === "string" && p.distro ? p.distro : null, confirmRef.current, tabIdRef.current);
     } else if (method === "_flowcode/call" && typeof p.message === "string" && p.message.trim()) {
       const tab = tabIdRef.current;
       // A terminal has no agent of its own: the agent named in the call, if it is one of ours.

@@ -1,12 +1,15 @@
 //! What the agents of a terminal tab get from Flowcode's MCP server
 //! (`chat_mcp.rs`): `open_in_browser` and `call_user`. The tab's PTY carries the
 //! server's settings in its environment; the shims of `provider_launcher.rs`
-//! (which every `claude` / `codex` typed in the tab goes through) turn them into
-//! the CLI's own flags, so the server reaches the agent without touching its
-//! config files. A request is answered with an event on the tab's output stream
-//! (`PtyEvent::Ext`), which the frontend routes like a chat's.
+//! (Windows tabs) and `wsl-shell/shim.sh` (WSL tabs), which every `claude` /
+//! `codex` typed in the tab goes through, turn them into the CLI's own flags, so
+//! the server reaches the agent without touching its config files. OpenCode
+//! reads its servers from an environment variable instead. A request is answered
+//! with an event on the tab's output stream (`PtyEvent::Ext`), which the
+//! frontend routes like a chat's.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
@@ -15,35 +18,71 @@ use crate::chat::delegate::{call_params, CALL_METHOD, OPEN_METHOD};
 use crate::chat_mcp::{self, CALL_USER, OPEN};
 use crate::pty::PtyState;
 
+const SHELL_SH: &str = include_str!("wsl-shell/shell.sh");
+const BASHRC: &str = include_str!("wsl-shell/bashrc");
+const SHIM_SH: &str = include_str!("wsl-shell/shim.sh");
+
 /// A tab's server: its token (revoked on drop), the tools it was given and the
 /// environment its PTY carries.
 pub(crate) struct TerminalMcp {
     token: String,
     tools: Vec<&'static str>,
-    cwd: String,
+    /// The tab's folder (a Linux path for a WSL tab, whose folder may be unknown).
+    cwd: Option<String>,
+    /// A WSL tab: its distro's name, empty for the default distro.
+    wsl: Option<String>,
     /// Claude's `--mcp-config` file for this tab, removed on drop.
     claude_config: Option<PathBuf>,
     env: Vec<(String, String)>,
+}
+
+/// What `call` needs to know of a tab.
+pub(crate) struct Info {
+    pub(crate) tools: Vec<&'static str>,
+    pub(crate) cwd: Option<String>,
+    pub(crate) wsl: Option<String>,
 }
 
 impl TerminalMcp {
     /// `None` when the settings give a tab no tool, or the server cannot be set up.
     /// `cwd` is the folder the tab starts in; without one, the user's home.
     pub(crate) fn new(app: &AppHandle, pty_id: &str, cfg: &chat_mcp::ToolsConfig, cwd: Option<&str>) -> Option<TerminalMcp> {
-        let tools = chat_mcp::terminal_tools(cfg);
-        if tools.is_empty() {
-            return None;
-        }
-        let (script, dir) = chat_mcp::script_and_dir(app)?;
         let cwd = match cwd.filter(|c| !c.is_empty()) {
             Some(cwd) => cwd.to_string(),
             None => crate::fs::user_home()?.to_string_lossy().into_owned(),
         };
-        let token = chat_mcp::register_terminal(pty_id);
-        let (script, dir_text) = (script.to_string_lossy().into_owned(), dir.to_string_lossy().into_owned());
-        let tools_text = tools.join(",");
+        Self::build(app, pty_id, cfg, Some(cwd), None)
+    }
+
+    /// A tab running in WSL: the agent sees Linux paths, the files stay on the
+    /// Windows side. `distro` is `None` for the default distro; `posix_cwd` is
+    /// unknown when the tab starts in the distro's own home.
+    pub(crate) fn new_wsl(app: &AppHandle, pty_id: &str, cfg: &chat_mcp::ToolsConfig, posix_cwd: Option<&str>, distro: Option<&str>) -> Option<TerminalMcp> {
+        let cwd = posix_cwd.filter(|c| !c.is_empty()).map(str::to_string);
+        Self::build(app, pty_id, cfg, cwd, Some(distro.unwrap_or("").to_string()))
+    }
+
+    fn build(app: &AppHandle, pty_id: &str, cfg: &chat_mcp::ToolsConfig, cwd: Option<String>, wsl: Option<String>) -> Option<TerminalMcp> {
+        let tools = chat_mcp::terminal_tools(cfg);
+        if tools.is_empty() {
+            return None;
+        }
+        let (script_path, dir_path) = chat_mcp::script_and_dir(app)?;
+        // A path as the agent sees it: a Linux path inside WSL.
+        let seen = |path: &Path| -> Option<String> {
+            let text = path.to_str()?;
+            if wsl.is_some() { crate::chat::to_wsl_path(text) } else { Some(text.to_string()) }
+        };
+        let (script, dir_text) = (seen(&script_path)?, seen(&dir_path)?);
         // Next to the `ipc` folder, so the folder the poller watches stays free of it.
-        let claude_config = dir.parent().map(|root| root.join(format!("term-{pty_id}.json"))).filter(|path| {
+        let claude_path = dir_path.parent().map(|root| root.join(format!("term-{pty_id}.json")));
+        let claude_seen = match &claude_path {
+            Some(path) => Some(seen(path)?),
+            None => None,
+        };
+        let token = chat_mcp::register_terminal(pty_id);
+        let tools_text = tools.join(",");
+        let claude_config = claude_path.filter(|path| {
             let config = json!({ "mcpServers": { "flowcode": {
                 "type": "stdio",
                 "command": "node",
@@ -59,12 +98,12 @@ impl TerminalMcp {
         });
         let mut env = vec![
             ("FLOWCODE_MCP_TOKEN".to_string(), token.clone()),
-            ("FLOWCODE_MCP_DIR".to_string(), dir_text),
-            ("FLOWCODE_MCP_SCRIPT".to_string(), script),
-            ("FLOWCODE_MCP_TOOLS".to_string(), tools_text),
+            ("FLOWCODE_MCP_DIR".to_string(), dir_text.clone()),
+            ("FLOWCODE_MCP_SCRIPT".to_string(), script.clone()),
+            ("FLOWCODE_MCP_TOOLS".to_string(), tools_text.clone()),
         ];
-        if let Some(path) = &claude_config {
-            env.push(("FLOWCODE_MCP_CLAUDE_CONFIG".to_string(), path.to_string_lossy().into_owned()));
+        if let (Some(_), Some(path)) = (&claude_config, claude_seen) {
+            env.push(("FLOWCODE_MCP_CLAUDE_CONFIG".to_string(), path));
         }
         // The CLI asks before using an MCP tool; these ask for nothing worth asking about.
         let mut allow = Vec::new();
@@ -77,19 +116,20 @@ impl TerminalMcp {
         if !allow.is_empty() {
             env.push(("FLOWCODE_MCP_AUTO_ALLOW".to_string(), allow.join(",")));
         }
-        Some(TerminalMcp { token, tools, cwd, claude_config, env })
+        // A WSL tab never carries the user's own (the variable is not in its WSLENV).
+        let existing = if wsl.is_none() { std::env::var("OPENCODE_CONFIG_CONTENT").ok() } else { None };
+        if let Some(config) = opencode_config(existing.as_deref(), &script, &dir_text, &token, &tools_text) {
+            env.push(("OPENCODE_CONFIG_CONTENT".to_string(), config));
+        }
+        Some(TerminalMcp { token, tools, cwd, wsl, claude_config, env })
     }
 
     pub(crate) fn env(&self) -> &[(String, String)] {
         &self.env
     }
 
-    pub(crate) fn tools(&self) -> &[&'static str] {
-        &self.tools
-    }
-
-    pub(crate) fn cwd(&self) -> &str {
-        &self.cwd
+    pub(crate) fn info(&self) -> Info {
+        Info { tools: self.tools.clone(), cwd: self.cwd.clone(), wsl: self.wsl.clone() }
     }
 }
 
@@ -102,9 +142,77 @@ impl Drop for TerminalMcp {
     }
 }
 
-/// Written whole or not at all: Claude may read the file the moment it exists.
-fn write_atomic(path: &std::path::Path, body: &str) -> std::io::Result<()> {
-    let tmp = path.with_extension("json.tmp");
+/// OpenCode's `OPENCODE_CONFIG_CONTENT` with Flowcode's server added to the
+/// user's own (`existing`), which is kept. `None` when the user's is not a JSON
+/// object: theirs wins rather than being replaced.
+fn opencode_config(existing: Option<&str>, script: &str, dir: &str, token: &str, tools: &str) -> Option<String> {
+    let mut config = match existing.map(str::trim).filter(|t| !t.is_empty()) {
+        None => json!({}),
+        Some(text) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object)?,
+    };
+    let mcp = config.as_object_mut()?.entry("mcp").or_insert_with(|| json!({}));
+    if !mcp.is_object() {
+        return None;
+    }
+    mcp["flowcode"] = json!({
+        "type": "local",
+        "command": ["node", script],
+        "environment": {
+            "FLOWCODE_MCP_DIR": dir,
+            "FLOWCODE_MCP_TOKEN": token,
+            "FLOWCODE_MCP_TOOLS": tools,
+            "FLOWCODE_MCP_AGENT": "opencode",
+        },
+        "enabled": true,
+    });
+    Some(config.to_string())
+}
+
+/// The startup script and the agent shims of WSL tabs, as Linux paths:
+/// `(shell.sh, shim folder)`. Written under the app's data folder once per run
+/// (a failure is retried by the next WSL tab).
+pub(crate) fn wsl_shell(app: &AppHandle) -> Option<(String, String)> {
+    static READY: OnceLock<(String, String)> = OnceLock::new();
+    static INIT: Mutex<()> = Mutex::new(());
+    let _init = INIT.lock().unwrap_or_else(|e| e.into_inner());
+    if READY.get().is_none() {
+        match write_wsl_shell(app) {
+            Some(paths) => { let _ = READY.set(paths); }
+            None => eprintln!("mcp: WSL shell files not written; the next WSL tab will retry"),
+        }
+    }
+    READY.get().cloned()
+}
+
+fn write_wsl_shell(app: &AppHandle) -> Option<(String, String)> {
+    let root = app.path().app_local_data_dir().ok()?.join("mcp").join("wsl");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).ok()?;
+    // A Windows checkout may have turned the embedded files CRLF; sh would choke on it.
+    let lf = |text: &str| text.replace("\r\n", "\n");
+    let skip = |cli: &str| crate::provider_launcher::skips_mcp(cli).join("|");
+    let shim = lf(SHIM_SH).replace("@CLAUDE_SKIP@", &skip("claude")).replace("@CODEX_SKIP@", &skip("codex"));
+    let shell = root.join("shell.sh");
+    write_if_changed(&shell, &lf(SHELL_SH)).ok()?;
+    write_if_changed(&root.join("bashrc"), &lf(BASHRC)).ok()?;
+    for cli in ["claude", "codex"] {
+        write_if_changed(&bin.join(cli), &shim).ok()?;
+    }
+    Some((crate::chat::to_wsl_path(shell.to_str()?)?, crate::chat::to_wsl_path(bin.to_str()?)?))
+}
+
+fn write_if_changed(path: &Path, body: &str) -> std::io::Result<()> {
+    if std::fs::read_to_string(path).ok().as_deref() == Some(body) {
+        return Ok(());
+    }
+    write_atomic(path, body)
+}
+
+/// Written whole or not at all: an agent may read the file the moment it exists.
+fn write_atomic(path: &Path, body: &str) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, body)?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
@@ -130,17 +238,28 @@ fn is_absolute(path: &str) -> bool {
 /// open and have been given the tool - the caller's word is not enough.
 pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>) -> Result<String, String> {
     let state = app.state::<PtyState>();
-    let (tools, tab_cwd) = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
+    let Info { tools, cwd, wsl } = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
     if !tools.contains(&tool) {
         return Err(format!("the tool `{tool}` is not available in terminal tabs"));
     }
     match tool {
         OPEN => {
-            let homes: Vec<String> = crate::fs::user_home().map(|p| p.to_string_lossy().into_owned()).into_iter().collect();
+            let mut homes: Vec<String> = crate::fs::user_home().map(|p| p.to_string_lossy().into_owned()).into_iter().collect();
+            // Looked up here, never at spawn: asking WSL may run wsl.exe.
+            let distro = wsl.map(|d| if d.is_empty() { crate::util::wsl_default_distro().unwrap_or_default() } else { d });
+            let tab_cwd = match &distro {
+                Some(distro) => {
+                    homes.extend(homes.clone().iter().filter_map(|home| crate::chat::to_wsl_path(home)));
+                    let wsl_home = Some(distro).filter(|d| !d.is_empty()).and_then(|d| crate::util::wsl_home(d));
+                    homes.extend(wsl_home.clone());
+                    cwd.or(wsl_home).or_else(|| homes.iter().find(|h| h.starts_with('/')).cloned()).unwrap_or_default()
+                }
+                None => cwd.unwrap_or_default(),
+            };
             let base = base_folder(reported_cwd, &tab_cwd, &homes);
             let target = args.get("target").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("`target` is required")?;
-            let target = chat_mcp::open_target(target, &base, &homes, None)?;
-            crate::pty::emit_ext(&state, pty_id, OPEN_METHOD, json!({ "target": target, "cwd": base }))?;
+            let target = chat_mcp::open_target(target, &base, &homes, distro.as_deref())?;
+            crate::pty::emit_ext(&state, pty_id, OPEN_METHOD, json!({ "target": target, "cwd": base, "distro": distro }))?;
             Ok("Sent to Flowcode. External links require user confirmation before opening.".to_string())
         }
         CALL_USER => {
@@ -167,5 +286,37 @@ mod tests {
         assert_eq!(base_folder(Some("sub"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(Some("//host/share"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(None, "C:/repo", &homes), "C:/repo");
+    }
+
+    fn opencode(existing: Option<&str>) -> Option<Value> {
+        opencode_config(existing, "/s.cjs", "/ipc", "tok", "call_user").map(|c| serde_json::from_str(&c).unwrap())
+    }
+
+    #[test]
+    fn opencode_gets_the_server_alone_when_the_user_has_no_config() {
+        let config = opencode(None).unwrap();
+        assert_eq!(config["mcp"]["flowcode"]["command"], json!(["node", "/s.cjs"]));
+        assert_eq!(config["mcp"]["flowcode"]["environment"]["FLOWCODE_MCP_TOKEN"], "tok");
+        assert_eq!(config["mcp"]["flowcode"]["environment"]["FLOWCODE_MCP_AGENT"], "opencode");
+        assert_eq!(config["mcp"]["flowcode"]["enabled"], true);
+        assert_eq!(opencode(Some("  ")).unwrap(), config);
+    }
+
+    #[test]
+    fn opencode_keeps_the_users_own_config() {
+        let config = opencode(Some(r#"{"model":"x","mcp":{"mine":{"type":"remote"}}}"#)).unwrap();
+        assert_eq!(config["model"], "x");
+        assert_eq!(config["mcp"]["mine"]["type"], "remote");
+        assert_eq!(config["mcp"]["flowcode"]["type"], "local");
+        let config = opencode(Some(r#"{"model":"x"}"#)).unwrap();
+        assert_eq!(config["model"], "x");
+        assert!(config["mcp"]["flowcode"].is_object());
+    }
+
+    #[test]
+    fn opencode_leaves_a_config_that_is_not_an_object_alone() {
+        assert!(opencode(Some("not json")).is_none());
+        assert!(opencode(Some("[1]")).is_none());
+        assert!(opencode(Some(r#"{"mcp":[]}"#)).is_none());
     }
 }

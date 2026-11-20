@@ -107,6 +107,10 @@ const DETACHED_GRACE: Duration = Duration::from_secs(30);
 /// runs - see `pty_spawn` and agents.rs's WSL scan.
 pub const PTY_ID_ENV: &str = "FLOWCODE_PTY_ID";
 
+/// How a WSL tab with shell integration starts: Flowcode's `shell.sh` (its path
+/// in `$1`) when readable, else the user's login shell as without it.
+const WSL_SHELL_START: &str = r#"[ -r "$1" ] && . "$1"; s=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); [ -n "$s" ] && [ -x "$s" ] || s=${SHELL:-/bin/sh}; exec "$s" -l"#;
+
 /// Cap on output held for a detached session - a tab is only ever detached
 /// for the moment it takes to move it, so this is just a backstop against a
 /// chatty program filling memory if the move never completes.
@@ -252,11 +256,10 @@ pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
     lock(&state.0).get(pty_id)?.profile.clone()
 }
 
-/// The tools and starting folder of the tab's MCP server (`None`: no such tab, or it has none).
-pub(crate) fn mcp_of(state: &PtyState, id: &str) -> Option<(Vec<&'static str>, String)> {
+/// The tools, starting folder and WSL distro of the tab's MCP server (`None`: no such tab, or it has none).
+pub(crate) fn mcp_of(state: &PtyState, id: &str) -> Option<crate::terminal_mcp::Info> {
     let sessions = lock(&state.0);
-    let mcp = sessions.get(id)?.mcp.as_ref()?;
-    Some((mcp.tools().to_vec(), mcp.cwd().to_string()))
+    Some(sessions.get(id)?.mcp.as_ref()?.info())
 }
 
 /// Sends an `Ext` event to the tab showing session `id`. The sink is pushed to
@@ -499,15 +502,37 @@ pub fn pty_spawn(
     // Account profile: point the agent CLIs at the profile's own folders. Not
     // for WSL - these are Windows paths, meaningless inside the distro.
     let mut mcp = None;
+    // Names WSLENV must carry into the distro, besides the tab's id.
+    let mut wsl_names: Vec<String> = Vec::new();
     if wsl_distro.is_none() && shell_stem != "wsl" {
         for (k, v) in crate::profiles::env_for(&app, profile.as_deref()) {
             cmd.env(k, v);
         }
         if let Some(path) = crate::provider_launcher::install(&app, profile.as_deref())? { cmd.env("PATH", path); }
-        // The shims above turn these into the agent CLIs' flags. WSL tabs have no shim yet.
+        // The shims above turn these into the agent CLIs' flags.
         mcp = tools.as_ref().and_then(|cfg| crate::terminal_mcp::TerminalMcp::new(&app, &id, cfg, cwd_for_mcp.as_deref()));
         for (k, v) in mcp.iter().flat_map(|m| m.env()) {
             cmd.env(k, v);
+        }
+    } else if let Some(cfg) = tools.as_ref() {
+        let posix_cwd = match &wsl_unc {
+            Some((_, posix)) => Some(posix.clone()),
+            None => cwd_for_mcp.as_deref().and_then(crate::chat::to_wsl_path),
+        };
+        mcp = crate::terminal_mcp::TerminalMcp::new_wsl(&app, &id, cfg, posix_cwd.as_deref(), wsl_distro.as_deref());
+        for (k, v) in mcp.iter().flat_map(|m| m.env()) {
+            cmd.env(k, v);
+            wsl_names.push(k.clone());
+        }
+        // bash then reads Flowcode's startup file, which puts the agent shims first on PATH.
+        if cfg.shell_integration && mcp.is_some() {
+            if let Some((shell_sh, shim_dir)) = crate::terminal_mcp::wsl_shell(&app) {
+                cmd.env("FLOWCODE_SHIM_DIR", shim_dir);
+                wsl_names.push("FLOWCODE_SHIM_DIR".to_string());
+                // The file lives on /mnt/c: when the distro can't read it, the
+                // tab must still get its login shell rather than die.
+                cmd.args(["-e", "/bin/sh", "-c", WSL_SHELL_START, "sh", &shell_sh]);
+            }
         }
     }
     // Tags everything started in this tab with the tab's session id, WSL
@@ -515,10 +540,20 @@ pub fn pty_spawn(
     // tell which tab an agent running *inside* WSL belongs to, since Linux
     // processes don't show up in the Windows process tree (see agents.rs).
     cmd.env(PTY_ID_ENV, &id);
-    let wslenv = std::env::var("WSLENV").unwrap_or_default();
-    if !wslenv.split(':').any(|v| v.split('/').next() == Some(PTY_ID_ENV)) {
-        let joined = if wslenv.is_empty() { format!("{PTY_ID_ENV}/u") } else { format!("{wslenv}:{PTY_ID_ENV}/u") };
-        cmd.env("WSLENV", joined);
+    wsl_names.insert(0, PTY_ID_ENV.to_string());
+    let mut wslenv = std::env::var("WSLENV").unwrap_or_default();
+    let mut changed = false;
+    for name in wsl_names {
+        if !wslenv.split(':').any(|v| v.split('/').next() == Some(name.as_str())) {
+            if !wslenv.is_empty() {
+                wslenv.push(':');
+            }
+            wslenv.push_str(&format!("{name}/u"));
+            changed = true;
+        }
+    }
+    if changed {
+        cmd.env("WSLENV", wslenv);
     }
     match shell_stem.as_str() {
         // cmd.exe never retitles on its own - not even after a `cd` typed by

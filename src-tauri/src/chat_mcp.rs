@@ -60,6 +60,8 @@ pub(crate) struct ToolsConfig {
     pub delegate_agents: Vec<String>,
     /// Most tasks one chat may have running at once.
     pub max_parallel: usize,
+    /// WSL terminal tabs start bash through Flowcode's startup file, so the agent shims lead PATH (see terminal_mcp.rs).
+    pub shell_integration: bool,
 }
 
 /// The tools a chat gets. A delegated child (depth 1) never delegates further.
@@ -594,6 +596,7 @@ mod tests {
             delegate: true,
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
+            shell_integration: true,
         }
     }
 
