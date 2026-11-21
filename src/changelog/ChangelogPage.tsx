@@ -154,6 +154,7 @@ export function ChangelogPage() {
     const isLatest = release === load.releases[0];
     body = (
       <article className="changelog-hero">
+        <ReleaseCover version={release.version} />
         <div className="changelog-hero-kicker">{isLatest ? t("changelog.latest") : t("changelog.previousOne")}</div>
         <ReleaseHeader release={release} installed={installed} />
         <ReleaseNotes release={release} />
@@ -194,6 +195,7 @@ export function WhatsNewPage({ version, onOpenChangelog }: { version: string; on
           : t("changelog.previousOne");
     body = (
       <article className="changelog-hero">
+        <ReleaseCover version={release.version} />
         <div className="changelog-hero-kicker">{kicker}</div>
         <ReleaseHeader release={release} installed={installed ?? version} />
         <ReleaseNotes release={release} />
@@ -232,6 +234,36 @@ function formatDate(iso: string, language: string): string | null {
   const date = iso ? new Date(iso) : null;
   if (!date || isNaN(date.getTime())) return null;
   return date.toLocaleDateString(language, { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Covers fetched this run, by version (`null` = none to show). */
+const covers = new Map<string, Promise<string | null>>();
+
+/** The release's 8-bit cover from the site (the generic one for releases
+ * without their own); nothing while it loads or when offline. */
+function ReleaseCover({ version }: { version: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setSrc(null);
+    let pending = covers.get(version);
+    if (!pending) {
+      pending = invoke<string | null>("release_cover", { version }).catch(() => null);
+      covers.set(version, pending);
+    }
+    void pending.then((url) => {
+      if (live) setSrc(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, [version]);
+  if (!src) return null;
+  return (
+    <div className="changelog-cover">
+      <img src={src} alt="" width={1600} height={900} />
+    </div>
+  );
 }
 
 function ReleaseHeader({ release, installed }: { release: ReleaseNote; installed: string | null }) {

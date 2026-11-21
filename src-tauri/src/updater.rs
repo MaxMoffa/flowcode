@@ -203,6 +203,42 @@ pub async fn release_notes() -> Result<Vec<ReleaseNote>, String> {
         .collect())
 }
 
+/// Where the site keeps the release covers (8-bit PNGs, see scripts/release-art).
+const COVERS_URL: &str = "https://maxmoffa.github.io/flowcode/assets/releases";
+/// A cover bigger than this isn't one of ours.
+const MAX_COVER_BYTES: u64 = 2 * 1024 * 1024;
+
+/// `version`'s cover from the site as a `data:` URL (the webview's CSP only
+/// lets images in from data/blob), the generic one when it has none; `None`
+/// when the site can't be reached. Kept per run, misses included.
+#[tauri::command]
+pub async fn release_cover(version: String) -> Option<String> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if !version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-')) {
+        return None;
+    }
+    if let Some(hit) = crate::util::lock(cache).get(&version) {
+        return hit.clone();
+    }
+    let key = version.clone();
+    let found = crate::blocking(move || {
+        let fetch = |name: &str| -> Option<Vec<u8>> {
+            let response = agent().get(&format!("{COVERS_URL}/{name}.png")).call().ok()?;
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut std::io::Read::take(response.into_reader(), MAX_COVER_BYTES), &mut bytes).ok()?;
+            bytes.starts_with(b"\x89PNG").then_some(bytes)
+        };
+        let bytes = fetch(&format!("v{version}")).or_else(|| fetch("generic"));
+        Ok::<_, String>(bytes.map(|b| format!("data:image/png;base64,{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b))))
+    })
+    .await
+    .ok()
+    .flatten();
+    crate::util::lock(cache).insert(key, found.clone());
+    found
+}
+
 /// `Some` when GitHub has a newer release than this build with an installer
 /// for this platform, `None` when this build is up to date.
 #[tauri::command]

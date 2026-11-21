@@ -242,6 +242,7 @@ pub fn run() {
             updater::update_check,
             updater::update_install,
             updater::release_notes,
+            updater::release_cover,
             pty::pty_foreground,
             pty::list_shell_options,
             fs::read_dir,

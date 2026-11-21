@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — copertina nel changelog dell'app (0.38.0)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --term-bg:#1a140f; --sidebar-bg:#15100b; --fg:#e7d8c5; --fg-muted:#a08a6f; --fg-faint:#7d6a54;
+  --border:rgba(232,184,128,.14); --accent:#9db984; --ctrl-hover-bg:rgba(232,184,128,.05);
+  --sidebar-hover:rgba(232,184,128,.06); --sidebar-selected-bg:rgba(157,185,132,.16); --sidebar-selected-fg:#e7d8c5;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0d0a07;color:var(--fg);font:13px/1.5 "Segoe UI",system-ui,sans-serif;padding:24px 28px 60px}
+h1.doc{font-size:19px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1040px}
+.bar{display:flex;gap:8px;margin:0 0 18px;flex-wrap:wrap}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{border-color:var(--accent);color:var(--accent)}
+h2.doc{font-size:15px;margin:34px 0 6px}
+
+/* app window */
+.win{width:1240px;height:860px;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
+.hdr{height:44px;flex:none;display:flex;align-items:flex-end;gap:2px;padding:0 10px;border-bottom:1px solid var(--border)}
+.tab{height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;border-radius:8px 8px 0 0;font-size:12px;color:var(--fg-muted)}
+.tab.on{background:var(--term-bg);color:var(--fg)}
+.body{flex:1;display:flex;min-height:0}
+.side{width:250px;flex:none;border-right:1px solid var(--border);background:var(--sidebar-bg);display:flex;flex-direction:column;min-height:0}
+.side-h{height:36px;display:flex;align-items:center;padding:0 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--border)}
+.side-l{padding:6px;overflow:auto}
+.item{display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:6px;margin-bottom:1px;cursor:pointer}
+.item:hover{background:var(--sidebar-hover)}
+.item.on{background:var(--sidebar-selected-bg)}
+.item .top{display:flex;align-items:center;gap:6px}
+.item .t{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.on .t{font-weight:600}
+.item .d{font-size:11px;color:var(--fg-muted)}
+.item.thumb{flex-direction:row;align-items:center;gap:9px}
+.item.thumb img{width:54px;height:30px;object-fit:cover;image-rendering:pixelated;border-radius:5px;flex:none;border:1px solid var(--border)}
+.item.thumb .txt{min-width:0;display:flex;flex-direction:column;gap:1px}
+.ver{font-family:var(--mono);font-size:11.5px}
+.badge{padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-size:10.5px;font-weight:600}
+.badge.m{background:color-mix(in srgb,var(--fg-muted) 16%,transparent);color:var(--fg-muted)}
+
+.page{flex:1;overflow-y:auto;background:var(--term-bg)}
+.inner{max-width:820px;margin:0 auto;padding:36px 40px 56px}
+.title{margin:0 0 6px;font-size:22px;font-weight:700}
+.desc{margin:0 0 24px;color:var(--fg-muted);font-size:12.5px}
+
+.hero{margin-top:8px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--accent) 6%,transparent);overflow:hidden}
+.cover{position:relative;aspect-ratio:16/9;background:#0b0806;overflow:hidden}
+.cover img{width:100%;height:100%;object-fit:cover;display:block;image-rendering:pixelated}
+.cover::after{content:"";position:absolute;inset:auto 0 0;height:38%;background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--term-bg) 70%,transparent))}
+.hero-in{padding:20px 24px 18px}
+.kicker{margin-bottom:8px;color:var(--accent);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.htitle{font-size:19px;font-weight:700}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--fg-muted);font-size:11.5px;margin-top:4px}
+.md{margin-top:14px;font-size:13px;line-height:1.6}
+.md h2{font-size:15px;margin:18px 0 6px}
+.md h3{font-size:13.5px;margin:18px 0 6px}
+.md p{margin:8px 0}
+.md ul{margin:6px 0;padding-left:20px}
+.md li{margin:3px 0}
+.md code{font-family:var(--mono);font-size:12px;background:rgba(232,184,128,.08);padding:1px 4px;border-radius:4px}
+.md a{color:var(--accent)}
+.link{margin-top:14px;font-size:12px;color:var(--accent)}
+
+/* variant: cover as a side-by-side band (B) */
+.hero.band .cover{aspect-ratio:auto;height:150px}
+.hero.band .cover img{object-position:50% 60%}
+
+.notes{max-width:1100px;color:var(--fg-muted);font-size:12.5px;line-height:1.6}
+.notes b{color:var(--fg)}
+</style>
+</head>
+<body>
+<h1 class="doc">Copertina della release nel changelog dell'app — anteprima 0.38.0</h1>
+<p class="sub">Pagina Changelog di Flowcode con la copertina nuova di 0.38.0 in cima alla scheda della release. Le note sono quelle preparate per 0.38.0 (<code>docs/releases/v0.38.0.md</code>). Clicca le versioni a sinistra: le vecchie mostrano la copertina generica. Sotto, due varianti per la lista laterale e l'altezza della copertina.</p>
+<div class="bar">
+  <span style="color:var(--fg-muted);align-self:center">Copertina:</span>
+  <button data-c="tall" class="on" onclick="setCover(this)">A · intera 16:9</button>
+  <button data-c="band" onclick="setCover(this)">B · fascia bassa 150px</button>
+  <span style="width:14px"></span>
+  <span style="color:var(--fg-muted);align-self:center">Lista:</span>
+  <button data-l="plain" class="on" onclick="setList(this)">come oggi</button>
+  <button data-l="thumb" onclick="setList(this)">con miniature</button>
+</div>
+
+<div class="win">
+  <div class="hdr">
+    <div class="tab">~/progetti/flowcode</div>
+    <div class="tab on">Changelog</div>
+  </div>
+  <div class="body">
+    <aside class="side">
+      <div class="side-h">Changelog</div>
+      <div class="side-l" id="list"></div>
+    </aside>
+    <main class="page">
+      <div class="inner">
+        <h1 class="title">Changelog</h1>
+        <p class="desc">Le novità di ogni versione di Flowcode.</p>
+        <article class="hero" id="hero">
+          <div class="cover"><img id="cover" alt=""></div>
+          <div class="hero-in">
+            <div class="kicker" id="kicker">Ultima versione</div>
+            <div class="htitle" id="htitle"></div>
+            <div class="meta" id="meta"></div>
+            <div class="md" id="md"></div>
+            <div class="link">Apri su GitHub ↗</div>
+          </div>
+        </article>
+      </div>
+    </main>
+  </div>
+</div>
+
+<h2 class="doc">Come funziona (proposta)</h2>
+<ul class="notes">
+  <li><b>Da dove arriva la copertina</b>: dal sito, <code>https://maxmoffa.github.io/flowcode/assets/releases/&lt;tag&gt;.png</code> (poi webp/jpg/svg), altrimenti <code>generic.png</code>. Stesso file del sito, nessun asset dentro l'app; il backend (<code>updater.rs</code>, che già scarica le note) può risolvere l'URL e passarlo come <code>cover_url</code>, così niente modifiche alla CSP per fetch dal frontend.</li>
+  <li><b>Offline / errore</b>: la copertina non si mostra e la scheda resta com'è oggi.</li>
+  <li><b>Anche in "What's new"</b> dopo un aggiornamento: stessa scheda con copertina.</li>
+  <li><b>Telefono</b>: se ha un changelog suo, stessa cosa in un secondo momento.</li>
+</ul>
+
+<script>
+const NOTES_038 = `## 🪷 Agents everywhere, chats in a blink
+
+The pond got busier and faster at the same time. Agents you start in a plain terminal tab now get the same Flowcode superpowers as chats: they can open pages, call you, and hand work to other agents. Long chats open almost instantly, showing the latest turns first and loading older ones as you scroll. Web pages in the browser panel now run in a real native webview. And if Flowcode ever crashes, one of your own agents can investigate before you report it, so you find out whether it's your machine or our bug. The frog learned to leap between lily pads. 🐸
+
+### ✨ New features
+
+- **Crash analysis with your agents.** The crash dialog gains an "Analyze with…" button. A read-only diagnosis chat checks logs, drivers and your system, then attaches a verdict to the report: a problem on your PC (with steps to fix it), a likely Flowcode bug (with evidence and steps to reproduce), or an issue someone already reported. The report on GitHub gets much clearer.
+- **Flowcode tools in terminal tabs.** Claude, Codex and OpenCode started in a terminal tab, from the launcher or typed by hand, can open pages in Flowcode's browser and send you a bubble, on Windows and in WSL.
+- **Delegation from terminal tabs.** Agents in a terminal can delegate tasks to other agents too: the tab shows a card with its delegates and opens each child as a chat tab next to it. The phone sees them as well.
+- **Native browser for web pages.** URL pages in the browser panel run in a native webview instead of an iframe, with a freeze frame while menus cover it and a new ⋯ menu.
+- **Context pill in the agent header.** The agent panel now opens from a small pill (fill ring and %) in the chat and terminal-agent headers. Ctrl+Shift+A toggles it, and "Pin to sidebar" brings back the old sidebar tab.
+
+### 🛠 Improvements
+
+- **Chats open in a blink.** Only the latest turns load at first, older ones follow as you scroll up. A resumed chat shows its saved preview while the agent starts, and very long chats render only what's near the screen.
+- **Faster History.** Each agent's sessions appear as soon as they're found, with ghost rows instead of an empty list. Returning to the tab is instant, and big histories (especially Claude and WSL ones) scan much faster.
+- **Paged history on the phone and remote desktops.** The phone gets the tail of a chat first and loads older pages on scroll-up.
+- **Reliable agent detection in terminal tabs.** Every agent is recognized the same way on Windows, WSL, macOS and Linux, including agents started through Git Bash or launchers that exit. A new "Agent detection diagnostics" item in the tab menu helps when one isn't recognized.
+- **Quicker Codex chats in WSL.** The Codex check is cached instead of running every time a chat opens.
+- **A new website.** The Flowcode site was rebuilt from scratch, with a live, clickable Flowcode window on the home page and one page per release.
+
+### 🐛 Bug fixes
+
+- **No more popping console windows.** Background helpers left behind by some agents (Cline, Codex) could open visible terminal windows after their tab closed. Each tab now ends its whole process tree.
+- **macOS:** the window background is properly blurred, and Codex started in a tab is no longer stuck being shown as "zsh".
+
+**Full changelog:** https://github.com/MaxMoffa/flowcode/compare/v0.37.0...v0.38.0`;
+
+const NOTES_037 = `## 🧹 Six agents, lighter footprint
+
+A spring-cleaning release with a new friend on board. Cline joins as the sixth agent, with history, spend and quotas just like the others. Under the hood, Flowcode now cleans up after itself: closed terminals, finished agents and WSL sessions no longer leave stray processes behind, and long chats use far less memory. The frog tidied up the pond. 🐸
+
+### ✨ New features
+
+- **Cline, the sixth agent.** Run \`cline\` in terminals and chats (Windows and WSL), with profiles, login/logout, resume, History and ClinePass quotas.
+- **Crash report dialog.** If the previous run crashed, Flowcode shows what happened and lets you report it on GitHub.`;
+
+const RELEASES = [
+  { v: "0.38.0", title: "Agents everywhere, chats in a blink", date: "22 novembre 2026", cover: "../../site/assets/releases/v0.38.0.png", notes: NOTES_038, installed: false },
+  { v: "0.37.0", title: "Six agents, lighter footprint", date: "19 novembre 2026", cover: "../../site/assets/releases/generic.png", notes: NOTES_037, installed: true },
+  { v: "0.36.0", title: "Shared browser tabs on the phone", date: "17 novembre 2026", cover: "../../site/assets/releases/generic.png", notes: "Notes of 0.36.0…" },
+  { v: "0.35.0", title: "Pixel widgets", date: "15 novembre 2026", cover: "../../site/assets/releases/generic.png", notes: "Notes of 0.35.0…" },
+  { v: "0.34.0", title: "Dictation everywhere", date: "13 novembre 2026", cover: "../../site/assets/releases/generic.png", notes: "Notes of 0.34.0…" },
+];
+
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function inline(s) {
+  return esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/(https:\/\/\S+)/g, '<a href="#">$1</a>');
+}
+function md(src) {
+  let html = "", list = false;
+  for (const line of src.split("\n")) {
+    if (line.startsWith("- ")) { if (!list) { html += "<ul>"; list = true; } html += "<li>" + inline(line.slice(2)) + "</li>"; continue; }
+    if (list) { html += "</ul>"; list = false; }
+    if (line.startsWith("### ")) html += "<h3>" + inline(line.slice(4)) + "</h3>";
+    else if (line.startsWith("## ")) html += "<h2>" + inline(line.slice(3)) + "</h2>";
+    else if (line.trim()) html += "<p>" + inline(line) + "</p>";
+  }
+  return html + (list ? "</ul>" : "");
+}
+
+let current = 0, listMode = "plain";
+function renderList() {
+  document.getElementById("list").innerHTML = RELEASES.map((r, i) => {
+    const badges = (i === 0 ? '<span class="badge">Nuova</span>' : "") + (r.installed && i ? '<span class="badge m">Installata</span>' : "");
+    if (listMode === "thumb")
+      return `<div class="item thumb${i === current ? " on" : ""}" onclick="show(${i})"><img src="${r.cover}" alt=""><div class="txt"><span class="top"><span class="ver">v${r.v}</span>${badges}</span><span class="t">${r.title}</span><span class="d">${r.date}</span></div></div>`;
+    return `<div class="item${i === current ? " on" : ""}" onclick="show(${i})"><span class="top"><span class="ver">v${r.v}</span>${badges}</span><span class="t">${r.title}</span><span class="d">${r.date}</span></div>`;
+  }).join("");
+}
+function show(i) {
+  current = i;
+  const r = RELEASES[i];
+  document.getElementById("cover").src = r.cover;
+  document.getElementById("kicker").textContent = i === 0 ? "Ultima versione" : "Versione precedente";
+  document.getElementById("htitle").textContent = r.title;
+  document.getElementById("meta").innerHTML = `<span class="ver">v${r.v}</span><span>${r.date}</span>` + (r.installed ? '<span class="badge">Installata</span>' : "");
+  document.getElementById("md").innerHTML = md(r.notes);
+  renderList();
+}
+function setCover(b) {
+  document.querySelectorAll("[data-c]").forEach((x) => x.classList.toggle("on", x === b));
+  document.getElementById("hero").classList.toggle("band", b.dataset.c === "band");
+}
+function setList(b) {
+  document.querySelectorAll("[data-l]").forEach((x) => x.classList.toggle("on", x === b));
+  listMode = b.dataset.l; renderList();
+}
+show(0);
+</script>
+</body>
+</html>
