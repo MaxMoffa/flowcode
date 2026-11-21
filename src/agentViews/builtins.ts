@@ -2,6 +2,13 @@ import { lazy } from "react";
 import { TERMINAL_VIEW, agentView, registerAgentView } from "./registry";
 import type { AgentViewDef } from "./types";
 
+const loadChatBody = () => import("../chat/ChatBody");
+
+/** Starts loading the chat view's chunk (a chat is about to open): the import is cached, so `lazy` finds it ready. */
+export function prefetchChatBody(): void {
+  void loadChatBody().catch(() => {});
+}
+
 const BUILTINS: AgentViewDef[] = [
   {
     id: "chat",
@@ -10,7 +17,7 @@ const BUILTINS: AgentViewDef[] = [
     source: "builtin",
     transport: "acp",
     devices: ["desktop", "tablet", "phone"],
-    component: lazy(() => import("../chat/ChatBody")),
+    component: lazy(loadChatBody),
   },
   {
     id: TERMINAL_VIEW,

@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { Fragment, memo, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { autoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
@@ -47,6 +47,17 @@ const THINKING_VERBS = [
   "chat.thinking.verb7",
   "chat.thinking.verb8",
 ] as const;
+
+/** How many timeline segments the column renders at first, and how many more each time the reader reaches its top. */
+const WINDOW_STEP = 50;
+const segId = (segment: TimelineSegment): string => (segment.type === "item" ? segment.item.id : segment.id);
+
+/** What the data layer adds to the session for paged history (see useChat); read defensively. */
+interface OlderApi {
+  has: boolean;
+  loading: boolean;
+  load: () => Promise<void>;
+}
 
 /** Pixels from the bottom within which the column keeps following new content. */
 const FOLLOW_SLACK_PX = 80;
@@ -340,9 +351,111 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     if (subTimeline) timelineCache.current.sub = subTimeline;
   }, [mainTimeline, subTimeline]);
   const timeline = subTimeline ?? mainTimeline ?? [];
-  const pending = useMemo(() => model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined), [model.items]);
-  // The agent's open question: it takes the composer's place until answered.
-  const openAsk = useMemo(() => model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined), [model.items]);
+
+  // Only the last segments are rendered (every agent message runs markdown, link and path work): the window
+  // grows by a step when the reader reaches its top, then older history is paged in. It starts at a segment
+  // (not a count), so appended messages don't shift what the reader sees.
+  const olderApi = (chat as { older?: OlderApi }).older;
+  const previewing = (chat as { previewing?: boolean }).previewing ?? false;
+  const olderHas = !!olderApi?.has;
+  const olderLoading = !!olderApi?.loading;
+  const windowAt = useRef<{ type: string; id: string } | null>(null);
+  const windowClear = useRef(chat.clearCount);
+  if (windowClear.current !== chat.clearCount) {
+    windowClear.current = chat.clearCount;
+    windowAt.current = null;
+  }
+  let startIdx = 0;
+  if (!sub && timeline.length > WINDOW_STEP) {
+    const at = windowAt.current;
+    let idx = -1;
+    if (at) {
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        if (timeline[i].type === at.type && segId(timeline[i]) === at.id) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) idx = timeline.length - WINDOW_STEP;
+    // Following the live end of a long run: the far top is let go (no visible change, the reader is below).
+    else if (followRef.current && timeline.length - idx > WINDOW_STEP * 3) idx = timeline.length - WINDOW_STEP * 2;
+    startIdx = idx;
+    windowAt.current = { type: timeline[idx].type, id: segId(timeline[idx]) };
+  } else if (!sub) {
+    windowAt.current = null;
+  }
+  const shownTimeline = useMemo(() => (startIdx > 0 ? timeline.slice(startIdx) : timeline), [timeline, startIdx]);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const windowState = useRef({ timeline, startIdx, olderHas, olderLoading, load: olderApi?.load });
+  windowState.current = { timeline, startIdx, olderHas, olderLoading, load: olderApi?.load };
+  const scrollAnchor = useRef<{ height: number; top: number } | null>(null);
+  /** Grows the window by a step upwards, remembering where the reader is so the view stays put; false when nothing is hidden. */
+  const revealMore = useCallback(() => {
+    const { timeline: all, startIdx: from } = windowState.current;
+    if (from <= 0) return false;
+    const column = columnRef.current;
+    if (column) scrollAnchor.current = { height: column.scrollHeight, top: column.scrollTop };
+    const next = all[Math.max(0, from - WINDOW_STEP)];
+    windowAt.current = { type: next.type, id: segId(next) };
+    rerender();
+    return true;
+  }, []);
+  // Content added above the reader pushes them down: put the scroll back by the added height.
+  useLayoutEffect(() => {
+    const anchor = scrollAnchor.current;
+    const column = columnRef.current;
+    if (!anchor || !column) return;
+    scrollAnchor.current = null;
+    column.scrollTop = anchor.top + (column.scrollHeight - anchor.height);
+  });
+  const topRef = useRef<HTMLDivElement>(null);
+  const loadedAtLength = useRef(-1);
+  const hasMoreAbove = !sub && (startIdx > 0 || olderHas);
+  useEffect(() => {
+    const el = topRef.current;
+    const column = columnRef.current;
+    if (!el || !column || !hasMoreAbove || hidden || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (revealMore()) return;
+        const state = windowState.current;
+        // Once per length: a load that brought nothing must not be retried in a loop.
+        if (!state.olderHas || state.olderLoading || !state.load || loadedAtLength.current === state.timeline.length) return;
+        loadedAtLength.current = state.timeline.length;
+        void state.load().catch(() => {});
+      },
+      { root: column, rootMargin: "400px 0px 0px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMoreAbove, hidden, startIdx, timeline.length, olderHas, olderLoading, revealMore]);
+
+  // A resumed chat's history arriving: the latest messages sharpen in from the bottom.
+  const hadItems = useRef(model.items.length > 0);
+  const [intro, setIntro] = useState(() => !!chat.resumed && model.items.length > 0 && phase === "starting");
+  const hasItems = model.items.length > 0;
+  useEffect(() => {
+    if (hasItems && !hadItems.current && chat.resumed && !sub) setIntro(true);
+    hadItems.current = hasItems;
+  }, [hasItems, chat.resumed, sub]);
+  useEffect(() => {
+    if (!intro) return;
+    const timer = window.setTimeout(() => setIntro(false), 900);
+    return () => window.clearTimeout(timer);
+  }, [intro]);
+
+  // Permission requests and the agent's open question (which takes the composer's place until answered), in one pass.
+  const { pending, openAsk } = useMemo(() => {
+    const open: Array<Extract<(typeof model.items)[number], { type: "permission" }>> = [];
+    let ask: Extract<(typeof model.items)[number], { type: "ask" }> | undefined;
+    for (const i of model.items) {
+      if (i.type === "permission" && i.resolved === undefined) open.push(i);
+      else if (!ask && i.type === "ask" && i.resolved === undefined) ask = i;
+    }
+    return { pending: open, openAsk: ask };
+  }, [model.items]);
   // The plan's usage limit, reached in this turn: the frog's pond stands in for the composer until the reset (or "write anyway").
   const limit = useMemo(() => (sub || attached ? null : limitOf(model.items)), [sub, attached, model.items]);
   const [dismissedLimitId, setDismissedLimitId] = useState<string | null>(null);
@@ -477,7 +590,9 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   }, [suggestionKey]);
 
   // Arrow keys in the composer walk the subagent tray (up) and the background terminals under it (down).
-  const terminals = useMemo(() => (sub ? [] : backgroundTerminals(model.items, agent).filter((term) => term.running)), [sub, model.items]);
+  // Scanning every tool call is the costly part of an event: it runs at low priority, the terminals card may lag a frame.
+  const terminalItems = useDeferredValue(model.items);
+  const terminals = useMemo(() => (sub ? [] : backgroundTerminals(terminalItems, agent).filter((term) => term.running)), [sub, terminalItems, agent]);
   const [navZone, setNavZone] = useState<"input" | "sub" | "term">("input");
   const [navIndex, setNavIndex] = useState(0);
   const [subsOpen, setSubsOpen] = useState(false);
@@ -850,7 +965,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
           setAtBottom(near);
         }}
       >
-        <div className="chat-content" ref={contentRef}>
+        <div className={`chat-content${intro ? " is-intro" : ""}`} ref={contentRef}>
+          {hasMoreAbove && <div className="chat-top-sentinel" ref={topRef} aria-hidden="true" />}
           {sub && (
             <div className="chat-user is-task">
               <span className="chat-task-label">{t("chat.subagent.task", { agent: CLI_INFO[agent].label })}</span>
@@ -882,7 +998,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             </details>
           )}
           <TranscriptRows
-            timeline={timeline}
+            timeline={shownTimeline}
             nested={!!sub}
             liveGroup={liveGroup}
             onAnswer={chat.answerPermission}
@@ -1432,6 +1548,17 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
         )}
       </div>
       </div>
+      {(phase === "starting" || previewing) && <div className="chat-loadbar" role="progressbar" aria-busy="true" />}
+      {olderLoading && !sub && (
+        <div className="chat-older-pill" role="status">
+          <span>{t("chat.older.loading")}</span>
+          <span className="chat-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      )}
       {!sub && !attached && (phase === "ready" || phase === "starting") && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
         <ChatEmptyFrog key={chat.clearCount} hidden={hidden} starting={phase === "starting"} cleared={cleared} />
       )}

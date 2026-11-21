@@ -10,8 +10,9 @@ import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
-import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState, type GoalAction } from "./chatModel";
+import { applyEvents, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState, type GoalAction } from "./chatModel";
 import { discardAttachment, releasePreview } from "./attachmentRelease";
+import { prefetchChatBody } from "../agentViews/builtins";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 import { isProviderAuthError } from "../../shared/providerAuth";
 import { forgetGoalChat } from "./GoalChip";
@@ -31,6 +32,20 @@ const lastModelKey = (agent: AgentCli) => `flowcode.chatLastModel.${agent}`;
 const lastThoughtKey = (agent: AgentCli) => `flowcode.chatLastThought.${agent}`;
 
 type ChatPhase = "starting" | "ready" | "failed";
+
+/** A page of the chat's log (the backend's `chat_events_page`). */
+interface ChatEventsPage {
+  events: ChatEvent[];
+  hasMore: boolean;
+  firstSeq: number;
+}
+
+/** Events fetched per "older" page. */
+const OLDER_PAGE_EVENTS = 300;
+/** A hidden window may never run animation frames: live events flush after this long at most. */
+const LIVE_FLUSH_MS = 100;
+/** After a turn ends, the chat's preview is saved once nothing else happened for this long. */
+const PREVIEW_SAVE_DELAY_MS = 3000;
 
 interface UseChatOptions {
   agent: AgentCli;
@@ -111,6 +126,19 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   }, [agent, profileId, attachChatId]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
   const [loaded, setLoaded] = useState(false);
+  const loadedRef = useRef(false);
+  loadedRef.current = loaded;
+  // The items come from a saved preview of the last page: the agent is still loading the session.
+  const [previewing, setPreviewing] = useState(false);
+  // Whether the log has events older than the ones loaded (`older.load` fetches the previous page); the ref is the truth, the state renders it.
+  const [olderState, setOlderState] = useState({ has: false, loading: false });
+  const olderRef = useRef(olderState);
+  const setOlder = useCallback((next: { has: boolean; loading: boolean }) => {
+    olderRef.current = next;
+    setOlderState(next);
+  }, []);
+  // `seq` of the first event loaded: the next older page is the one before it.
+  const firstSeqRef = useRef(0);
   // Bumped by `restart` to run the start effect again.
   const [attempt, setAttempt] = useState(0);
   /** How many times the conversation was cleared: the empty chat's frog plays its clear scene for each. */
@@ -156,6 +184,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const resumeId = talkedRef.current ? sessionIdRef.current : undefined;
     closedRef.current = false;
     setModelState(initialChat());
+    setPreviewing(false);
+    setOlder({ has: false, loading: false });
+    firstSeqRef.current = 0;
     setPhase("starting");
     setError(null);
     setNetworkFailed(false);
@@ -188,6 +219,44 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       }
     };
 
+    // Live events are folded once per animation frame (or after LIVE_FLUSH_MS, when frames don't run): one pass over the batch instead of one per event.
+    let liveBuf: ChatEvent[] = [];
+    let frame = 0;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushLive = () => {
+      if (frame) cancelAnimationFrame(frame);
+      if (flushTimer) clearTimeout(flushTimer);
+      frame = 0;
+      flushTimer = null;
+      if (liveBuf.length === 0) return;
+      const batch = liveBuf;
+      liveBuf = [];
+      setModelState((m) => applyEvents(m, batch));
+    };
+    const queueLive = (ev: ChatEvent) => {
+      liveBuf.push(ev);
+      if (!frame) frame = requestAnimationFrame(flushLive);
+      if (!flushTimer) flushTimer = setTimeout(flushLive, LIVE_FLUSH_MS);
+    };
+    // The chat's preview is saved when a turn has ended and things have been quiet a moment (the backend also saves it when the chat closes).
+    let previewTimer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePreviewSave = (id: string) => {
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => void invoke("chat_preview_save", { chatId: id }).catch(() => {}), PREVIEW_SAVE_DELAY_MS);
+    };
+    // The real replay replaces the preview: a late preview is dropped.
+    let replayed = false;
+    if (resumeId && !attachChatId) {
+      void invoke<ChatEvent[] | null>("chat_preview", { sessionId: resumeId }).then(
+        (saved) => {
+          if (cancelled || replayed || !saved || saved.length === 0) return;
+          setModelState(applyEvents(initialChat(), saved));
+          setPreviewing(true);
+        },
+        () => {},
+      );
+    }
+
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at
     // once, and the first round must not spawn an agent of its own.
     const timer = setTimeout(() => {
@@ -213,6 +282,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           if (!attachChatId) startedId = started.chatId;
           // Cancelled meanwhile: the cleanup closes it (it waits for this start).
           if (cancelled) return;
+          prefetchChatBody();
           chatIdRef.current = started.chatId;
           if (!attachChatId) sessionIdRef.current = started.sessionId;
           // A resume that fell back to a new session (`loaded: false`) has nothing on disk yet either.
@@ -235,8 +305,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             if (buffer) buffer.push(e.payload.event);
             else {
               activityRef.current = trackActivity(activityRef.current, e.payload.event);
-              setModelState((m) => applyEvent(m, e.payload.event));
+              queueLive(e.payload.event);
               followOpen(e.payload.event);
+              if (!attachChatId && e.payload.event.kind === "turnEnd") schedulePreviewSave(started.chatId);
             }
           });
           if (cancelled) {
@@ -245,14 +316,19 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           }
           unlisten = stop;
           let past: ChatEvent[];
+          let page: ChatEventsPage;
           try {
-            past = await invoke<ChatEvent[]>("chat_events", { chatId: started.chatId, afterSeq: 0 });
+            // Only the newest page: the older ones come when the user scrolls up (`older.load`).
+            page = await invoke<ChatEventsPage>("chat_events_page", { chatId: started.chatId });
+            past = page.events;
           } catch (err) {
             if (cancelled) return;
             if (!attachChatId || !String(err).includes("unknown chat")) throw err;
             // The attached chat is gone (its child was closed): the tab shows it as ended, not as a failed start.
             buffer = null;
-            setModelState((m) => applyEvent(m, { kind: "exit", seq: Number.MAX_SAFE_INTEGER, at: Date.now(), code: null }));
+            replayed = true;
+            setPreviewing(false);
+            setModelState((m) => applyEvents(m, [{ kind: "exit", seq: Number.MAX_SAFE_INTEGER, at: Date.now(), code: null }]));
             setPhase("ready");
             return;
           }
@@ -267,16 +343,21 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             followOpen(ev);
           }
           buffer = null;
+          replayed = true;
+          firstSeqRef.current = page.firstSeq;
+          setOlder({ has: page.hasMore, loading: false });
           const replayedActivity = events.reduce(trackActivity, activityRef.current);
           // A loaded session replays old history stamped with the load time: its real time is the one known from before.
           activityRef.current = started.loaded ? resumedActivity(replayedActivity, initialActivityRef.current) : replayedActivity;
           // A resumed session replays its history with no turn running; settling leaves "starting".
-          setModelState((m) => {
-            const replayed = events.reduce(applyEvent, m);
-            // An attached chat may be mid-turn: leaving "starting" must keep the turn it is in.
-            if (attachChatId) return replayed.status === "starting" ? settleAttached(replayed) : replayed;
-            return started.loaded || replayed.status === "starting" ? settleChat(replayed) : replayed;
-          });
+          // The model is built whole from the page (a preview shown meanwhile goes).
+          const folded = applyEvents(initialChat(), events);
+          let settled: ChatModelState;
+          // An attached chat may be mid-turn: leaving "starting" must keep the turn it is in.
+          if (attachChatId) settled = folded.status === "starting" ? settleAttached(folded) : folded;
+          else settled = started.loaded || folded.status === "starting" ? settleChat(folded) : folded;
+          setPreviewing(false);
+          setModelState(settled);
           setPhase("ready");
         } catch (err) {
           if (cancelled) return;
@@ -287,6 +368,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           } else void checkOnline().then((ok) => { if (!ok && !cancelled) setNetworkFailed(true); });
           reportAuthError(msg);
           setError(msg);
+          setPreviewing(false);
+          setModelState(initialChat());
           setPhase("failed");
         }
       })();
@@ -295,6 +378,10 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      if (frame) cancelAnimationFrame(frame);
+      if (flushTimer) clearTimeout(flushTimer);
+      if (previewTimer) clearTimeout(previewTimer);
+      liveBuf = [];
       unlisten?.();
       // An agent still starting is closed once it is up; the next start waits for that.
       const pending = startRef.current;
@@ -568,6 +655,35 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   const unqueue = useCallback((index: number) => setQueued((q) => q.filter((_, i) => i !== index)), []);
 
+  /** Fetches the page of the log before the oldest loaded event and puts it in front of the conversation. */
+  const loadOlder = useCallback(async () => {
+    const id = chatIdRef.current;
+    if (!id || !olderRef.current.has || olderRef.current.loading) return;
+    setOlder({ has: true, loading: true });
+    let more = true;
+    try {
+      const page = await invoke<ChatEventsPage>("chat_events_page", { chatId: id, beforeSeq: firstSeqRef.current, limit: OLDER_PAGE_EVENTS });
+      if (chatIdRef.current !== id) return;
+      more = page.hasMore && page.events.length > 0;
+      if (page.events.length > 0) {
+        firstSeqRef.current = page.firstSeq;
+        // Folded alone: the page starts at a user turn, so nothing in it waits for an event of the newer ones.
+        const folded = applyEvents(initialChat(), page.events);
+        const items = (loadedRef.current ? settleChat(folded) : folded).items;
+        setModelState((m) => {
+          // The newer state wins for an item both have (a delegate card, a tool call updated later).
+          const known = new Set(m.items.map((i) => i.id));
+          const fresh = items.filter((i) => !known.has(i.id));
+          return fresh.length === 0 ? m : { ...m, items: [...fresh, ...m.items] };
+        });
+      }
+    } catch (err) {
+      console.warn("chat_events_page", err);
+    }
+    if (chatIdRef.current === id) setOlder({ has: more, loading: false });
+  }, [setOlder]);
+  const older = useMemo(() => ({ has: olderState.has, loading: olderState.loading, load: loadOlder }), [olderState, loadOlder]);
+
   /** Starts the agent again - resuming the same session when it had a conversation. */
   const restart = useCallback(() => setAttempt((n) => n + 1), []);
   // The start failed for lack of network: try again as soon as it is back.
@@ -621,11 +737,15 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     forgetCacheWarning(id);
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, previewing, older, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume" | "older" | "previewing"> & {
+  /** Older events of the log not loaded yet: `has` says there are some, `load` fetches the previous page and puts it in front of the conversation. Absent for a chat running on another PC (it sends its whole history). */
+  older?: { has: boolean; loading: boolean; load: () => Promise<void> };
+  /** The items come from a saved preview (the last page of the previous run) while the agent loads the session. */
+  previewing?: boolean;
   /** Arms the message sent by itself at the usage limit's reset; absent for a chat running on another PC (its host arms its own chats). */
   scheduleResume?: (at: number, text: string, limitId: string) => void;
   /** Edits the scheduled resume message (`null` cancels it); absent for a chat running on another PC, unless its host supports `chatResume` (then it goes via the host). */

@@ -168,8 +168,68 @@ impl LogEntry {
     }
 }
 
+/// Most entries one `Log::tail_page` returns.
+pub(crate) const TAIL_PAGE_CAP: usize = 2000;
+/// A chat's first page: at least this many events...
+pub(crate) const FIRST_PAGE_EVENTS: usize = 300;
+/// ...and at least this many user turns (whichever is more).
+pub(crate) const FIRST_PAGE_TURNS: usize = 3;
+/// Saved previews kept (the oldest files go first).
+const MAX_PREVIEWS: usize = 200;
+
+/// `<app data>/chat-previews/`.
+fn previews_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    Some(app.path().app_data_dir().ok()?.join("chat-previews"))
+}
+
+/// The file of a session's preview; `None` for an id that isn't a plain one.
+fn preview_path(app: &AppHandle, session_id: &str) -> Option<std::path::PathBuf> {
+    let plain = !session_id.is_empty() && session_id.len() <= 128 && session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    plain.then(|| previews_dir(app).map(|d| d.join(format!("{session_id}.json")))).flatten()
+}
+
+/// Saves the log's last page (the first-page rule) as the session's preview,
+/// so reopening the chat shows it before the agent has loaded the session.
+/// Best effort: a failure is ignored. Keeps at most `MAX_PREVIEWS` files.
+pub(crate) fn persist_preview(app: &AppHandle, log: &Log, session_id: &str) {
+    let Some(path) = preview_path(app, session_id) else { return };
+    let (events, _, _) = log.tail_page(None, FIRST_PAGE_EVENTS, FIRST_PAGE_TURNS);
+    if events.is_empty() {
+        return;
+    }
+    let Some(dir) = path.parent() else { return };
+    let Ok(json) = serde_json::to_vec(&events) else { return };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, json).is_err() || std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return;
+    }
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    if files.len() > MAX_PREVIEWS {
+        files.sort();
+        for (_, old) in &files[..files.len() - MAX_PREVIEWS] {
+            let _ = std::fs::remove_file(old);
+        }
+    }
+}
+
+/// The saved preview of a session (see `persist_preview`), if any.
+pub(crate) fn read_preview(app: &AppHandle, session_id: &str) -> Option<Vec<Value>> {
+    let bytes = std::fs::read(preview_path(app, session_id)?).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// A chat's numbered events, as `chat_events` and the phones replay them.
-pub(super) struct Log {
+pub(crate) struct Log {
     /// The last `seq` given out: never reused, even after `reset`.
     pub(super) seq: u64,
     pub(super) events: VecDeque<LogEntry>,
@@ -240,6 +300,49 @@ impl Log {
         // Entries are in `seq` order: a merge only ever raises the last one's.
         let start = self.events.partition_point(|e| e.event.seq <= after_seq);
         self.events.range(start..).map(|e| e.since(after_seq)).collect()
+    }
+
+    /// Whether entry `i` opens a user turn: a `User` event, or the first of a run
+    /// of replayed `user_message_chunk`s (a resumed session's history).
+    fn starts_turn(&self, i: usize) -> bool {
+        let is_user_chunk = |e: &LogEntry| {
+            matches!(&e.event.body, ChatBody::Update { update }
+                if update.get("sessionUpdate").and_then(Value::as_str) == Some("user_message_chunk"))
+        };
+        match &self.events[i].event.body {
+            ChatBody::User { .. } => true,
+            _ => is_user_chunk(&self.events[i]) && (i == 0 || !is_user_chunk(&self.events[i - 1])),
+        }
+    }
+
+    /// A page of the log's tail, for opening a chat without shipping all of it.
+    /// Takes the events with `seq < before_seq` (the newest ones when `None`):
+    /// at least `limit` of them and at least `min_turns` user turns when the log
+    /// has that many, extended backward so the page STARTS at a user turn - a
+    /// tool call and its updates then never end up in two pages. A page never
+    /// grows past `TAIL_PAGE_CAP` entries (a single huge turn is then cut where
+    /// it is). Only the page is cloned. Returns `(events, has_more, first_seq)`:
+    /// `has_more` says older events exist, and `first_seq` (0 for an empty page)
+    /// is the `before_seq` that fetches the previous page.
+    pub(crate) fn tail_page(&self, before_seq: Option<u64>, limit: usize, min_turns: usize) -> (Vec<ChatEvent>, bool, u64) {
+        // Entries are in `seq` order; one merged entry carries its last chunk's seq.
+        let end = match before_seq {
+            Some(before) => self.events.partition_point(|e| e.event.seq < before),
+            None => self.events.len(),
+        };
+        let floor = end.saturating_sub(TAIL_PAGE_CAP);
+        let mut start = end.saturating_sub(limit.max(1)).max(floor);
+        let mut turns = (start..end).filter(|&i| self.starts_turn(i)).count();
+        // Back to a turn boundary, then until enough turns are in.
+        while start > floor && (!self.starts_turn(start) || turns < min_turns) {
+            start -= 1;
+            if self.starts_turn(start) {
+                turns += 1;
+            }
+        }
+        let events: Vec<ChatEvent> = self.events.range(start..end).map(|e| e.event.clone()).collect();
+        let first_seq = events.first().map_or(0, |e| e.seq);
+        (events, start > 0, first_seq)
     }
 
     /// Forgets every event but keeps counting from the last `seq`, so the
@@ -426,6 +529,56 @@ mod tests {
         let mut log = Log::new(100, 10);
         log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new(), images: Vec::new() }, 0);
         assert_eq!(log.events.len(), 1);
+    }
+
+    fn user(text: &str) -> ChatBody {
+        ChatBody::User { text: text.into(), attachments: Vec::new(), images: Vec::new() }
+    }
+
+    /// Ten turns of: user message, tool call, tool update, reply.
+    fn ten_turns() -> Log {
+        let mut log = big_log();
+        for n in 0..10 {
+            log.push(user(&format!("q{n}")), 0);
+            log.push(ChatBody::Update { update: json!({ "sessionUpdate": "tool_call", "toolCallId": format!("t{n}") }) }, 0);
+            log.push(ChatBody::Update { update: json!({ "sessionUpdate": "tool_call_update", "toolCallId": format!("t{n}") }) }, 0);
+            log.push(chunk("agent_message_chunk", "a"), 0);
+        }
+        log
+    }
+
+    #[test]
+    fn a_tail_page_starts_at_a_user_turn_and_pages_back() {
+        let log = ten_turns(); // seqs 1..=40, a user message at 1, 5, 9, ...
+        // Asking for 6 events lands mid-turn: it extends back to the user message, and to 3 turns.
+        let (page, more, first) = log.tail_page(None, 6, 3);
+        assert_eq!(page.iter().map(|e| e.seq).collect::<Vec<_>>(), (29..=40).collect::<Vec<_>>());
+        assert!(more && first == 29);
+        assert!(matches!(page[0].body, ChatBody::User { .. }));
+        // The previous page ends right before it.
+        let (older, more, first) = log.tail_page(Some(first), 6, 1);
+        assert_eq!(older.last().unwrap().seq, 28);
+        assert!(matches!(older[0].body, ChatBody::User { .. }) && more && first < 29);
+        // Down to the start: nothing more.
+        let (all, more, first) = log.tail_page(None, 1000, 1);
+        assert_eq!((all.len(), more, first), (40, false, 1));
+        let (none, more, first) = log.tail_page(Some(1), 10, 1);
+        assert!(none.is_empty() && !more && first == 0);
+    }
+
+    #[test]
+    fn replayed_user_chunks_open_a_turn_once_per_run() {
+        let mut log = big_log();
+        for n in 0..4 {
+            log.push(chunk("user_message_chunk", "he"), 0);
+            log.push(chunk("user_message_chunk", &format!("llo{n}")), 0);
+            log.push(chunk("agent_message_chunk", "x"), 0);
+            log.push(ChatBody::Update { update: json!({ "sessionUpdate": "tool_call", "toolCallId": n.to_string() }) }, 0);
+        }
+        let (page, more, _) = log.tail_page(None, 1, 1);
+        // Starts at the first chunk of the last user run, not between its chunks.
+        assert_eq!(page.first().unwrap().seq, 13);
+        assert!(more);
     }
 
     #[test]

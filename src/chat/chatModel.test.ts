@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 import { buildAskContent } from "./askQuestions";
 
@@ -847,5 +847,110 @@ describe("chat goal", () => {
     const cleared = run([goalEv(g("active")), goalEv(null)]);
     expect(cleared.goal).toBeNull();
     expect(cleared.items).toEqual([]);
+  });
+});
+
+describe("applyEvents (batch reducer)", () => {
+  const ev = (s: number, u: Record<string, unknown>, at = 1000 + s): ChatEvent => ({ kind: "update", seq: s, at, update: { sessionUpdate: "x", ...u } });
+  const text = (s: number, kind: string, t: string, parent?: string) => ev(s, { sessionUpdate: kind, content: { type: "text", text: t }, ...(parent ? { _meta: { claudeCode: { parentToolUseId: parent } } } : {}) });
+  const call = (s: number, id: string, extra: Record<string, unknown> = {}) => ev(s, { sessionUpdate: "tool_call", toolCallId: id, title: id, kind: "read", status: "pending", ...extra });
+  const upd = (s: number, id: string, extra: Record<string, unknown> = {}) => ev(s, { sessionUpdate: "tool_call_update", toolCallId: id, ...extra });
+  const user = (s: number, t: string): ChatEvent => ({ kind: "user", seq: s, at: 1000 + s, text: t });
+  const turnEnd = (s: number): ChatEvent => ({ kind: "turnEnd", seq: s, at: 1000 + s, stopReason: "end_turn" });
+  const same = (events: ChatEvent[], from: ChatModelState = initialChat()) => {
+    expect(applyEvents(from, events)).toEqual(events.reduce(applyEvent, from));
+    // The input state is never touched.
+    const frozen = structuredClone(from);
+    applyEvents(from, events);
+    expect(from).toEqual(frozen);
+  };
+
+  it("matches the reduce path on a plain conversation", () => {
+    same([
+      user(1, "hi"),
+      text(2, "agent_thought_chunk", "hm"),
+      text(3, "agent_thought_chunk", "m"),
+      text(4, "agent_message_chunk", "Ciao "),
+      text(5, "agent_message_chunk", "mondo"),
+      call(6, "a"),
+      upd(7, "a", { status: "in_progress" }),
+      upd(8, "a", { status: "completed", rawOutput: "ok" }),
+      text(9, "agent_message_chunk", "done"),
+      turnEnd(10),
+    ]);
+  });
+
+  it("matches with subagent streams and parallel tool calls interleaved", () => {
+    same([
+      user(1, "go"),
+      call(2, "launch", { kind: "think", title: "Agent", _meta: { claudeCode: { toolName: "Agent" } } }),
+      text(3, "agent_message_chunk", "main "),
+      text(4, "agent_message_chunk", "sub ", "launch"),
+      call(5, "child", { _meta: { claudeCode: { parentToolUseId: "launch" } } }),
+      text(6, "agent_message_chunk", "more", "launch"),
+      text(7, "agent_message_chunk", "main2"),
+      upd(8, "child", { status: "completed" }),
+      text(9, "agent_thought_chunk", "t", "launch"),
+      upd(10, "launch", { status: "completed" }),
+      turnEnd(11),
+    ]);
+  });
+
+  it("matches out-of-order tool updates (update before its call, a call after its updates)", () => {
+    same([
+      user(1, "x"),
+      upd(2, "late", { status: "in_progress", title: "Late" }),
+      call(3, "late"),
+      upd(4, "late", { status: "completed" }),
+      call(5, "late", { status: "pending" }),
+      upd(6, "exec", { kind: "execute", status: "in_progress" }),
+      upd(7, "exec", { status: "completed" }),
+    ]);
+  });
+
+  it("matches around events that take the slow path (permissions, images, ext, exit, user chunks, codex calls)", () => {
+    same([
+      user(1, "x"),
+      text(2, "agent_message_chunk", "a"),
+      { kind: "permission", seq: 3, at: 1, requestId: "r", toolCall: { toolCallId: "p" } as unknown as ChatToolCall, options: [] },
+      text(4, "agent_message_chunk", "b"),
+      ev(5, { sessionUpdate: "agent_message_chunk", content: { type: "image", flowcodeImageId: "i" } }),
+      text(6, "agent_message_chunk", "c"),
+      { kind: "permissionResolved", seq: 7, at: 1, requestId: "r", optionId: "o" },
+      ev(8, { sessionUpdate: "plan", entries: [] }),
+      call(9, "spawn", { title: "spawnAgent", rawInput: { senderThreadId: "m", receiverThreadIds: ["c1"] } }),
+      call(10, "act", { rawInput: { activityKind: "started", agentThreadId: "c1", receiverThreadIds: ["c1"] } }),
+      upd(11, "spawn", { status: "completed" }),
+      text(12, "user_message_chunk", "echo"),
+      text(13, "agent_thought_chunk", "z"),
+      { kind: "exit", seq: 14, at: 1, code: 0 },
+    ]);
+  });
+
+  it("matches on a replayed history (user chunks, no turn) and when events are already seen", () => {
+    const history = [text(1, "user_message_chunk", "q"), text(2, "agent_message_chunk", "a"), call(3, "t"), upd(4, "t", { status: "completed" }), text(5, "user_message_chunk", "q2"), text(6, "agent_message_chunk", "b")];
+    same(history);
+    const part = history.slice(0, 3).reduce(applyEvent, initialChat());
+    same(history, part);
+    expect(applyEvents(part, history.slice(0, 3))).toBe(part);
+  });
+
+  it("matches while a turn runs (status, notice, turn stats)", () => {
+    const base = [user(1, "x"), { kind: "ext", seq: 2, at: 1, method: "_session/retrying", params: { category: "rate", detail: "d" } } as ChatEvent];
+    same([...base, text(3, "agent_message_chunk", "abc"), call(4, "t"), text(5, "agent_message_chunk", "de")]);
+    // A joined mid-turn state: no `turn` yet, turn active.
+    const joined = { ...initialChat(), status: "busy" as const, turnActive: true };
+    same([text(1, "agent_message_chunk", "abc"), call(2, "t")], joined);
+  });
+
+  it("does not go quadratic: many chunks and tool calls fold quickly", () => {
+    const events: ChatEvent[] = [user(1, "x")];
+    for (let i = 0; i < 3000; i++) {
+      events.push(call(2 + i * 3, `t${i}`), upd(3 + i * 3, `t${i}`, { status: "completed" }), text(4 + i * 3, "agent_message_chunk", "w"));
+    }
+    const start = performance.now();
+    const model = applyEvents(initialChat(), events);
+    expect(performance.now() - start).toBeLessThan(1500);
+    expect(model.items.length).toBe(1 + 3000 * 2);
   });
 });

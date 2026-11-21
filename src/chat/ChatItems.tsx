@@ -387,6 +387,30 @@ export function PermissionCard({ item, onAnswer }: { item: Extract<ChatItem, { t
   );
 }
 
+/** Ghost bubbles standing in for a resumed chat's conversation while it loads (shimmering, anchored at the bottom like the real one). */
+export function ChatSkeleton() {
+  return (
+    <div className="chat-skeleton" aria-hidden="true">
+      <div className="chat-sk-bub is-user">
+        <span className="chat-sk-line" />
+        <span className="chat-sk-line is-short" />
+      </div>
+      <div className="chat-sk-bub">
+        <span className="chat-sk-line" />
+        <span className="chat-sk-line" />
+        <span className="chat-sk-line is-short" />
+      </div>
+      <div className="chat-sk-bub is-user">
+        <span className="chat-sk-line is-short" />
+      </div>
+      <div className="chat-sk-bub">
+        <span className="chat-sk-line" />
+        <span className="chat-sk-line is-short" />
+      </div>
+    </div>
+  );
+}
+
 export function PaperclipIcon({ size }: { size: number }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

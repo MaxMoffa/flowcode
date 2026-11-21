@@ -5,6 +5,7 @@ import { useI18n } from "../i18n";
 import { useOpenLink } from "../terminal/useOpenLink";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { previewUrls } from "./chatLinks";
+import { useNearViewport } from "../../shared/useNearViewport";
 
 /** Cards under one message. */
 const PREVIEWS_SHOWN = 3;
@@ -94,14 +95,18 @@ export function LinkPreviews({ text }: { text: string }) {
   const key = urls.join("\n");
   // Only links the text has stopped changing under: a url still being typed is not fetched.
   const [settled, setSettled] = useState<string[]>([]);
+  // Past messages fetch their cards only once scrolled near.
+  const [nearRef, near] = useNearViewport<HTMLDivElement>("600px");
   useEffect(() => {
+    if (!near) return;
     const timer = setTimeout(() => setSettled(key ? key.split("\n") : []), SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [key]);
-  const shown = settled.filter((u) => urls.includes(u));
-  if (shown.length === 0) return null;
+  }, [key, near]);
+  const shown = near ? settled.filter((u) => urls.includes(u)) : [];
+  if (urls.length === 0) return null;
+  if (shown.length === 0) return <div ref={nearRef} aria-hidden="true" />;
   return (
-    <div className="chat-link-previews">
+    <div className="chat-link-previews" ref={nearRef}>
       {shown.map((url) => (
         <LinkCard key={url} url={url} />
       ))}

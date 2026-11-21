@@ -10,6 +10,7 @@ import { useOpenLink } from "../terminal/useOpenLink";
 import { ChatImageSource, imageBytes, useChatImage } from "./chatImages";
 import type { ChatImageRef } from "./chatTypes";
 import { copyImage, formatBytes } from "../imageView/imageActions";
+import { useNearViewport } from "../../shared/useNearViewport";
 import { ImageButton, ImageSeparator, ZoomControls, ZoomStage, useZoomPan } from "../imageView/ZoomStage";
 
 /** The image each [data-chat-img] element of the conversation shows, for the lightbox to browse them all. */
@@ -89,7 +90,14 @@ function ImageAction({ title, onAct, children }: { title: string; onAct: (e: Poi
 }
 
 /** One image of a chat: its bytes load on demand (a shimmer meanwhile, a card when it is gone); a click opens the lightbox on every image of the conversation. `single` is the full-size one (with hover actions), `thumb` a user's attachment, `cell` a square of a grid (`more` hidden images behind it, as "+N"). */
-export function ChatImageView({ image, variant, caption, more }: { image: ChatImageRef; variant: "single" | "thumb" | "cell"; caption?: string; more?: number }) {
+export function ChatImageView(props: { image: ChatImageRef; variant: "single" | "thumb" | "cell"; caption?: string; more?: number }) {
+  // Images of past messages load only once scrolled near; a shimmer of the same box stands in.
+  const [nearRef, near] = useNearViewport<HTMLSpanElement>("600px");
+  if (!near) return <span ref={nearRef} className={`chat-img is-${props.variant} is-loading`} aria-busy="true" />;
+  return <ChatImageLoaded {...props} />;
+}
+
+function ChatImageLoaded({ image, variant, caption, more }: { image: ChatImageRef; variant: "single" | "thumb" | "cell"; caption?: string; more?: number }) {
   const { t } = useI18n();
   const { src, state, onError, loadOnce } = useChatImage(image);
   const actions = useImageActions(image, src);

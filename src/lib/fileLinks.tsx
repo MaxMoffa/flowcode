@@ -9,6 +9,7 @@ import { t } from "../i18n";
 import { toWindowsPath } from "../terminal/wslPath";
 import { isExecutablePath, type ParsedPath } from "./filePaths";
 import { basename } from "./path";
+import { useNearViewport } from "../../shared/useNearViewport";
 
 /** What a path link points at, as the backend's `path_kind` reports it. */
 export interface PathTarget {
@@ -39,14 +40,39 @@ export const FileLinkCwdContext = createContext<string | null>(null);
 export const FileLinkWslContext = createContext<string | null>(null);
 
 /** How long an answer is trusted: a file can be created or deleted meanwhile. */
-const CHECK_TTL_MS = 5000;
+const CHECK_TTL_MS = 60_000;
 const PATH_SETTLE_MS = 275;
-const CACHE_MAX = 500;
+const CACHE_MAX = 2000;
 const cache = new Map<string, { at: number; value: Promise<PathTarget | null> }>();
 
+/** Checks asked within one frame, sent to the backend as one batch. */
+let batch: Array<{ path: string; cwd: string | null; resolve: (target: PathTarget | null) => void }> = [];
+let batchScheduled = false;
+
+function flushBatch() {
+  batchScheduled = false;
+  const queries = batch;
+  batch = [];
+  if (queries.length === 0) return;
+  invoke<Array<PathTarget | null>>("path_kinds", { queries: queries.map(({ path, cwd }) => ({ path, cwd })) })
+    .then((found) => queries.forEach((q, i) => q.resolve(found[i] ?? null)))
+    .catch(() => queries.forEach((q) => q.resolve(null)));
+}
+
+function askBackend(path: string, cwd: string | null): Promise<PathTarget | null> {
+  return new Promise((resolve) => {
+    batch.push({ path, cwd, resolve });
+    if (batchScheduled) return;
+    batchScheduled = true;
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(flushBatch);
+    else setTimeout(flushBatch, 0);
+  });
+}
+
 /** What `path` (relative ones against `cwd`) points at on disk, or null when
- * nothing is there. Answers are cached for a few seconds, so a terminal
- * hovered line by line or a chat redrawn while streaming asks only once. */
+ * nothing is there. Answers are cached for a minute, so a terminal
+ * hovered line by line or a chat redrawn while streaming asks only once;
+ * the questions of one frame travel as one batch. */
 export function checkPath(path: string, cwd?: string | null): Promise<PathTarget | null> {
   if (!path || path.includes("\0")) return Promise.resolve(null);
   const key = `${cwd ?? ""}\0${path}`;
@@ -57,7 +83,7 @@ export function checkPath(path: string, cwd?: string | null): Promise<PathTarget
     for (const [k, v] of cache) if (now - v.at >= CHECK_TTL_MS) cache.delete(k);
     if (cache.size >= CACHE_MAX) cache.clear();
   }
-  const value = invoke<PathTarget | null>("path_kind", { path, cwd: cwd || null }).catch(() => null);
+  const value = askBackend(path, cwd || null);
   cache.set(key, { at: now, value });
   return value;
 }
@@ -178,8 +204,10 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
   const key = `${cwd ?? ""}\0${path}`;
   const [resolved, setResolved] = useState<{ key: string; target: PathTarget | null } | null>(null);
   const target = cwd !== null && resolved?.key === key ? resolved.target : null;
+  // Only links near the viewport hit the disk (a long chat has hundreds).
+  const [nearRef, near] = useNearViewport<HTMLSpanElement>("400px");
   useEffect(() => {
-    if (cwd === null) return;
+    if (cwd === null || !near) return;
     let live = true;
     const resolve = () => {
       void checkPath(path, cwd).then((found) => {
@@ -194,8 +222,8 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
       live = false;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [path, cwd, key]);
-  if (!target) return <>{children}</>;
+  }, [path, cwd, key, near]);
+  if (!target) return near ? <>{children}</> : <span ref={nearRef}>{children}</span>;
   // A span, not a <button>: a long path must wrap with the text around it.
   return (
     <span

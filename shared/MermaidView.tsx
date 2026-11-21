@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNearViewport } from "./useNearViewport";
 
 type Mermaid = (typeof import("mermaid"))["default"];
 
@@ -97,8 +98,11 @@ export function MermaidView({
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
   const theme = useDocumentTheme();
+  // Past messages render their diagram only when scrolled near (the code shows meanwhile).
+  const [nearRef, near] = useNearViewport<HTMLDivElement>("600px");
 
   useEffect(() => {
+    if (!near) return;
     let live = true;
     // Debounced so a streaming block is not re-parsed on every token.
     const timer = setTimeout(() => {
@@ -111,7 +115,7 @@ export function MermaidView({
       live = false;
       clearTimeout(timer);
     };
-  }, [text, theme]);
+  }, [text, theme, near]);
 
   useEffect(() => {
     if (!copied) return;
@@ -121,7 +125,7 @@ export function MermaidView({
 
   const code = showCode || svg === null;
   return (
-    <div className="chat-code chat-mermaid">
+    <div className="chat-code chat-mermaid" ref={nearRef}>
       <div className="chat-code-bar">
         <span className="chat-code-lang">mermaid</span>
         <span className="chat-mermaid-actions">

@@ -1250,6 +1250,7 @@ export const en: Record<MessageKey, string> = {
   "chat.thinking.tokens": "{n} tokens",
   "chat.thinking.tokensTitle": "Estimated from the text received",
   "chat.jumpToEnd": "Jump to the latest message",
+  "chat.older.loading": "Loading earlier messages…",
   "chat.thinking.stop": "Esc to interrupt",
   "chat.status.waiting": "Waiting for permission",
   "chat.status.exited": "Closed",

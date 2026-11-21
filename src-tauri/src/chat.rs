@@ -27,7 +27,7 @@ mod cline;
 mod commands;
 mod errors;
 mod launch;
-mod log;
+pub(crate) mod log;
 mod models;
 mod session;
 mod state;

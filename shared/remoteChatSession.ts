@@ -2,7 +2,7 @@
 // own reducer, src/chat/chatModel.ts) plus what only the phone keeps: the raw
 // events for plugin views and the messages waiting to be sent. Pure functions,
 // so the resume-after-reconnect and queue rules are testable without a link.
-import { applyEvent, applyLocalError, isAgentBusy, isAgentExited, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
+import { applyEvents as applyModelEvents, applyLocalError, isAgentBusy, isAgentExited, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
 import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "../src/chat/chatTypes";
 import type { ChatAttachmentRef, ChatInfo } from "./remote-types";
 
@@ -60,7 +60,7 @@ export function freshEvents(session: ChatSession, raw: unknown[]): ChatEvent[] {
  */
 export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay: boolean; busy: boolean }): ChatSession {
   const fresh = freshEvents(session, raw);
-  let model = fresh.reduce(applyEvent, session.model);
+  let model = applyModelEvents(session.model, fresh);
   if (model.items.length > MAX_ITEMS) model = { ...model, items: model.items.slice(-MAX_ITEMS) };
   // A busy chat replayed whole has no turn start in the events we kept: counting from now is an approximation.
   if (opts.replay) model = opts.busy ? (model.status === "starting" ? { ...model, status: "busy", turnActive: true, turn: model.turn ?? { startedAt: Date.now(), outChars: 0 } } : model) : settleChat(model);

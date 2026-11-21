@@ -1258,6 +1258,7 @@ export const it = {
   "chat.thinking.tokens": "{n} token",
   "chat.thinking.tokensTitle": "Stima dal testo ricevuto",
   "chat.jumpToEnd": "Vai all'ultimo messaggio",
+  "chat.older.loading": "Carico messaggi precedenti…",
   "chat.thinking.stop": "Esc per interrompere",
   "chat.status.waiting": "In attesa di permesso",
   "chat.status.exited": "Chiuso",

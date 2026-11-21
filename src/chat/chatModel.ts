@@ -539,42 +539,46 @@ function claudeMeta(update: ChatUpdate): { toolName?: string; parentToolUseId?: 
   };
 }
 
-function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): ChatModelState {
+type ToolItem = Extract<ChatItem, { type: "tool" }>;
+
+/** The tool item a `tool_call` / `tool_call_update` makes: a new one, or `prev` patched. */
+function mergeTool(prev: ToolItem | undefined, update: ChatUpdate, at: number): ToolItem {
   const patch = { ...(update as unknown as ChatToolCall), ...claudeMeta(update) };
-  const index = state.items.findIndex((i) => i.type === "tool" && i.id === patch.toolCallId);
-  const items = [...state.items];
-  if (index < 0) {
-    items.push({ type: "tool", id: patch.toolCallId, call: isSubagentLaunch(patch) || patch.kind === "execute" ? { ...patch, startedAt: at } : patch });
-  } else {
-    const prev = items[index] as Extract<ChatItem, { type: "tool" }>;
-    const merged = { ...prev.call } as Record<string, unknown>;
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined && value !== null) merged[key] = value;
-    }
-    // Some agents (Cline) send the `tool_call` after its updates, starting again from `pending`: never go back.
-    if (patch.status === "pending" && (prev.call.status === "in_progress" || prev.call.status === "completed" || prev.call.status === "failed")) {
-      merged.status = prev.call.status;
-    }
-    const call = merged as unknown as ChatToolCall;
-    // A promoted Codex activity launch keeps its child thread when a later update resends the bare activity input.
-    const prevInput = prev.call.rawInput;
-    if (isCodexSubagentLaunch(prev.call) && prevInput && typeof prevInput === "object" && patch.rawInput && typeof patch.rawInput === "object") {
-      call.rawInput = { ...(prevInput as Record<string, unknown>), ...(patch.rawInput as Record<string, unknown>) };
-    }
-    // A command is timed from its first event (the background terminals show how long it runs).
-    if (call.kind === "execute" && call.startedAt === undefined) call.startedAt = at;
-    // A subagent launch is timed: from its first event to its final status.
-    if (isSubagentLaunch(call) && !isCodexSubagentLaunch(call)) {
-      if (call.startedAt === undefined) call.startedAt = at;
-      if ((call.status === "completed" || call.status === "failed") && call.endedAt === undefined) call.endedAt = at;
-    }
-    items[index] = { ...prev, call };
+  if (!prev) return { type: "tool", id: patch.toolCallId, call: isSubagentLaunch(patch) || patch.kind === "execute" ? { ...patch, startedAt: at } : patch };
+  const merged = { ...prev.call } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined && value !== null) merged[key] = value;
   }
-  // Like text: a tool call alone (replayed history) doesn't start a turn.
-  return withItems(state, updateCodexSubagents(items, patch.toolCallId, at));
+  // Some agents (Cline) send the `tool_call` after its updates, starting again from `pending`: never go back.
+  if (patch.status === "pending" && (prev.call.status === "in_progress" || prev.call.status === "completed" || prev.call.status === "failed")) {
+    merged.status = prev.call.status;
+  }
+  const call = merged as unknown as ChatToolCall;
+  // A promoted Codex activity launch keeps its child thread when a later update resends the bare activity input.
+  const prevInput = prev.call.rawInput;
+  if (isCodexSubagentLaunch(prev.call) && prevInput && typeof prevInput === "object" && patch.rawInput && typeof patch.rawInput === "object") {
+    call.rawInput = { ...(prevInput as Record<string, unknown>), ...(patch.rawInput as Record<string, unknown>) };
+  }
+  // A command is timed from its first event (the background terminals show how long it runs).
+  if (call.kind === "execute" && call.startedAt === undefined) call.startedAt = at;
+  // A subagent launch is timed: from its first event to its final status.
+  if (isSubagentLaunch(call) && !isCodexSubagentLaunch(call)) {
+    if (call.startedAt === undefined) call.startedAt = at;
+    if ((call.status === "completed" || call.status === "failed") && call.endedAt === undefined) call.endedAt = at;
+  }
+  return { ...prev, call };
 }
 
-type ToolItem = Extract<ChatItem, { type: "tool" }>;
+function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): ChatModelState {
+  const toolCallId = (update as unknown as ChatToolCall).toolCallId;
+  const index = state.items.findIndex((i) => i.type === "tool" && i.id === toolCallId);
+  const items = [...state.items];
+  const item = mergeTool(index < 0 ? undefined : (items[index] as ToolItem), update, at);
+  if (index < 0) items.push(item);
+  else items[index] = item;
+  // Like text: a tool call alone (replayed history) doesn't start a turn.
+  return withItems(state, updateCodexSubagents(items, toolCallId, at));
+}
 
 const launchOfChild = (state: ChatModelState, sessionId: string): ToolItem | undefined =>
   state.items.find((i): i is ToolItem => i.type === "tool" && i.call.subagentSessionId === sessionId);
@@ -885,6 +889,114 @@ export function stopKind(reason: string): StopKind {
 export function applyEvent(state: ChatModelState, ev: ChatEvent): ChatModelState {
   if (ev.seq <= state.lastSeq) return state;
   return { ...reduce(state, ev), lastSeq: ev.seq };
+}
+
+/** Whether a tool call goes through `updateCodexSubagents`' scans (Codex collaboration calls); a plain one never touches another item. */
+function codexSensitive(call: ChatToolCall): boolean {
+  if (isCodexSubagentLaunch(call)) return true;
+  const input = call.rawInput;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const i = input as Record<string, unknown>;
+  return i.agentThreadId !== undefined || i.senderThreadId !== undefined || i.agentsStates !== undefined;
+}
+
+/**
+ * Folds many events into the conversation: exactly `events.reduce(applyEvent, state)`,
+ * but the hot kinds (streamed text, plain tool calls and their updates) work on one
+ * copy of the items array instead of one per event, with a tool-id index and the last
+ * item of each stream at hand. Anything else goes through `applyEvent`, in order.
+ */
+export function applyEvents(state: ChatModelState, events: readonly ChatEvent[]): ChatModelState {
+  let cur = state;
+  // The items array this call may mutate (a copy made on first need), and what is pending for `cur` after the fast events folded into it.
+  let items: ChatItem[] | null = null;
+  let toolIndex: Map<string, number> | null = null;
+  let streamLast: Map<string, number> | null = null;
+  let seq = cur.lastSeq;
+  let turn = cur.turn;
+  let dirty = false;
+
+  const sync = () => {
+    if (!dirty || !items) return;
+    cur = { ...cur, items, status: statusOf(items, cur.turnActive, cur.status), notice: null, turn, lastSeq: seq };
+    dirty = false;
+  };
+  const own = (): ChatItem[] => {
+    if (!items) {
+      items = cur.items.slice();
+      toolIndex = null;
+      streamLast = null;
+    }
+    return items;
+  };
+  const fast = (ev: Extract<ChatEvent, { kind: "update" }>): boolean => {
+    const update = ev.update;
+    const kind = update.sessionUpdate;
+    if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+      const text = textOf(update);
+      if (text === null) return false;
+      const list = own();
+      const type = kind === "agent_message_chunk" ? "agent" : "thought";
+      const parent = claudeMeta(update).parentToolUseId;
+      const stream = parent ?? "";
+      if (!streamLast) {
+        streamLast = new Map();
+        list.forEach((item, i) => streamLast!.set(streamOf(item), i));
+      }
+      const at = streamLast.get(stream) ?? -1;
+      const last = at >= 0 ? list[at] : undefined;
+      if (last && last.type === type && !(last.type === "agent" && last.images)) list[at] = { ...last, text: last.text + text };
+      else {
+        list.push({ type, id: `${type}-${ev.seq}`, text, ...(parent ? { parentToolUseId: parent } : {}) } as ChatItem);
+        streamLast.set(stream, list.length - 1);
+      }
+      if (!turn && cur.turnActive) turn = { startedAt: ev.at, outChars: 0 };
+      if (turn) turn = { ...turn, outChars: turn.outChars + text.length };
+    } else if (kind === "tool_call" || kind === "tool_call_update") {
+      const id = (update as { toolCallId?: unknown }).toolCallId;
+      if (typeof id !== "string") return false;
+      const list = own();
+      if (!toolIndex) {
+        toolIndex = new Map();
+        list.forEach((item, i) => {
+          if (item.type === "tool" && !toolIndex!.has(item.id)) toolIndex!.set(item.id, i);
+        });
+      }
+      const index = toolIndex.get(id) ?? -1;
+      const prev = index >= 0 ? (list[index] as ToolItem) : undefined;
+      const item = mergeTool(prev, update, ev.at);
+      if (codexSensitive(item.call)) return false;
+      if (prev) {
+        list[index] = item;
+        if (streamOf(prev) !== streamOf(item)) streamLast = null;
+      } else {
+        list.push(item);
+        toolIndex.set(id, list.length - 1);
+        streamLast?.set(streamOf(item), list.length - 1);
+      }
+      if (!turn && cur.turnActive) turn = { startedAt: ev.at, outChars: 0 };
+    } else return false;
+    seq = ev.seq;
+    dirty = true;
+    return true;
+  };
+
+  for (const ev of events) {
+    if (ev.seq <= seq) continue;
+    if (ev.kind === "update" && fast(ev)) continue;
+    sync();
+    cur = applyEvent(cur, ev);
+    // The reducer may have built another array: mine (and its indexes) is only good while it is the one in `cur`.
+    if (items !== cur.items) {
+      items = null;
+      toolIndex = null;
+      streamLast = null;
+    }
+    seq = cur.lastSeq;
+    turn = cur.turn;
+  }
+  sync();
+  return cur;
 }
 
 /** An error raised here rather than by the agent (a send or answer the backend

@@ -1,5 +1,5 @@
 use flowcode_shared::i18n::{is_italian, tr};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -818,6 +818,49 @@ fn stat_link_path(path: &str, cwd: Option<&str>) -> Option<PathTarget> {
 #[tauri::command]
 pub async fn path_kind(path: String, cwd: Option<String>) -> Option<PathTarget> {
     blocking(move || Ok(stat_link_path(&path, cwd.as_deref()))).await.ok().flatten()
+}
+
+/// One path of a `path_kinds` batch.
+#[derive(Deserialize)]
+pub struct PathQuery {
+    path: String,
+    cwd: Option<String>,
+}
+
+/// `path_kind` for many paths at once (a chat's links near the viewport): the
+/// answers come back in the order asked. The stats run on a few threads, so a
+/// slow one (a WSL share) doesn't hold up the rest.
+#[tauri::command]
+pub async fn path_kinds(queries: Vec<PathQuery>) -> Vec<Option<PathTarget>> {
+    blocking(move || {
+        const WORKERS: usize = 8;
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let mut out: Vec<Option<PathTarget>> = Vec::with_capacity(queries.len());
+        out.resize_with(queries.len(), || None);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..WORKERS.min(queries.len()))
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut done = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(q) = queries.get(i) else { break };
+                            done.push((i, stat_link_path(&q.path, q.cwd.as_deref())));
+                        }
+                        done
+                    })
+                })
+                .collect();
+            for worker in workers {
+                for (i, found) in worker.join().unwrap_or_default() {
+                    out[i] = found;
+                }
+            }
+        });
+        Ok(out)
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[cfg(test)]

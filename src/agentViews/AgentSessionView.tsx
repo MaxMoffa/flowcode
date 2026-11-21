@@ -1,5 +1,5 @@
 import { useChatCalls } from "../calls/useChatCalls";
-import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useI18n } from "../i18n";
@@ -12,6 +12,7 @@ import { delegatesOf, type DelegateInfo } from "../chat/chatModel";
 import { publishTabDelegation } from "../chat/delegateStore";
 import { interruptDelegates, recordDelegates } from "../agents/delegateHistory";
 import { useChat } from "../chat/useChat";
+import { ChatSkeleton } from "../chat/ChatItems";
 import { LocalChatImageProvider } from "../chat/chatImages";
 import { LocalMcpIconProvider } from "../chat/mcpIconLoader";
 import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
@@ -99,8 +100,10 @@ export function AgentSessionView({
   const views = useAgentViews();
   const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
-  // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
-  const showView = phase === "ready" || (phase === "starting" && !chat.resumed);
+  // A new chat starting shows the conversation (the frog's pond); a resumed one shows it as soon as there is
+  // something to show (the saved preview, or messages), and ghost bubbles until then.
+  const previewing = (chat as { previewing?: boolean }).previewing ?? false;
+  const showView = phase === "ready" || (phase === "starting" && (!chat.resumed || previewing || model.items.length > 0));
   // Keep the composer mounted while restarting so its unsent draft and attachments survive authentication.
   const mountedViewRef = useRef(false);
   if (showView) mountedViewRef.current = true;
@@ -122,8 +125,12 @@ export function AgentSessionView({
     };
   }, [phase, agent]);
   // The agents panel and the History read the delegation state from here.
-  const { items: modelItems, delegateRequests, task } = model;
-  useChatCalls(agent, openTabId, modelItems, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached, { parked: !tabId, sessionId });
+  // A resumed chat with nothing to show yet: ghost bubbles (not the spinner) while the history loads, unless the adapter is downloading.
+  const ghosts = phase === "starting" && !!chat.resumed && !downloading && !previewing && model.items.length === 0;
+  // The delegation bookkeeping is not urgent: it follows the stream at low priority instead of running on every event.
+  const { delegateRequests, task } = model;
+  const modelItems = useDeferredValue(model.items);
+  useChatCalls(agent, openTabId, model.items, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached, { parked: !tabId, sessionId });
   useEffect(() => {
     if (!tabId) return;
     const delegates = delegatesOf(modelItems);
@@ -271,15 +278,18 @@ export function AgentSessionView({
             </div>
           )}
           {!showView && (
+            <div className="chat-column-wrap">
+            {ghosts && <div className="chat-loadbar" role="progressbar" aria-busy="true" aria-label={t("chat.starting", { agent: label })} />}
             <div className="chat-column">
               <div className="chat-content">
-              {phase === "starting" && (
+              {phase === "starting" && (downloading || !chat.resumed) && (
                 <div className="chat-state">
                   <span className="chat-spinner" aria-hidden="true" />
                   <div>{t("chat.starting", { agent: label })}</div>
                   {downloading && <div className="chat-state-hint">{t("chat.starting.hint")}</div>}
                 </div>
               )}
+              {ghosts && <ChatSkeleton />}
               {phase === "failed" && (
                 <div className={`chat-state${authRequired ? " chat-auth-callout" : offlineFailed ? " chat-offline-callout" : ""}`}>
                   {offlineFailed ? (
@@ -324,6 +334,18 @@ export function AgentSessionView({
                 </div>
               )}
               </div>
+              {ghosts && (
+                <div className="chat-footer">
+                  <div className="chat-composer-wrap">
+                    <div className="chat-composer">
+                      <div className="chat-input-row">
+                        <textarea className="chat-input" rows={1} disabled aria-label={t("chat.composer.label")} placeholder={t("chat.composer.placeholder")} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             </div>
           )}
         </div>

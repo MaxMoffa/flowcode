@@ -160,6 +160,12 @@ pub async fn chat_close(app: AppHandle, chat_id: String) -> Result<(), String> {
     // Dropping the session kills the agent - `taskkill` / `kill` and the
     // wait for the exit included: not on an async worker.
     crate::blocking(move || {
+        // What the chat showed last, for the next time this session opens.
+        if let Some(session) = &session {
+            if let Some(session_id) = session.chat.session_id.get() {
+                persist_preview(&app, &lock(&session.chat.log), session_id);
+            }
+        }
         drop(session);
         drop(children);
         Ok(())
@@ -173,6 +179,45 @@ pub fn chat_events(state: State<'_, ChatState>, chat_id: String, after_seq: u64)
     let chat = state.get(&chat_id)?;
     let events = lock(&chat.log).after(after_seq);
     Ok(events)
+}
+
+/// One page of a chat's log (`chat_events_page`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatEventsPage {
+    pub events: Vec<ChatEvent>,
+    /// Older events exist: ask again with `before_seq` = `first_seq`.
+    pub has_more: bool,
+    /// `seq` of the page's first event (0 when empty).
+    pub first_seq: u64,
+}
+
+/// The newest page of a chat's log, or the one before `before_seq`: starts at
+/// a user turn (`Log::tail_page`). `limit` defaults to the first-page size.
+/// Only the page is copied under the lock, so opening a long chat is fast.
+#[tauri::command(async)]
+pub fn chat_events_page(state: State<'_, ChatState>, chat_id: String, before_seq: Option<u64>, limit: Option<usize>) -> Result<ChatEventsPage, String> {
+    let chat = state.get(&chat_id)?;
+    let (events, has_more, first_seq) =
+        lock(&chat.log).tail_page(before_seq, limit.unwrap_or(FIRST_PAGE_EVENTS).clamp(1, TAIL_PAGE_CAP), FIRST_PAGE_TURNS);
+    Ok(ChatEventsPage { events, has_more, first_seq })
+}
+
+/// The saved preview of a session's last page (see `persist_preview`), raw
+/// events as `chat_events` gives them; `None` when there is none.
+#[tauri::command(async)]
+pub fn chat_preview(app: AppHandle, session_id: String) -> Option<Vec<Value>> {
+    read_preview(&app, &session_id)
+}
+
+/// Saves the chat's preview now (the view calls it when a turn ends).
+#[tauri::command(async)]
+pub fn chat_preview_save(state: State<'_, ChatState>, app: AppHandle, chat_id: String) -> Result<(), String> {
+    let chat = state.get(&chat_id)?;
+    if let Some(session_id) = chat.session_id.get() {
+        persist_preview(&app, &lock(&chat.log), session_id);
+    }
+    Ok(())
 }
 
 /// The bytes of a stored chat image (an event's `flowcodeImageId` or a user
