@@ -18,12 +18,16 @@ use crate::util::lock;
 
 /// How much of a transcript's head and tail is read.
 const HEAD_CHUNK: u64 = 256 * 1024;
+/// First, cheap head read; the full `HEAD_CHUNK` only when it finds no title.
+const QUICK_HEAD_CHUNK: u64 = 32 * 1024;
 const TAIL_CHUNK: u64 = 256 * 1024;
 /// Longest line parsed whole when looking for the first prompt.
 const MAX_PROMPT_LINE: usize = 64 * 1024;
 /// Longest fallback title (the first prompt), in characters.
 const TITLE_CHARS: usize = 80;
 const MAX_CLAUDE_SESSIONS: usize = 200;
+const PARSE_BATCH: usize = 64;
+const PARSE_THREADS: usize = 8;
 
 #[derive(Serialize, Clone)]
 pub struct ClaudeSessionEntry {
@@ -175,8 +179,16 @@ fn read_lines(file: &mut std::fs::File, from: u64, size: u64, len: u64, is_head:
 }
 
 fn read_transcript(path: &Path, len: u64) -> Option<Transcript> {
+    let quick = read_transcript_with(path, len, QUICK_HEAD_CHUNK);
+    if quick.is_some() || len <= QUICK_HEAD_CHUNK {
+        return quick;
+    }
+    read_transcript_with(path, len, HEAD_CHUNK)
+}
+
+fn read_transcript_with(path: &Path, len: u64, head_chunk: u64) -> Option<Transcript> {
     let mut file = std::fs::File::open(path).ok()?;
-    let head = read_lines(&mut file, 0, HEAD_CHUNK, len, true)?;
+    let head = read_lines(&mut file, 0, head_chunk, len, true)?;
     let (mut cwd, mut started_at, mut prompt) = (None, None, None);
     for line in head.lines() {
         if cwd.is_some() && started_at.is_some() && prompt.is_some() {
@@ -205,7 +217,11 @@ fn read_transcript(path: &Path, len: u64) -> Option<Transcript> {
     }
     let (cwd, prompt) = (cwd?, prompt?);
 
-    let tail = if len > TAIL_CHUNK { read_lines(&mut file, len - TAIL_CHUNK, TAIL_CHUNK, len, false)? } else { head };
+    let tail = if len > head_chunk.min(TAIL_CHUNK) {
+        read_lines(&mut file, len.saturating_sub(TAIL_CHUNK), TAIL_CHUNK, len, false)?
+    } else {
+        head
+    };
     let (mut custom, mut ai, mut summary) = (None, None, None);
     for line in tail.lines() {
         let (slot, key) = if line.contains("\"type\":\"custom-title\"") {
@@ -239,7 +255,11 @@ fn cached_transcript(path: &Path, mtime: Option<u64>, len: u64) -> Option<Transc
     let parsed = read_transcript(path, len);
     let mut cache = lock(&CACHE);
     if cache.len() >= MAX_CACHED {
-        cache.clear();
+        // Evict the older half (by file mtime) instead of dropping everything.
+        let mut ages: Vec<u64> = cache.values().map(|(at, _, _)| at.unwrap_or(0)).collect();
+        ages.sort_unstable();
+        let cutoff = ages[ages.len() / 2];
+        cache.retain(|_, (at, _, _)| at.unwrap_or(0) > cutoff);
     }
     cache.insert(path.to_path_buf(), (mtime, len, parsed.clone()));
     parsed
@@ -253,7 +273,7 @@ fn scan_project_sessions(
 ) -> Vec<ClaudeSessionEntry> {
     let encoded: Vec<String> = roots.iter().map(|r| encode_cwd(r.trim_end_matches(['\\', '/']))).collect();
     let Ok(folders) = std::fs::read_dir(claude_dir.join("projects")) else { return Vec::new() };
-    let mut out = Vec::new();
+    let mut cands: Vec<(PathBuf, Option<u64>, u64)> = Vec::new();
     for folder in folders.flatten() {
         let name = folder.file_name().to_string_lossy().into_owned();
         let candidate = encoded
@@ -272,8 +292,28 @@ fn scan_project_sessions(
             if !meta.is_file() {
                 continue;
             }
-            let updated_at = crate::fs::system_time_to_millis(meta.modified());
-            let Some(t) = cached_transcript(&path, updated_at, meta.len()) else { continue };
+            cands.push((path, crate::fs::system_time_to_millis(meta.modified()), meta.len()));
+        }
+    }
+    // Newest first; only the newest ones are parsed, in parallel chunks, until
+    // enough match (the caller keeps MAX_CLAUDE_SESSIONS anyway).
+    cands.sort_by_key(|c| std::cmp::Reverse(c.1));
+    let mut out = Vec::new();
+    for chunk in cands.chunks(PARSE_BATCH) {
+        let per = chunk.len().div_ceil(PARSE_THREADS).max(1);
+        let parsed: Vec<Option<Transcript>> = std::thread::scope(|sc| {
+            let handles: Vec<_> = chunk
+                .chunks(per)
+                .map(|part| {
+                    sc.spawn(move || {
+                        part.iter().map(|(path, mtime, len)| cached_transcript(path, *mtime, *len)).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+        });
+        for ((path, updated_at, _), t) in chunk.iter().zip(parsed) {
+            let Some(t) = t else { continue };
             if !roots.iter().any(|r| under_root(&t.cwd, r)) {
                 continue;
             }
@@ -287,9 +327,12 @@ fn scan_project_sessions(
                 session_id,
                 title: t.title,
                 started_at: t.started_at,
-                updated_at,
+                updated_at: *updated_at,
                 profile: profile.map(str::to_string),
             });
+        }
+        if out.len() >= MAX_CLAUDE_SESSIONS {
+            break;
         }
     }
     out

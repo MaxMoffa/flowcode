@@ -68,7 +68,7 @@ fn read_meta(dir: &Path) -> Option<SessionMeta> {
     static CACHE: LazyLock<Mutex<MetaCache>> = LazyLock::new(Default::default);
     /// Past this many remembered sessions the cache is dropped and refilled -
     /// a bound, not a policy: only the newest few are ever asked for.
-    const MAX_CACHED: usize = 512;
+    const MAX_CACHED: usize = 1024;
 
     let path = dir.join("meta.json");
     let updated_at = crate::fs::system_time_to_millis(std::fs::metadata(&path).and_then(|m| m.modified()));
@@ -292,12 +292,16 @@ pub struct VibeSessionEntry {
     profile: Option<String>,
 }
 
-const MAX_VIBE_SESSIONS: usize = 8;
+/// Same budget as Claude/Codex: the frontend filters per project afterwards.
+const MAX_VIBE_SESSIONS: usize = 200;
+/// Fewer sessions are inspected over `\wsl.localhost` (every file access is slow).
+const MAX_WSL_VIBE_SESSIONS: usize = 100;
 
 fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<VibeSessionEntry> {
+    let max = if wsl_distro.is_some() { MAX_WSL_VIBE_SESSIONS } else { MAX_VIBE_SESSIONS };
     session_dirs(root)
         .iter()
-        .take(MAX_VIBE_SESSIONS * 4)
+        .take(max * 2)
         .filter_map(|(dir, _)| read_meta(dir))
         .filter(|m| !m.child)
         .filter_map(|m| {
@@ -310,7 +314,7 @@ fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&s
                 profile: profile.map(str::to_string),
             })
         })
-        .take(MAX_VIBE_SESSIONS)
+        .take(max)
         .collect()
 }
 
@@ -327,31 +331,51 @@ fn wsl_sessions_root() -> Option<(String, PathBuf)> {
 /// seconds.
 const WSL_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// The WSL distro's saved sessions, stale-while-revalidate: a cached list is
+/// returned at once and, past the TTL, refreshed by one background thread; the
+/// lock is never held across the (slow) scan. Only the first call (no cache) or
+/// an explicit `fresh` scans synchronously.
+fn wsl_sessions_cached(fresh: bool) -> Vec<VibeSessionEntry> {
+    type Cached = Option<(std::time::Instant, Vec<VibeSessionEntry>)>;
+    static WSL_CACHE: Mutex<Cached> = Mutex::new(None);
+    static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering;
+
+    fn scan_into_cache() -> Vec<VibeSessionEntry> {
+        let scanned = wsl_sessions_root()
+            .map(|(distro, root)| scan_saved_sessions(&root, Some(&distro), None))
+            .unwrap_or_default();
+        *lock(&WSL_CACHE) = Some((std::time::Instant::now(), scanned.clone()));
+        scanned
+    }
+
+    let cached = lock(&WSL_CACHE).clone();
+    match cached {
+        Some((at, list)) if !fresh => {
+            if at.elapsed() >= WSL_SCAN_TTL && REFRESHING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                std::thread::spawn(|| {
+                    scan_into_cache();
+                    REFRESHING.store(false, Ordering::Release);
+                });
+            }
+            list
+        }
+        _ => scan_into_cache(),
+    }
+}
+
 /// Saved Vibe sessions (Windows' own and the default WSL distro's), newest
 /// first. Async + blocking pool: it opens files on every panel poll.
 #[tauri::command]
 pub async fn list_vibe_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> Result<Vec<VibeSessionEntry>, String> {
     crate::blocking(move || {
-        static WSL_CACHE: Mutex<Option<(std::time::Instant, Vec<VibeSessionEntry>)>> = Mutex::new(None);
         // Every profile's Vibe home, the default one first; each entry says
         // which profile it came from.
         let mut sessions: Vec<VibeSessionEntry> = crate::profiles::all_dirs(&app)
             .into_iter()
             .flat_map(|(profile, dirs)| scan_saved_sessions(&sessions_root(&dirs.vibe), None, profile.as_deref()))
             .collect();
-        let wsl = {
-            let mut cache = lock(&WSL_CACHE);
-            match cache.as_ref() {
-                Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
-                _ => {
-                    let scanned = wsl_sessions_root()
-                        .map(|(distro, root)| scan_saved_sessions(&root, Some(&distro), None))
-                        .unwrap_or_default();
-                    *cache = Some((std::time::Instant::now(), scanned.clone()));
-                    scanned
-                }
-            }
-        };
+        let wsl = wsl_sessions_cached(fresh == Some(true));
         sessions.extend(wsl);
         sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
         sessions.truncate(MAX_VIBE_SESSIONS);

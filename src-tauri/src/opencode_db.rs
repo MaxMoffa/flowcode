@@ -158,10 +158,11 @@ pub struct OpencodeSessionEntry {
     profile: Option<String>,
 }
 
-const MAX_SESSIONS: usize = 8;
+/// Same budget as Claude/Codex: the frontend filters per project afterwards.
+const MAX_SESSIONS: usize = 200;
 
 fn saved_sessions(db: &Path, profile: Option<&str>) -> Vec<OpencodeSessionEntry> {
-    top_level_sessions(db, MAX_SESSIONS * 4)
+    top_level_sessions(db, MAX_SESSIONS * 2)
         .into_iter()
         .filter(|s| crate::agents::is_safe_session_id(&s.id) && !s.directory.is_empty())
         .map(|s| OpencodeSessionEntry {

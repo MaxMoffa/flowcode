@@ -261,30 +261,6 @@ pub(super) fn entries_newest_first(dir: &Path) -> Vec<std::fs::DirEntry> {
     entries
 }
 
-/// Collects `rollout-*.jsonl` files under `dir`, newest first (see
-/// `entries_newest_first`), and stops once `limit` are found - a history of
-/// years is never walked past what's wanted. Bounded depth rather than a
-/// hardcoded year/month/day nesting, so it survives either layout. Archived
-/// sessions (`.jsonl.zst`, zstd-compressed) are skipped: there's no
-/// decompression dependency here, and archived history isn't worth pulling
-/// into a live sidebar anyway.
-pub(super) fn find_recent_rollouts(dir: &Path, depth: u8, limit: usize, out: &mut Vec<PathBuf>) {
-    if depth == 0 {
-        return;
-    }
-    for entry in entries_newest_first(dir) {
-        if out.len() >= limit {
-            return;
-        }
-        let Ok(kind) = entry.file_type() else { continue };
-        if kind.is_dir() {
-            find_recent_rollouts(&entry.path(), depth - 1, limit, out);
-        } else if entry.file_name().to_str().is_some_and(is_rollout_name) {
-            out.push(entry.path());
-        }
-    }
-}
-
 /// The rollout of thread `id` under a Codex `sessions` folder
 /// (`rollout-<timestamp>-<id>.jsonl`), found newest day first - a thread being
 /// asked about is almost always recent. A found path is remembered (a
@@ -409,13 +385,48 @@ pub(super) fn read_codex_session(
     Some(entry(cwd?, session_id))
 }
 
+/// Fewer rollouts are inspected over `\wsl.localhost` (every stat is slow).
+const MAX_WSL_ROLLOUT_CANDIDATES: usize = 300;
+
+/// The WSL distro's Codex sessions, stale-while-revalidate: a cached list is
+/// returned at once and, past the TTL, refreshed by one background thread; the
+/// lock is never held across the (slow) scan. Only the first call (no cache) or
+/// an explicit `fresh` scans synchronously.
+fn wsl_codex_sessions_cached(fresh: bool) -> Vec<CodexSessionEntry> {
+    type Cached = Option<(std::time::Instant, Vec<CodexSessionEntry>)>;
+    static WSL_CACHE: Mutex<Cached> = Mutex::new(None);
+    static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering;
+
+    fn scan_into_cache() -> Vec<CodexSessionEntry> {
+        let list = wsl_codex_sessions_root()
+            .map(|(distro, root)| scan_codex_sessions_limited(&root, Some(&distro), None, MAX_WSL_ROLLOUT_CANDIDATES))
+            .unwrap_or_default();
+        *lock(&WSL_CACHE) = Some((std::time::Instant::now(), list.clone()));
+        list
+    }
+
+    let cached = lock(&WSL_CACHE).clone();
+    match cached {
+        Some((at, list)) if !fresh => {
+            if at.elapsed() >= WSL_SCAN_TTL && REFRESHING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                std::thread::spawn(|| {
+                    scan_into_cache();
+                    REFRESHING.store(false, Ordering::Release);
+                });
+            }
+            list
+        }
+        _ => scan_into_cache(),
+    }
+}
+
 /// Async + blocking pool: walks and opens files under `~/.codex/sessions`
 /// (Windows' own, and the default WSL distro's) on every sidebar poll.
 #[tauri::command]
 pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> Result<Vec<CodexSessionEntry>, String> {
     let homes = ProfileHomes::of(&app);
     crate::blocking(move || {
-        static WSL_CACHE: Mutex<Option<(std::time::Instant, Vec<CodexSessionEntry>)>> = Mutex::new(None);
         // Every profile's Codex home, the default one first; each entry says
         // which profile it came from.
         let mut sessions: Vec<CodexSessionEntry> = homes
@@ -423,19 +434,7 @@ pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> 
             .iter()
             .flat_map(|(profile, home)| scan_codex_sessions(&home.join("sessions"), None, profile.as_deref()))
             .collect();
-        let wsl = {
-            let mut cache = lock(&WSL_CACHE);
-            match cache.as_ref() {
-                Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
-                _ => {
-                    let fresh = wsl_codex_sessions_root()
-                        .map(|(distro, root)| scan_codex_sessions(&root, Some(&distro), None))
-                        .unwrap_or_default();
-                    *cache = Some((std::time::Instant::now(), fresh.clone()));
-                    fresh
-                }
-            }
-        };
+        let wsl = wsl_codex_sessions_cached(fresh == Some(true));
         sessions.extend(wsl);
         sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
 
@@ -473,6 +472,75 @@ pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> 
 pub(super) const CODEX_SCAN_REUSE: std::time::Duration = std::time::Duration::from_secs(4);
 
 pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<CodexSessionEntry> {
+    scan_codex_sessions_limited(root, wsl_distro, profile, MAX_CODEX_ROLLOUT_CANDIDATES)
+}
+
+/// Day folders past the newest few are re-listed (and their files re-stat'ed)
+/// only this often: a rollout in an old day folder rarely changes.
+const OLD_DAYS_RELIST: std::time::Duration = std::time::Duration::from_secs(60);
+/// Newest leaf (day) folders re-listed on every scan.
+const RESTAT_LEAVES: usize = 3;
+
+type LeafListing = Vec<(PathBuf, Option<u64>)>;
+#[derive(Default)]
+struct RootListing {
+    leaves: HashMap<PathBuf, LeafListing>,
+    full_at: Option<std::time::Instant>,
+}
+
+/// Rollouts under `dir` with their mtimes, newest folder first, stopping at
+/// `limit`. Leaf folders beyond the newest `RESTAT_LEAVES` come from `state`
+/// until the next full relist.
+fn walk_rollouts(
+    dir: &Path,
+    depth: u8,
+    limit: usize,
+    full: bool,
+    state: &mut RootListing,
+    seen_leaves: &mut usize,
+    out: &mut LeafListing,
+) {
+    if depth == 0 {
+        return;
+    }
+    if !full && *seen_leaves >= RESTAT_LEAVES {
+        if let Some(cached) = state.leaves.get(dir) {
+            *seen_leaves += 1;
+            out.extend(cached.iter().cloned());
+            return;
+        }
+    }
+    let mut is_leaf = true;
+    let mut files: LeafListing = Vec::new();
+    for entry in entries_newest_first(dir) {
+        if out.len() + files.len() >= limit {
+            break;
+        }
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            is_leaf = false;
+            walk_rollouts(&entry.path(), depth - 1, limit, full, state, seen_leaves, out);
+        } else if entry.file_name().to_str().is_some_and(is_rollout_name) {
+            let path = entry.path();
+            let mtime = crate::fs::system_time_to_millis(entry.metadata().and_then(|m| m.modified()));
+            files.push((path, mtime));
+        }
+    }
+    if is_leaf && !files.is_empty() {
+        *seen_leaves += 1;
+        state.leaves.insert(dir.to_path_buf(), files.clone());
+        out.extend(files);
+    } else {
+        out.extend(files);
+    }
+}
+
+fn scan_codex_sessions_limited(
+    root: &Path,
+    wsl_distro: Option<&str>,
+    profile: Option<&str>,
+    max_candidates: usize,
+) -> Vec<CodexSessionEntry> {
     type Cache = HashMap<PathBuf, (std::time::Instant, Vec<CodexSessionEntry>)>;
     static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
     if let Some((at, sessions)) = lock(&CACHE).get(root) {
@@ -483,24 +551,26 @@ pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile
 
     // Search beyond recent children and other projects, but bound file count
     // and depth. read_codex_session bounds bytes and skips child threads before
-    // the session cap is applied.
-    let mut files = Vec::new();
-    find_recent_rollouts(root, 5, MAX_CODEX_ROLLOUT_CANDIDATES, &mut files);
+    // the session cap is applied. Old day folders come from a listing cache.
+    type Listings = Mutex<HashMap<PathBuf, RootListing>>;
+    static LISTINGS: LazyLock<Listings> = LazyLock::new(Default::default);
+    let mut state = lock(&LISTINGS).remove(root).unwrap_or_default();
+    let full = state.full_at.is_none_or(|at| at.elapsed() >= OLD_DAYS_RELIST);
+    if full {
+        state.leaves.clear();
+        state.full_at = Some(std::time::Instant::now());
+    }
+    let mut files: LeafListing = Vec::new();
+    walk_rollouts(root, 5, max_candidates, full, &mut state, &mut 0, &mut files);
+    lock(&LISTINGS).insert(root.to_path_buf(), state);
 
-    // By mtime (one cheap stat each) before opening anything: a thread written
-    // to recently outranks one merely started later.
-    let mut files: Vec<(PathBuf, Option<u64>)> = files
-        .into_iter()
-        .map(|p| {
-            let mtime = crate::fs::system_time_to_millis(std::fs::metadata(&p).and_then(|m| m.modified()));
-            (p, mtime)
-        })
-        .collect();
+    // By mtime before opening anything: a thread written to recently outranks
+    // one merely started later.
     files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
 
     let mut sessions: Vec<CodexSessionEntry> = files
         .iter()
-        .filter_map(|(path, mtime)| read_codex_session(path, *mtime, wsl_distro, profile))
+        .filter_map(|(path, mtime)| cached_codex_session(path, *mtime, wsl_distro, profile))
         .take(MAX_CODEX_SESSIONS)
         .collect();
     if !sessions.is_empty() {
@@ -512,6 +582,32 @@ pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile
     }
     lock(&CACHE).insert(root.to_path_buf(), (std::time::Instant::now(), sessions.clone()));
     sessions
+}
+
+/// `read_codex_session`, remembered per file until its mtime changes.
+fn cached_codex_session(
+    path: &Path,
+    mtime: Option<u64>,
+    wsl_distro: Option<&str>,
+    profile: Option<&str>,
+) -> Option<CodexSessionEntry> {
+    type Cache = HashMap<PathBuf, (Option<u64>, Option<CodexSessionEntry>)>;
+    static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
+    const MAX_CACHED: usize = 4096;
+    if mtime.is_some() {
+        if let Some((at, parsed)) = lock(&CACHE).get(path) {
+            if *at == mtime {
+                return parsed.clone();
+            }
+        }
+    }
+    let parsed = read_codex_session(path, mtime, wsl_distro, profile);
+    let mut cache = lock(&CACHE);
+    if cache.len() >= MAX_CACHED {
+        cache.clear();
+    }
+    cache.insert(path.to_path_buf(), (mtime, parsed.clone()));
+    parsed
 }
 
 #[cfg(test)]
