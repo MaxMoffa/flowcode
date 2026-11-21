@@ -1068,3 +1068,6 @@ h3 {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   .reveal { opacity: 1; transform: none; }
 }
+
+/* Release covers are 8-bit pixel art: keep the pixels hard when scaled. */
+.rel-cover img, .rel-hero img { image-rendering: pixelated; }

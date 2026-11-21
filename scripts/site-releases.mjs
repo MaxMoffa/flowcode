@@ -12,8 +12,8 @@
 // canonical links, default https://maxmoffa.github.io/flowcode),
 // RELEASES_REPO (default MaxMoffa/flowcode).
 //
-// Cover artwork: site/assets/releases/<tag>.{svg,webp,png,jpg}, else
-// site/assets/releases/generic.svg.
+// Cover artwork: site/assets/releases/<tag>.{png,webp,jpg,svg}, else
+// site/assets/releases/generic.png.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,7 +25,7 @@ const OUT_DIR = join(SITE, "releases");
 const TEMPLATE = readFileSync(join(ROOT, "scripts", "site-templates", "page.html"), "utf8").replace(/<!--[\s\S]*?-->\n/, "");
 const REPO = process.env.RELEASES_REPO || "MaxMoffa/flowcode";
 const SITE_URL = (process.env.SITE_URL || "https://maxmoffa.github.io/flowcode").replace(/\/+$/, "");
-const COVER_EXTS = ["svg", "webp", "png", "jpg"];
+const COVER_EXTS = ["png", "webp", "jpg", "svg"];
 const IMAGE_HOSTS = /^https:\/\/(github\.com|user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|raw\.githubusercontent\.com|objects\.githubusercontent\.com|avatars\.githubusercontent\.com)\//i;
 
 /* ------------------------------------------------------------------ fetch */
@@ -207,7 +207,7 @@ function emojiOf(heading) {
 }
 function coverOf(tag) {
   for (const ext of COVER_EXTS) if (existsSync(join(SITE, "assets", "releases", `${tag}.${ext}`))) return `assets/releases/${tag}.${ext}`;
-  return "assets/releases/generic.svg";
+  return "assets/releases/generic.png";
 }
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -270,7 +270,7 @@ ${models.map(card).join("\n")}
     title: "Changelog · Flowcode",
     description: "Every Flowcode release, newest first: new features, improvements and bug fixes.",
     ogType: "website",
-    ogImage: `${SITE_URL}/${latest ? latest.cover : "assets/releases/generic.svg"}`,
+    ogImage: `${SITE_URL}/${latest ? latest.cover : "assets/releases/generic.png"}`,
     url: `${SITE_URL}/changelog.html`,
     main,
   });
@@ -328,5 +328,5 @@ models.forEach((m, i) => {
   writeFileSync(join(OUT_DIR, `${m.tag}.html`), releasePage(m, models[i + 1], models[i - 1], i === 0));
 });
 writeFileSync(join(SITE, "changelog.html"), listPage(models));
-const custom = models.filter((m) => !m.cover.endsWith("generic.svg")).length;
+const custom = models.filter((m) => !m.cover.endsWith("generic.png")).length;
 console.log(`site-releases: ${models.length} releases (${custom} with their own cover) -> site/changelog.html, site/releases/`);

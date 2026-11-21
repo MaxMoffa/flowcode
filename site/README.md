@@ -19,10 +19,10 @@ Then open http://localhost:8791. Without the script, the Changelog link 404s loc
 
 ## Release artwork
 
-Each release can have its own cover: put it at `site/assets/releases/<tag>.<ext>`, where `<tag>` is the release tag exactly (for example `v0.38.0.svg`) and `<ext>` is `svg`, `webp`, `png` or `jpg` (looked up in that order).
+Every cover is 8-bit pixel art drawn in code: `scripts/release-art/render.mjs` paints a 160x90 pixel scene (the night pond, the Flowcode frog from `src/terminal/frogArt.ts`, a 5x7 pixel font) and writes `site/assets/releases/<name>.png` at 1600x900 with hard edges. No dependencies.
 
-- Size: 1600 × 900 (16:9). It is shown cropped to 16:9 on the list card and on top of the release page, and used as the page's `og:image`.
-- For social previews prefer `png` or `jpg`: most platforms don't render SVG `og:image`.
-- Releases without their own file use `site/assets/releases/generic.svg`.
+- New release: add an entry named after the tag (e.g. `"v0.39.0"`) to `COVERS` in `render.mjs`, drawing something that tells that update's story on the shared `nightPond()`; run `node scripts/release-art/render.mjs v0.39.0` and commit the PNG.
+- Lookup order: `site/assets/releases/<tag>.{png,webp,jpg,svg}`, else `generic.png` (older releases).
+- The same file is shown in the app's Changelog page.
 
 Commit the file, then rerun the Pages workflow (or push it with the release); the next build picks it up.
