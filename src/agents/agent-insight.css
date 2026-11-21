@@ -47,8 +47,33 @@
   margin: 0 0 8px;
 }
 
+.agent-insight-chip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-insight-unpin {
+  flex: 0 0 auto;
+  margin: -2px 0 0 auto;
+  padding: 3px;
+  display: inline-flex;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.agent-insight-unpin:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
 .agent-insight-chip {
   display: inline-block;
+  min-width: 0;
   max-width: 100%;
   margin-bottom: 8px;
   padding: 1px 8px;

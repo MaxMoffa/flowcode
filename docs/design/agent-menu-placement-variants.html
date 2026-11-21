@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Pannello Agente — dove metterlo — varianti</title>
+<style>
+  :root {
+    --fg: #e7ecec; --muted: #8b9698; --accent: #4fd1b5; --surface: #121718;
+    --menu: rgb(24 30 31 / 0.97); --edge: rgb(231 236 236 / 0.14); --rule: rgb(231 236 236 / 0.09);
+    --hover: rgb(231 236 236 / 0.07); --sel: rgb(79 209 181 / 0.18);
+    --mod: #e2c08d; --add: #73c991; --warn: #e0af68;
+    --c-mem: #bb9af7; --c-skill: #e0af68; --c-mcp: #7dcfff; --c-msg: #4fd1b5; --claude: #d97757;
+    font-family: "Segoe UI", system-ui, sans-serif; color: var(--fg);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0f10; padding: 28px 32px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 18px; max-width: 1000px; line-height: 1.5; font-size: 14px; }
+  .lead b { color: var(--fg); font-weight: 600; }
+  .vtabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .vtabs button { background: transparent; border: 1px solid var(--edge); color: var(--fg); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+  .vtabs button[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); }
+  .vtabs .rec { font-size: 10.5px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: rgb(79 209 181 / .2); color: var(--accent); }
+  .row { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+  .variant { display: none; } .variant.on { display: block; }
+
+  /* ---- app mock ---- */
+  .app { display: flex; height: 640px; width: 920px; border-radius: 14px; overflow: hidden; border: 1px solid var(--edge); background: #0e1314; position: relative; }
+  .rail { width: 46px; flex: 0 0 46px; background: #0f1415; border-right: 1px solid var(--rule); display: flex; flex-direction: column; align-items: center; padding-top: 8px; gap: 4px; }
+  .rail button { position: relative; width: 34px; height: 34px; border-radius: 9px; border: 0; background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+  .rail button:hover { background: var(--hover); color: var(--fg); }
+  .rail button.on { color: var(--fg); background: rgb(255 255 255 / .07); }
+  .rail button.on::before { content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+  .rail .ring { position: absolute; inset: 3px; }
+  .rail .bdg { position: absolute; right: 1px; bottom: 1px; font-size: 8.5px; font-weight: 700; background: #0f1415; border-radius: 4px; padding: 0 2px; color: var(--accent); }
+  .sidebar { width: 280px; flex: 0 0 280px; background: var(--surface); border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .main-tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--rule); align-items: flex-end; }
+  .main-tab { font-size: 12.5px; padding: 7px 12px; border-radius: 8px 8px 0 0; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .main-tab.on { background: #151b1c; color: var(--fg); }
+  .main-tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--claude); }
+  .chat-h { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--rule); font-size: 13px; position: relative; }
+  .chat-h .proj { font-weight: 600; }
+  .chat-h .proj small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .chat-h .sp { flex: 1; }
+  .chat-h .ghost { font-size: 12px; color: var(--muted); padding: 4px 8px; border-radius: 7px; }
+  .ctx-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 10px 4px 6px; border-radius: 999px; border: 1px solid var(--edge); cursor: pointer; background: none; color: var(--fg); font: inherit; font-size: 12px; }
+  .ctx-pill:hover, .ctx-pill.open { background: var(--hover); border-color: rgb(79 209 181 / .5); }
+  .ctx-pill .lbl { color: var(--muted); }
+  .main-body { flex: 1; position: relative; padding: 18px 26px; overflow: hidden; }
+  .bubble { max-width: 70%; border-radius: 12px; padding: 9px 12px; font-size: 12.5px; line-height: 1.45; margin-bottom: 12px; color: rgb(231 236 236 / .8); }
+  .bubble.u { margin-left: auto; background: rgb(79 209 181 / .12); }
+  .bubble.a { background: rgb(255 255 255 / .04); }
+  .bubble i { display: block; height: 8px; border-radius: 4px; background: rgb(255 255 255 / .07); margin: 6px 0; }
+  .composer { margin: 0 18px 14px; border: 1px solid var(--edge); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 10px; background: #111718; }
+  .composer .sp { flex: 1; }
+  .composer .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--edge); }
+
+  /* sidebar segmented */
+  .seg { display: flex; margin: 10px 10px 8px; padding: 3px; border-radius: 10px; background: rgb(255 255 255 / .04); border: 1px solid var(--rule); }
+  .seg button { flex: 1; background: none; border: 0; color: var(--muted); font: inherit; font-size: 12.5px; padding: 5px 4px; border-radius: 7px; cursor: pointer; display: flex; gap: 5px; align-items: center; justify-content: center; }
+  .seg button.on { background: rgb(255 255 255 / .09); color: var(--fg); }
+  .seg .cnt { font-size: 10.5px; padding: 0 5px; border-radius: 999px; background: rgb(255 255 255 / .1); }
+  .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .pane-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 12px 12px 6px; color: var(--muted); display: flex; align-items: center; }
+  .pane-title .sp { flex: 1; }
+
+  /* tree + history placeholders */
+  .ft-row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; font-size: 13px; white-space: nowrap; }
+  .ft-row:hover { background: var(--hover); }
+  .ft-row .ic { width: 14px; text-align: center; color: var(--muted); font-size: 11px; }
+  .ft-row.m { color: var(--mod); }
+  .h-item { padding: 7px 12px; font-size: 12.5px; border-radius: 8px; margin: 0 6px; cursor: pointer; }
+  .h-item:hover { background: var(--hover); }
+  .h-item.cur { background: rgb(255 255 255 / .05); }
+  .h-item small { display: block; color: var(--muted); font-size: 11px; }
+  .gitdock { border-top: 1px solid var(--edge); background: #141a1b; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; font-size: 12.5px; flex: 0 0 auto; }
+  .gitdock .pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(226 192 141 / .16); color: var(--mod); }
+
+  /* agent insight (copy of AgentInsightPanel) */
+  .ai { padding: 4px 12px 10px; font-size: 12.5px; }
+  .ai-chip { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--edge); color: var(--muted); margin: 4px 0 10px; }
+  .ai-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--claude); }
+  .ai-hero { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .ai-hero b { font-size: 24px; font-weight: 600; }
+  .ai-hero span { color: var(--muted); font-size: 12px; flex: 1; }
+  .ai-hero .btn { align-self: center; }
+  .meterbar { height: 6px; border-radius: 3px; background: rgb(255 255 255 / .07); overflow: hidden; margin-bottom: 10px; }
+  .meterbar i { display: block; height: 100%; background: var(--accent); }
+  .stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: rgb(255 255 255 / .06); margin: 2px 0 10px; }
+  .stack i { display: block; height: 100%; }
+  .subtabs { display: flex; gap: 14px; border-bottom: 1px solid var(--rule); margin: 0 -12px 8px; padding: 0 12px; }
+  .subtabs span { font-size: 12px; padding: 6px 0; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  .subtabs span.on { color: var(--fg); border-color: var(--accent); }
+  .subtabs .n { font-size: 10px; margin-left: 3px; padding: 0 5px; border-radius: 999px; background: rgb(255 255 255 / .1); }
+  .ai-row { display: flex; align-items: center; gap: 8px; height: 24px; }
+  .ai-row .chev { color: var(--muted); font-size: 10px; width: 10px; }
+  .ai-row .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .ai-row .v { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .btn { border: 0; border-radius: 6px; font: inherit; font-size: 12px; padding: 5px 10px; cursor: pointer; background: rgb(255 255 255 / .08); color: var(--fg); }
+  .btn:hover { background: rgb(255 255 255 / .13); }
+  .usage-m { margin: 8px 0 12px; }
+  .usage-m .l { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .usage-m .l span { color: var(--muted); }
+
+  /* variant A: agent dock at sidebar bottom */
+  .adock { border-top: 1px solid var(--edge); background: #131a1b; flex: 0 0 auto; display: flex; flex-direction: column; transition: height .2s ease; overflow: hidden; }
+  .adock-h { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; font-size: 12.5px; cursor: pointer; flex: 0 0 auto; }
+  .adock-h:hover { background: var(--hover); }
+  .adock-h .m { flex: 1; height: 5px; border-radius: 3px; background: rgb(255 255 255 / .07); overflow: hidden; }
+  .adock-h .m i { display: block; height: 100%; background: var(--accent); }
+  .adock-h .pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+  .adock-h .cv { color: var(--muted); font-size: 10px; transition: transform .2s; transform: rotate(180deg); }
+  .adock.open .adock-h .cv { transform: none; }
+  .adock-b { overflow-y: auto; min-height: 0; flex: 1; }
+
+  /* variant B: popover from chat header */
+  .pop { position: absolute; top: 46px; right: 12px; width: 330px; background: var(--menu); border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 18px 50px rgb(0 0 0 / .55); z-index: 10; display: none; padding-top: 6px; backdrop-filter: blur(14px); }
+  .pop.on { display: block; }
+  .pop::before { content: ""; position: absolute; top: -6px; right: 58px; width: 10px; height: 10px; transform: rotate(45deg); background: var(--menu); border-left: 1px solid var(--edge); border-top: 1px solid var(--edge); }
+  .pop-foot { border-top: 1px solid var(--rule); padding: 8px 12px; display: flex; gap: 8px; font-size: 11.5px; color: var(--muted); align-items: center; }
+  .pop-foot a { color: var(--accent); cursor: pointer; }
+
+  /* variant D: session card on top of history */
+  .scard { margin: 4px 8px 8px; border: 1px solid var(--edge); border-radius: 10px; background: rgb(255 255 255 / .025); }
+  .scard-h { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px; font-size: 12.5px; }
+  .scard-h .t { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scard-h .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .scard .meterbar { margin: 0 10px 6px; }
+  .scard-l { display: flex; gap: 6px; padding: 0 10px 8px; font-size: 11.5px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+  .scard-l .k { padding: 1px 7px; border-radius: 999px; background: rgb(255 255 255 / .06); color: var(--fg); cursor: pointer; }
+  .scard-l .k:hover { background: rgb(255 255 255 / .12); }
+  .scard-x { border-top: 1px solid var(--rule); padding: 6px 12px 8px; display: none; }
+  .scard.open .scard-x { display: block; }
+  .h-sep { font-size: 11px; color: var(--muted); padding: 8px 14px 4px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+
+  .notes { width: 330px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+  .notes h3 { color: var(--fg); font-size: 15px; margin: 0 0 8px; }
+  .notes ul { padding-left: 18px; margin: 6px 0 12px; }
+  .notes li { margin-bottom: 4px; }
+  .notes b { color: var(--fg); }
+  .pro { color: var(--add); } .con { color: #f48771; }
+  .hint { font-size: 12px; color: var(--accent); margin-top: 10px; }
+  .cmp { margin-top: 34px; border-collapse: collapse; font-size: 13px; width: 1000px; }
+  .cmp th, .cmp td { border-bottom: 1px solid var(--rule); padding: 8px 10px; text-align: left; vertical-align: top; }
+  .cmp th { color: var(--muted); font-weight: 600; }
+  .cmp td:first-child { font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>Pannello Agente — dove metterlo</h1>
+<p class="lead">
+  Oggi il pannello Agente (contesto, utilizzo, delegati — <b>AgentInsightPanel</b>) è il <b>terzo tab</b> dello switch della sidebar,
+  accanto a Cronologia ed Esplora. Problema: per vederlo devi <b>lasciare</b> file o cronologia, e Cronologia/Esplora/Agente sono
+  cose di natura diversa (navigazione vs stato della sessione). Qui 4 alternative + lo stato attuale. I mock sono cliccabili.
+</p>
+
+<div class="vtabs" id="vtabs">
+  <button data-v="now" aria-pressed="true">Ora</button>
+  <button data-v="a">A · Dock in fondo</button>
+  <button data-v="b">B · Popover dall'header<span class="rec">consigliata</span></button>
+  <button data-v="c">C · Barra icone</button>
+  <button data-v="d">D · Scheda sessione in Cronologia</button>
+</div>
+
+<!-- shared fragments are cloned by JS into [data-slot] -->
+<template id="t-insight">
+  <div class="ai">
+    <div class="ai-chip"><i></i>Claude · Opus 5.5 · Chat</div>
+    <div class="ai-hero"><b>42%</b><span>84k di 200k</span><button class="btn">Compatta</button></div>
+    <div class="meterbar"><i style="width:42%"></i></div>
+    <div class="subtabs"><span class="on">Contesto</span><span>Utilizzo</span><span>Delegati<b class="n">2</b></span></div>
+    <div class="stack"><i style="width:6%;background:var(--c-mem)"></i><i style="width:9%;background:var(--c-skill)"></i><i style="width:4%;background:var(--c-mcp)"></i><i style="width:23%;background:var(--c-msg)"></i></div>
+    <div class="ai-row"><span class="chev">›</span><span class="sw" style="background:var(--c-mem)"></span>Memoria<span class="v">3 · 12k</span></div>
+    <div class="ai-row"><span class="chev">›</span><span class="sw" style="background:var(--c-skill)"></span>Skill<span class="v">14 · 18k</span></div>
+    <div class="ai-row"><span class="chev">›</span><span class="sw" style="background:var(--c-mcp)"></span>MCP<span class="v">4 · 8k</span></div>
+    <div class="ai-row"><span class="chev"></span><span class="sw" style="background:var(--c-msg)"></span>Conversazione<span class="v">46k</span></div>
+  </div>
+</template>
+<template id="t-tree">
+  <div class="pane-title">flowcode<span class="sp"></span>⋯</div>
+  <div class="ft-row"><span class="ic">▸</span>docs</div>
+  <div class="ft-row"><span class="ic">▾</span>src</div>
+  <div class="ft-row" style="padding-left:24px"><span class="ic">▸</span>agents</div>
+  <div class="ft-row m" style="padding-left:24px"><span class="ic">▸</span>sidebar</div>
+  <div class="ft-row" style="padding-left:24px"><span class="ic">▸</span>chat</div>
+  <div class="ft-row m" style="padding-left:24px"><span class="ic">·</span>App.tsx</div>
+  <div class="ft-row"><span class="ic">▸</span>src-tauri</div>
+  <div class="ft-row"><span class="ic">·</span>package.json</div>
+  <div class="ft-row"><span class="ic">·</span>README.md</div>
+</template>
+<template id="t-history">
+  <div class="h-item cur">Menu agente: proposte<small>ora · questa sessione</small></div>
+  <div class="h-item">Terminal MCP fase 4<small>ieri · 2 delegati</small></div>
+  <div class="h-item">Fix UNC path<small>ieri</small></div>
+  <div class="h-item">Native browser webview<small>1 g fa</small></div>
+  <div class="h-item">Agent detection P1–P8<small>1 g fa</small></div>
+</template>
+<template id="t-main">
+  <div class="main-tabs"><div class="main-tab on"><span class="dot"></span>flowcode</div><div class="main-tab">bash</div><div class="main-tab">+</div></div>
+  <div class="chat-h"><span class="proj">flowcode<small>▾</small></span><span class="sp"></span><span data-slot="header-extra"></span><span class="ghost">⋯</span></div>
+  <div class="main-body">
+    <div class="bubble u">Non sono convinto di dove ho messo il menu agente…</div>
+    <div class="bubble a"><i style="width:90%"></i><i style="width:70%"></i><i style="width:80%"></i></div>
+    <div class="bubble u"><i style="width:60%"></i></div>
+    <div class="bubble a"><i style="width:85%"></i><i style="width:50%"></i></div>
+  </div>
+  <div class="composer">Scrivi un messaggio…<span class="sp"></span><span class="chip">Opus 5.5</span><span data-slot="composer-extra"></span></div>
+</template>
+
+<!-- ============ ORA ============ -->
+<section class="variant on" id="v-now">
+  <div class="row">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="seg" data-seg="now">
+          <button data-p="hist">Cronologia</button><button data-p="tree">Esplora<span class="cnt">4</span></button><button data-p="agent" class="on">Agente</button>
+        </div>
+        <div class="pane" data-pane="hist" hidden><div data-tpl="t-history"></div></div>
+        <div class="pane" data-pane="tree" hidden><div data-tpl="t-tree" style="flex:1"></div><div class="gitdock">⎇ master<span class="pill">4</span></div></div>
+        <div class="pane" data-pane="agent"><div data-tpl="t-insight"></div></div>
+      </aside>
+      <div class="main" data-tpl="t-main"></div>
+    </div>
+    <div class="notes">
+      <h3>Ora: terzo tab della sidebar</h3>
+      <ul>
+        <li class="pro">Tanto spazio verticale, nessun overlay.</li>
+        <li class="con">Esclusivo: guardi il contesto <b>oppure</b> i file / la cronologia.</li>
+        <li class="con">Mescola navigazione (file, sessioni) con lo stato della sessione attiva.</li>
+        <li class="con">Lo switch a 3 voci è stretto; scompare/compare in base al tab attivo (terminale semplice = solo Esplora).</li>
+        <li class="con">Il % di contesto non si vede finché non apri il tab.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ A ============ -->
+<section class="variant" id="v-a">
+  <div class="row">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="seg" data-seg="a">
+          <button data-p="hist">Cronologia</button><button data-p="tree" class="on">Esplora<span class="cnt">4</span></button>
+        </div>
+        <div class="pane" data-pane="hist" hidden><div data-tpl="t-history"></div></div>
+        <div class="pane" data-pane="tree"><div data-tpl="t-tree" style="flex:1"></div><div class="gitdock">⎇ master<span class="pill">4</span></div></div>
+        <div class="adock" id="adock" style="height:38px">
+          <div class="adock-h" id="adock-h"><span style="width:8px;height:8px;border-radius:50%;background:var(--claude)"></span>Agente<span class="m"><i style="width:42%"></i></span><span class="pct">42%</span><span class="cv">▾</span></div>
+          <div class="adock-b"><div data-tpl="t-insight"></div></div>
+        </div>
+      </aside>
+      <div class="main" data-tpl="t-main"></div>
+    </div>
+    <div class="notes">
+      <h3>A · Dock Agente in fondo alla sidebar</h3>
+      <p>Lo switch torna a 2 voci. In fondo alla sidebar, <b>sotto qualunque tab</b>, una riga fissa con barra del contesto e %.
+        Clic → si apre verso l'alto come il dock Git (ridimensionabile, stato salvato).</p>
+      <ul>
+        <li class="pro">% sempre visibile, anche mentre navighi file o cronologia.</li>
+        <li class="pro">Stesso pattern già usato da GitDock: niente di nuovo da imparare.</li>
+        <li class="con">In Esplora ci sono due dock impilati (Git + Agente): fondo affollato.</li>
+        <li class="con">Aperto ruba altezza all'albero file.</li>
+      </ul>
+      <div class="hint">Clicca la riga "Agente" in basso.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B ============ -->
+<section class="variant" id="v-b">
+  <div class="row">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="seg" data-seg="b">
+          <button data-p="hist">Cronologia</button><button data-p="tree" class="on">Esplora<span class="cnt">4</span></button>
+        </div>
+        <div class="pane" data-pane="hist" hidden><div data-tpl="t-history"></div></div>
+        <div class="pane" data-pane="tree"><div data-tpl="t-tree" style="flex:1"></div><div class="gitdock">⎇ master<span class="pill">4</span></div></div>
+      </aside>
+      <div class="main" data-tpl="t-main" data-header="pill"></div>
+      <div class="pop" id="pop"><div data-tpl="t-insight"></div><div class="pop-foot">Ctrl+Shift+A<span style="flex:1"></span><a>Fissa in sidebar</a></div></div>
+    </div>
+    <div class="notes">
+      <h3>B · Anello di contesto nell'header della chat</h3>
+      <p>La sidebar torna solo navigazione (Cronologia / Esplora). Nell'header della chat — vicino al selettore progetto —
+        una pillola con <b>anello + %</b>. Clic (o Ctrl+Shift+A) → popover con il pannello completo.</p>
+      <ul>
+        <li class="pro">Il dato sta dove sta la sessione a cui si riferisce.</li>
+        <li class="pro">% sempre visibile senza occupare la sidebar; l'anello diventa giallo oltre la soglia.</li>
+        <li class="pro">Sidebar più semplice: lo switch non cambia più forma tra tab agente e terminale.</li>
+        <li class="con">Overlay: chiude se clicchi fuori (opzione "Fissa in sidebar" per chi lo vuole fisso).</li>
+        <li class="con">Nei tab terminale serve un header equivalente (pillola nella tab strip o barra sottile sopra il terminale).</li>
+      </ul>
+      <div class="hint">Clicca la pillola "42%" in alto a destra.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="variant" id="v-c">
+  <div class="row">
+    <div class="app">
+      <nav class="rail" data-seg="c">
+        <button data-p="hist" title="Cronologia"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
+        <button data-p="tree" title="Esplora"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg><span class="bdg" style="color:var(--mod)">4</span></button>
+        <button data-p="agent" class="on" title="Agente">
+          <svg class="ring" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12" fill="none" stroke="rgb(255 255 255 / .1)" stroke-width="2"/><circle cx="14" cy="14" r="12" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="31.7 75.4" transform="rotate(-90 14 14)"/></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9.5 13h.01M14.5 13h.01"/></svg>
+        </button>
+        <span style="flex:1"></span>
+        <button title="Impostazioni"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></button>
+      </nav>
+      <aside class="sidebar" style="width:250px;flex-basis:250px">
+        <div class="pane" data-pane="hist" hidden><div class="pane-title">Cronologia</div><div data-tpl="t-history"></div></div>
+        <div class="pane" data-pane="tree" hidden><div data-tpl="t-tree" style="flex:1"></div><div class="gitdock">⎇ master<span class="pill">4</span></div></div>
+        <div class="pane" data-pane="agent"><div class="pane-title">Agente</div><div data-tpl="t-insight"></div></div>
+      </aside>
+      <div class="main" data-tpl="t-main"></div>
+    </div>
+    <div class="notes">
+      <h3>C · Barra icone verticale (stile VS Code)</h3>
+      <p>Lo switch segmentato diventa una colonna di icone a sinistra. L'icona Agente ha un <b>anello di contesto</b>
+        intorno; Esplora ha il badge delle modifiche Git. Clic sull'icona attiva → chiude la sidebar.</p>
+      <ul>
+        <li class="pro">Scala bene: altre sezioni future (plugin, ricerca…) senza stringere lo switch.</li>
+        <li class="pro">% leggibile a colpo d'occhio dall'anello anche con la sidebar chiusa.</li>
+        <li class="con">Resta esclusivo come oggi (Agente <b>o</b> file).</li>
+        <li class="con">Cambio di layout più grosso: 46 px fissi in più, icona panel-left attuale da ripensare.</li>
+      </ul>
+      <div class="hint">Clicca le icone a sinistra.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D ============ -->
+<section class="variant" id="v-d">
+  <div class="row">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="seg" data-seg="d">
+          <button data-p="hist" class="on">Sessione</button><button data-p="tree">Esplora<span class="cnt">4</span></button>
+        </div>
+        <div class="pane" data-pane="hist">
+          <div class="scard open" id="scard">
+            <div class="scard-h"><span class="live"></span><span class="t">Menu agente: proposte</span><button class="btn" style="padding:3px 8px">Compatta</button></div>
+            <div class="meterbar"><i style="width:42%"></i></div>
+            <div class="scard-l">42% · 84k/200k<span style="flex:1"></span><span class="k" data-k="ctx">Contesto</span><span class="k" data-k="use">Utilizzo</span><span class="k" data-k="del">Delegati 2</span></div>
+            <div class="scard-x" id="scard-x"></div>
+          </div>
+          <div class="h-sep">Cronologia</div>
+          <div data-tpl="t-history"></div>
+        </div>
+        <div class="pane" data-pane="tree" hidden><div data-tpl="t-tree" style="flex:1"></div><div class="gitdock">⎇ master<span class="pill">4</span></div></div>
+      </aside>
+      <div class="main" data-tpl="t-main"></div>
+    </div>
+    <div class="notes">
+      <h3>D · Scheda sessione in cima alla Cronologia</h3>
+      <p>Il tab Cronologia diventa <b>Sessione</b>: in cima una scheda della sessione attiva (titolo, barra contesto, Compatta)
+        con chip Contesto / Utilizzo / Delegati che si espandono inline; sotto, la cronologia come oggi.</p>
+      <ul>
+        <li class="pro">Raggruppa ciò che riguarda le sessioni: quella attiva + le passate.</li>
+        <li class="pro">Switch a 2 voci, niente overlay.</li>
+        <li class="con">Esplora resta separato: il % non si vede mentre navighi i file.</li>
+        <li class="con">Espansa, la scheda spinge giù la cronologia.</li>
+      </ul>
+      <div class="hint">Clicca i chip nella scheda.</div>
+    </div>
+  </div>
+</section>
+
+<table class="cmp">
+  <tr><th></th><th>% sempre visibile</th><th>Insieme a file/cronologia</th><th>Costo implementazione</th><th>Rischio</th></tr>
+  <tr><td>Ora</td><td>No</td><td>No</td><td>—</td><td>—</td></tr>
+  <tr><td>A · Dock</td><td>Sì (sidebar aperta)</td><td>Sì</td><td>Basso: riusa logica GitDock</td><td>Fondo sidebar affollato</td></tr>
+  <tr><td>B · Popover</td><td>Sì (header)</td><td>Sì</td><td>Medio: pillola + popover, header per tab terminale</td><td>Overlay che si chiude</td></tr>
+  <tr><td>C · Barra icone</td><td>Sì (anello)</td><td>No</td><td>Alto: nuovo layout sidebar</td><td>Cambia abitudini</td></tr>
+  <tr><td>D · Scheda sessione</td><td>Solo in Sessione</td><td>Con cronologia sì, con file no</td><td>Basso-medio</td><td>Cronologia spinta giù</td></tr>
+</table>
+
+<script>
+  // fill templates
+  document.querySelectorAll("[data-tpl]").forEach((el) => {
+    el.appendChild(document.getElementById(el.dataset.tpl).content.cloneNode(true));
+    if (el.dataset.tpl === "t-main" && el.dataset.header === "pill") {
+      el.querySelector('[data-slot="header-extra"]').innerHTML =
+        '<button class="ctx-pill" id="ctxpill"><svg width="16" height="16" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="none" stroke="rgb(255 255 255 / .12)" stroke-width="2.4"/><circle cx="10" cy="10" r="7.5" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="19.8 47.1" transform="rotate(-90 10 10)"/></svg>42%<span class="lbl">contesto</span></button>';
+    }
+  });
+  // variant switch
+  document.querySelectorAll("#vtabs button").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll("#vtabs button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+      document.querySelectorAll(".variant").forEach((s) => s.classList.toggle("on", s.id === "v-" + b.dataset.v));
+    }),
+  );
+  // segmented / rail switches
+  document.querySelectorAll("[data-seg]").forEach((seg) => {
+    const root = seg.closest(".app");
+    seg.querySelectorAll("button[data-p]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const sidebar = root.querySelector(".sidebar");
+        if (seg.classList.contains("rail") && btn.classList.contains("on")) {
+          btn.classList.remove("on"); sidebar.style.display = "none"; return;
+        }
+        sidebar.style.display = "";
+        seg.querySelectorAll("button[data-p]").forEach((x) => x.classList.toggle("on", x === btn));
+        root.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== btn.dataset.p));
+      }),
+    );
+  });
+  // A: dock
+  const adock = document.getElementById("adock");
+  document.getElementById("adock-h").addEventListener("click", () => {
+    const open = adock.classList.toggle("open");
+    adock.style.height = open ? "330px" : "38px";
+  });
+  // B: popover
+  const pop = document.getElementById("pop");
+  const pill = document.getElementById("ctxpill");
+  pill.addEventListener("click", (e) => { e.stopPropagation(); pill.classList.toggle("open", pop.classList.toggle("on")); });
+  document.addEventListener("click", (e) => { if (!pop.contains(e.target)) { pop.classList.remove("on"); pill.classList.remove("open"); } });
+  // D: inline chips
+  const x = document.getElementById("scard-x");
+  const bodies = {
+    ctx: document.getElementById("t-insight").content.querySelector(".stack").outerHTML +
+      [...document.getElementById("t-insight").content.querySelectorAll(".ai-row")].map((r) => r.outerHTML).join(""),
+    use: '<div class="usage-m"><div class="l">Sessione 5 h<span>61% · reset 14:20</span></div><div class="meterbar"><i style="width:61%"></i></div></div><div class="usage-m"><div class="l">Settimana<span>28%</span></div><div class="meterbar"><i style="width:28%"></i></div></div>',
+    del: '<div class="ai-row"><span class="sw" style="background:#73c991"></span>Codex · review diff<span class="v">fatto</span></div><div class="ai-row"><span class="sw" style="background:var(--accent)"></span>Haiku · test runner<span class="v">in corso</span></div>',
+  };
+  let cur = "ctx";
+  const show = (k) => {
+    cur = k; x.innerHTML = '<div class="ai" style="padding:0">' + bodies[k] + "</div>";
+    document.querySelectorAll(".scard-l .k").forEach((c) => (c.style.outline = c.dataset.k === k ? "1px solid var(--accent)" : ""));
+  };
+  document.querySelectorAll(".scard-l .k").forEach((c) =>
+    c.addEventListener("click", () => {
+      const card = document.getElementById("scard");
+      if (cur === c.dataset.k && card.classList.contains("open")) { card.classList.remove("open"); c.style.outline = ""; return; }
+      card.classList.add("open"); show(c.dataset.k);
+    }),
+  );
+  show("ctx");
+</script>
+</body>
+</html>

@@ -6,6 +6,15 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar, useSidebarTab } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
+import {
+  AgentPanelHostContext,
+  setAgentPanelPinned,
+  setAgentPopoverOpen,
+  toggleAgentPopover,
+  useAgentPanelPinned,
+  useAgentPopoverOpen,
+  type AgentPanelHost,
+} from "./agents/agentPanelState";
 import { forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
@@ -1802,12 +1811,33 @@ function Shell() {
   const [sidebarTab, setSidebarTab] = useSidebarTab(agentMode);
   const sidebarVisible = !sidebarCollapsed && !panelLayout.parked.sidebar;
   // The Agent action is a shortcut to the sidebar's Agent tab: it closes the sidebar only when that tab is already showing.
-  const toggleAgentTab = () => {
-    if (!activeAgent) return togglePanel("sidebar");
-    if (sidebarVisible && sidebarTab === "agent") return togglePanel("sidebar");
+  const agentPinned = useAgentPanelPinned();
+  const agentPopoverOpen = useAgentPopoverOpen();
+  const showPinnedAgentPanel = () => {
     setSidebarTab("agent");
     if (!sidebarVisible) togglePanel("sidebar");
   };
+  // Pinned: a shortcut to the sidebar's Agent tab (closes the sidebar only when that tab is already showing).
+  // Not pinned: the agent's header pill popover, when the agent in front is this tab's.
+  const toggleAgentTab = () => {
+    if (!activeAgent) return togglePanel("sidebar");
+    if (agentPinned) {
+      if (sidebarVisible && sidebarTab === "agent") return togglePanel("sidebar");
+      return showPinnedAgentPanel();
+    }
+    if (activeAgent.tabId === activeTabId) return toggleAgentPopover();
+    togglePanel("sidebar");
+  };
+  useEffect(() => setAgentPopoverOpen(false), [activeTabId]);
+  const renderAgentPanel = (onUnpin?: () => void) => (
+    <AgentInsightPanel
+      onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
+      onOpenDelegate={openDelegateTab}
+      onFocusTab={setActiveTabId}
+      onUnpin={onUnpin}
+    />
+  );
+  const agentPanelHost: AgentPanelHost = { renderPanel: () => renderAgentPanel(), showPinned: showPinnedAgentPanel };
   // The sidebar button's dot: Git changes in the folder in front while the sidebar is closed (a parked one already shows the parked dot there).
   const gitChangeCount = useGitChangeCount(sidebarCwd, !sidebarVisible);
 
@@ -2535,13 +2565,7 @@ function Shell() {
         tab={sidebarTab}
         onTabChange={setSidebarTab}
         agent={
-          activeAgent ? (
-            <AgentInsightPanel
-              onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
-              onOpenDelegate={openDelegateTab}
-              onFocusTab={setActiveTabId}
-            />
-          ) : undefined
+          activeAgent && agentPinned ? renderAgentPanel(() => setAgentPanelPinned(false)) : undefined
         }
         onNavigate={browseExplorer}
         onGoHome={() =>
@@ -2769,7 +2793,13 @@ function Shell() {
                 <PluginUsageButton
                   plugin={plugin}
                   icon={pluginIconNode(plugin)}
-                  active={plugin.action === "toggleAgentsSidebar" ? sidebarVisible && sidebarTab === "agent" && !!activeAgent : undefined}
+                  active={
+                    plugin.action === "toggleAgentsSidebar"
+                      ? agentPinned
+                        ? sidebarVisible && sidebarTab === "agent" && !!activeAgent
+                        : agentPopoverOpen && !!activeAgent
+                      : undefined
+                  }
                   parked={
                     (plugin.action === "toggleBrowser" && panelLayout.parked.browser) ||
                     (plugin.action === "toggleSidebar" && panelLayout.parked.sidebar)
@@ -2811,6 +2841,7 @@ function Shell() {
   );
 
   return (
+    <AgentPanelHostContext.Provider value={agentPanelHost}>
     <FileLinkActionsContext.Provider value={fileLinkActions}>
     <div className={`app-shell${isNarrow ? " is-narrow" : ""}${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
@@ -2942,6 +2973,7 @@ function Shell() {
                             session={agentSession}
                             title={tab.label}
                             cwd={agentSession.cwd ?? tab.cwd}
+                            tabId={tab.id}
                             onSwitchToChat={(viewId) => switchTerminalToChat(tab.id, viewId)}
                             onStop={() => {
                               const ptyId = termRefs.current.get(tab.id)?.getPtyId();
@@ -3186,6 +3218,7 @@ function Shell() {
       )}
     </div>
     </FileLinkActionsContext.Provider>
+    </AgentPanelHostContext.Provider>
   );
 }
 

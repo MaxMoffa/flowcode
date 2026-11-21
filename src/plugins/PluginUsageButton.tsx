@@ -43,6 +43,7 @@ export function PluginUsageButton({ plugin, icon, onRun, active, parked }: Plugi
         aria-pressed={active}
         aria-label={plugin.label}
         title={plugin.label}
+        data-plugin={plugin.id}
         onClick={onRun}
       >
         {icon}

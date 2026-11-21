@@ -18,11 +18,13 @@ interface AgentHeaderProps {
   subagent?: { label: string; state: "running" | "done" | "failed"; onBack: () => void } | null;
   /** A small tag after the title: a delegated child says who asked for its task. */
   tag?: { text: string; title: string } | null;
+  /** Shown at the right, just before the status (the context pill). */
+  extra?: ReactNode;
 }
 
 /** The header of an agent session - icon, name, status - with its discreet
  * session menu. Shared by the chat and by a terminal tab running an agent. */
-export function AgentHeader({ icon, title, subtitle, status, children, keepFocus, subagent, tag }: AgentHeaderProps) {
+export function AgentHeader({ icon, title, subtitle, status, children, keepFocus, subagent, tag, extra }: AgentHeaderProps) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,7 @@ export function AgentHeader({ icon, title, subtitle, status, children, keepFocus
           )}
         </span>
       )}
+      {extra}
       <span className="chat-status-text">{t(`chat.status.${status}`)}</span>
       <span className={`chat-status-dot is-${status}`} aria-hidden="true" />
     </div>

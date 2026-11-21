@@ -1,0 +1,108 @@
+/* Context pill in the agent header + its popover (variant B of docs/design/agent-menu-placement-variants.html). */
+.agent-pill-anchor {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px 0 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.agent-pill:hover,
+.agent-pill.is-open {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.agent-pill-ring {
+  flex: 0 0 auto;
+}
+
+.agent-pill-track {
+  stroke: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.agent-pill-progress {
+  stroke: var(--accent);
+}
+
+.agent-pill.is-warn .agent-pill-progress {
+  stroke: var(--ansi-bright-red);
+}
+
+.agent-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  max-height: min(560px, 70vh);
+  overflow: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--menu-surface);
+  box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14));
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* The panel was made for a full-height sidebar: here it takes its natural height and the popover scrolls. */
+.agent-pop .agents-sidebar {
+  height: auto;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.agent-pop .agent-insight,
+.agent-pop .agent-insight-body {
+  flex: 0 0 auto;
+}
+
+.agent-pop .agent-insight-pane {
+  overflow-y: visible;
+}
+
+.agent-pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted, inherit);
+  font-size: 11.5px;
+}
+
+.agent-pop-spacer {
+  flex: 1 1 auto;
+}
+
+.agent-pop-pin {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.agent-pop-pin:hover {
+  text-decoration: underline;
+}

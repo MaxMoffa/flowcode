@@ -67,17 +67,19 @@ interface AgentInsightPanelProps {
   onOpenDelegate?: (parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) => void;
   /** Brings a tab to the front. */
   onFocusTab?: (tabId: string) => void;
+  /** Set when shown pinned in the sidebar: adds a button to send it back to the header's popover. */
+  onUnpin?: () => void;
 }
 
 /** The sidebar's Agent tab for the agent in front (chat or terminal): context
  * fill with a "compact" action, then context (with the tools it is made of), usage and delegates tabs. */
-export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab }: AgentInsightPanelProps) {
+export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab, onUnpin }: AgentInsightPanelProps) {
   const { t } = useI18n();
   const agent = useActiveAgent();
   return (
     <div className="agents-sidebar agent-insight">
       {agent ? (
-        <AgentBody agent={agent} onCompactChat={onCompactChat} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} />
+        <AgentBody agent={agent} onCompactChat={onCompactChat} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} onUnpin={onUnpin} />
       ) : (
         <div className="agent-insight-empty">
           <RobotIcon />
@@ -89,14 +91,8 @@ export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab }:
   );
 }
 
-function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onOpenDelegate" | "onFocusTab">) {
-  const { t } = useI18n();
-  const agentTools = useAgentToolsSettings();
-  const delegation = useTabDelegation(agent.tabId);
-  // A chat shows the tab while the feature is on, or when it has (or is) a delegate; a terminal's agent only once it has delegated.
-  const showDelegates = (agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || !!agent.delegateOf)) || delegation.delegates.length > 0;
-  const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
-  const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
+/** The agent's context window fill, polled: shared by the panel and the header's pill. */
+export function useAgentContextFill(agent: ActiveAgent) {
   const cli = agent.cli;
   const readable = hasCap(cli, "readsSessions") && !agent.wsl && !!agent.sessionId;
   const context = usePolled(
@@ -105,11 +101,24 @@ function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent
     CONTEXT_POLL_MS,
     readable,
   );
-  const { tools, supported: toolsSupported, reload } = useAgentTools(cli, agent.cwd, agent.profile, tab === "context");
-
   const ctx = context ?? null;
   const percent = ctx && ctx.window > 0 ? Math.min(1, ctx.used / ctx.window) : null;
   const warn = percent !== null && percent >= WARN_AT;
+  return { context, ctx, percent, warn, readable };
+}
+
+function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab, onUnpin }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onOpenDelegate" | "onFocusTab" | "onUnpin">) {
+  const { t } = useI18n();
+  const agentTools = useAgentToolsSettings();
+  const delegation = useTabDelegation(agent.tabId);
+  // A chat shows the tab while the feature is on, or when it has (or is) a delegate; a terminal's agent only once it has delegated.
+  const showDelegates = (agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || !!agent.delegateOf)) || delegation.delegates.length > 0;
+  const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
+  const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
+  const cli = agent.cli;
+  const { context, ctx, percent, warn, readable } = useAgentContextFill(agent);
+  const { tools, supported: toolsSupported, reload } = useAgentTools(cli, agent.cwd, agent.profile, tab === "context");
+
   const label = CLI_INFO[cli as AgentCli]?.name ?? cli;
   const chip = [label, ctx?.model && modelDisplayName(ctx.model), agent.kind === "chat" ? t("agentPanel.chat") : t("agentPanel.terminal")]
     .filter(Boolean)
@@ -119,8 +128,18 @@ function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent
   return (
     <div className="agent-insight-body">
       <div className="agent-insight-top">
-        <div className="agent-insight-chip" title={chip}>
-          {chip}
+        <div className="agent-insight-chip-row">
+          <div className="agent-insight-chip" title={chip}>
+            {chip}
+          </div>
+          {onUnpin && (
+            <button type="button" className="agent-insight-unpin" title={t("agentPanel.unpin")} aria-label={t("agentPanel.unpin")} onClick={onUnpin}>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+                <path d="M3 3l18 18" />
+              </svg>
+            </button>
+          )}
         </div>
         <div className="agent-insight-hero">
           <span className={"agent-insight-big" + (warn ? " is-warn" : "")}>{percent === null ? "—" : `${Math.round(percent * 100)}%`}</span>

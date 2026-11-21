@@ -18,6 +18,7 @@ import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 import "../chat/chat.css";
 import "./builtins";
 import { AgentHeader } from "./AgentHeader";
+import { AgentContextPill } from "../agents/AgentContextPill";
 import { CopyIcon, SessionMenuHead, StopIcon, ViewSwitch, viewIcon } from "./SessionMenu";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 import { isProviderAuthError } from "../../shared/providerAuth";
@@ -205,7 +206,7 @@ export function AgentSessionView({
       <LocalChatImageProvider chatId={chat.chatId}>
         <LocalMcpIconProvider chatId={chat.chatId}>
         <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
-          <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader} tag={model.task ? { text: t("chat.delegate.from", { agent: cliName(model.task.parentAgent) }), title: t("chat.delegate.fromHint") } : null}>
+          <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} extra={<AgentContextPill tabId={tabId} />} subagent={subHeader} tag={model.task ? { text: t("chat.delegate.from", { agent: cliName(model.task.parentAgent) }), title: t("chat.delegate.fromHint") } : null}>
             {(close) => {
               const menuAction = (action: () => void) => {
                 close();
