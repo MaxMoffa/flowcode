@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowcode · The terminal where agents live</title>
+<meta name="description" content="The desktop terminal that keeps your shell, files and AI agents together, without breaking your flow. Windows, macOS, Linux and an Android companion app.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Flowcode · The terminal where agents live">
+<meta property="og:description" content="The desktop terminal that keeps your shell, files and AI agents together, without breaking your flow. Windows, macOS, Linux and an Android companion app.">
+<meta name="theme-color" content="#0b1020">
+<link rel="icon" href="flowcode-icon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="hud">
+  <div class="wrap bar">
+    <a class="brand" href="index.html" aria-current="page"><img src="flowcode-icon.svg" alt="" width="30" height="30">FLOWCODE</a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">MENU</button>
+    <nav id="site-nav" aria-label="Main">
+      <ul class="links"><li><a href="features.html">FEATURES</a></li><li><a href="agents.html">AGENTS</a></li><li><a href="mobile.html">PHONE</a></li><li><a href="changelog.html">CHANGELOG</a></li></ul>
+      <div class="cta">
+        <a class="gh" href="https://github.com/MaxMoffa/flowcode">GITHUB</a>
+        <a class="btn8" href="download.html">DOWNLOAD</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="title" aria-label="Flowcode">
+  <canvas id="title" aria-hidden="true"></canvas>
+  <div class="ov">
+    <h1>FLOWCODE</h1>
+    <p class="tag">THE TERMINAL WHERE AGENTS LIVE</p>
+    <div class="actions">
+      <a class="btn8" href="download.html">&#9654; DOWNLOAD</a>
+      <a class="btn8 alt" href="features.html">SEE FEATURES</a>
+    </div>
+  </div>
+  <div class="ver"><span data-latest="%v">v0.37.0</span> &middot; CLICK TO CATCH FLIES</div>
+  <div class="flies" aria-hidden="true">FLIES <b id="score">000</b></div>
+</section>
+
+<div class="wrap">
+  <section class="section" aria-labelledby="why">
+    <p class="lvl">WORLD 1 &middot; THE POND</p>
+    <h2 id="why">One terminal, everything around it</h2>
+    <p class="lead">Flowcode keeps your shell, files and AI agents together, without breaking your flow. Terminal, file manager, editor, a browser to check your usage limits: four windows, and the thread lost every time you switch. Flowcode brings them into one.</p>
+    <ul class="cards3">
+      <li><h3>One folder, one context</h3><p>The file explorer and the editor follow the active terminal's folder, even inside WSL. You <code>cd</code>, and the rest of the app comes along.</p></li>
+      <li><h3>Agents feel at home</h3><p>Six agents recognized and shown in a dedicated panel, with how much usage you have left. Talk to them in a real chat too.</p></li>
+      <li><h3>Light and native</h3><p>Built on Tauri, not Electron: it installs in a moment, starts instantly and uses little memory.</p></li>
+      <li><h3>Extensible without risk</h3><p>Plugins are declarative JSON files, not code: install a colleague's plugin without worrying about what it runs.</p></li>
+      <li><h3>Pick up where you left off</h3><p>Tabs, folders and output come back when you reopen the app, and your settings survive updates.</p></li>
+      <li><h3>Your pocket pond</h3><p>An Android companion app follows and answers your agents from anywhere. No account, no VPN.</p></li>
+    </ul>
+  </section>
+
+  <section class="section" aria-labelledby="inv">
+    <p class="lvl">LEVEL 1-1 &middot; ITEMS</p>
+    <h2 id="inv">What you carry into the pond</h2>
+    <ul class="items">
+<li class="item"><span class="ico"><canvas data-emoji="🗂️" aria-hidden="true"></canvas></span><div><h3>Tabbed terminal</h3><p>Sessions side by side, draggable between windows, auto-grouped, per-tab zoom, glow on hidden busy tabs.</p></div></li>
+<li class="item"><span class="ico"><canvas data-emoji="🤖" aria-hidden="true"></canvas></span><div><h3>Agent panel</h3><p>Every session at a glance, resume in one click, launch in its own git worktree.</p></div></li>
+<li class="item"><span class="ico"><canvas data-emoji="💬" aria-hidden="true"></canvas></span><div><h3>Chat mode<span class="new">NEW</span></h3><p>Talk to any agent in a real chat: images, attachments, mermaid, math, tables.</p></div></li>
+<li class="item"><span class="ico"><canvas data-emoji="🔀" aria-hidden="true"></canvas></span><div><h3>Delegation<span class="new">NEW</span></h3><p>One agent hands a task to another through the Flowcode MCP server.</p></div></li>
+<li class="item"><span class="ico"><canvas data-emoji="📱" aria-hidden="true"></canvas></span><div><h3>Android app</h3><p>Chats, terminals, files, browser and notifications from your phone.</p></div></li>
+<li class="item"><span class="ico"><canvas data-emoji="🎙️" aria-hidden="true"></canvas></span><div><h3>Local dictation<span class="new">NEW</span></h3><p>Whisper on your GPU (Vulkan): 0.4 s to transcribe, nothing leaves the PC.</p></div></li>
+    </ul>
+    <p class="more"><a href="features.html">&#9654; ALL FEATURES</a></p>
+  </section>
+
+  <section class="section" aria-labelledby="party">
+    <p class="lvl">LEVEL 1-2 &middot; PARTY</p>
+    <h2 id="party">Six agents. Pick any, or all of them</h2>
+    <p class="sub">One agent can delegate a quest to another.</p>
+    <ul class="party mini">
+<li><a class="char" href="agents.html"><canvas data-card="claude" aria-hidden="true"></canvas><h3>CLAUDE CODE</h3><div class="cls">Planner</div></a></li>
+<li><a class="char" href="agents.html"><canvas data-card="codex" aria-hidden="true"></canvas><h3>CODEX CLI</h3><div class="cls">Builder</div></a></li>
+<li><a class="char" href="agents.html"><canvas data-card="gemini" aria-hidden="true"></canvas><h3>GEMINI CLI</h3><div class="cls">Scout</div></a></li>
+<li><a class="char" href="agents.html"><canvas data-card="vibe" aria-hidden="true"></canvas><h3>MISTRAL VIBE</h3><div class="cls">Bard</div></a></li>
+<li><a class="char" href="agents.html"><canvas data-card="opencode" aria-hidden="true"></canvas><h3>OPENCODE</h3><div class="cls">Shapeshifter</div></a></li>
+<li><a class="char" href="agents.html"><canvas data-card="cline" aria-hidden="true"></canvas><h3>CLINE</h3><div class="cls">Rogue</div></a></li>
+    </ul>
+    <p class="more"><a href="agents.html">&#9654; MEET THE PARTY</a></p>
+  </section>
+</div>
+
+<div class="band">
+  <div class="wrap">
+    <div>
+      <h2>Ready to hop in?</h2>
+      <p>Windows, macOS, Linux and Android. Free and open source (Apache 2.0).</p>
+    </div>
+    <a class="btn8" href="download.html">&#9654; GET FLOWCODE</a>
+  </div>
+</div>
+</main>
+<footer>
+  <div class="wrap">
+    <canvas data-frog="foot" aria-hidden="true"></canvas>
+    <ul>
+      <li><a href="index.html">HOME</a></li>
+      <li><a href="features.html">FEATURES</a></li>
+      <li><a href="agents.html">AGENTS</a></li>
+      <li><a href="mobile.html">PHONE</a></li>
+      <li><a href="changelog.html">CHANGELOG</a></li>
+      <li><a href="download.html">DOWNLOAD</a></li>
+      <li><a href="https://github.com/MaxMoffa/flowcode">GITHUB</a></li>
+      <li><a href="https://github.com/MaxMoffa/flowcode/blob/master/PLUGINS.md">PLUGINS</a></li>
+      <li><a href="https://github.com/MaxMoffa/flowcode/blob/master/LICENSE">APACHE 2.0</a></li>
+    </ul>
+    <div class="copy">&copy; MAXMOFFA<br>MADE WITH A FROG</div>
+  </div>
+</footer>
+<script src="assets/pixel.js"></script>
+</body>
+</html>

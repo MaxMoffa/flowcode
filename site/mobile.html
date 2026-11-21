@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone · Flowcode</title>
+<meta name="description" content="Control your desktop's agents and terminals from your Android phone. End-to-end encrypted and peer-to-peer: no account, no VPN.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Phone · Flowcode">
+<meta property="og:description" content="Control your desktop's agents and terminals from your Android phone. End-to-end encrypted and peer-to-peer: no account, no VPN.">
+<meta name="theme-color" content="#0a0705">
+<link rel="icon" href="flowcode-icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-bar">
+    <a class="brand" href="index.html"><img src="flowcode-icon.svg" alt="" width="26" height="26">Flowcode</a>
+    <button class="nav-menu" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu"><span></span><span></span></button>
+    <nav id="site-nav" aria-label="Main">
+      <ul class="nav-links"><li><a href="features.html">Features</a></li><li><a href="agents.html">Agents</a></li><li><a href="mobile.html" aria-current="page">Phone</a></li><li><a href="changelog.html">Changelog</a></li></ul>
+      <div class="nav-cta">
+        <a class="nav-gh" href="https://github.com/MaxMoffa/flowcode"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+        <a class="btn btn-primary btn-sm" href="download.html">Download</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="page-head">
+  <div class="wrap">
+    <span class="eyebrow">Phone</span>
+    <h1>Your desktop,<br>in your pocket.</h1>
+    <p class="lead">Control your desktop&rsquo;s agents and terminals from your phone. There&rsquo;s no account to create and no VPN to set up.</p>
+    <div class="reveal" style="margin-top:72px" data-snippet="phone" data-mode="sync"></div>
+    <p class="snip-cap">The agent asks for permission on both screens. Answer from either one.</p>
+  </div>
+</section>
+<div class="wrap">
+  <section class="cat" aria-labelledby="pair">
+    <div class="cat-head reveal"><span class="idx">01</span><div><h2 id="pair">Pair your phone</h2><p>Three steps, once.</p></div></div>
+    <div class="cat-body">
+      <div class="split" style="align-items:stretch">
+        <div class="panel reveal">
+          <ol class="steps">
+            <li>Install <code>Flowcode-Android-&lt;version&gt;.apk</code> on your phone, allowing unknown sources if Android asks.</li>
+            <li>On the PC, open <b>Settings &rarr; Agents</b> and turn on <i>Allow access from the Flowcode phone app</i>: a QR code appears.</li>
+            <li>In the app tap <i>Add computer</i> and scan the code.</li>
+          </ol>
+        </div>
+        <div class="panel reveal">
+          <h3>How it connects</h3>
+          <p>Phone and PC talk through <a href="https://www.iroh.computer">iroh</a>: end-to-end encrypted, peer-to-peer, with a relay only as a last resort. No account. No VPN.</p>
+          <p>Remote access is off by default and sleeps until you wake it. Any paired device can be revoked at any time from the same settings page.</p>
+        </div>
+      </div>
+      <div class="note reveal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg><p style="margin:0"><b>Security.</b> A paired device can type into your terminals. Only pair phones you trust, and revoke them when you are done.</p></div>
+    </div>
+  </section>
+
+  <section class="cat" aria-labelledby="what">
+    <div class="cat-head reveal"><span class="idx">02</span><div><h2 id="what">What you can do</h2><p>Most of the desktop, sized for one hand.</p></div></div>
+    <div class="cat-body reveal"><ul class="flist three"><li><h3>Follow and answer agents</h3><p>Watch your agents and their usage limits, per profile, and reply to prompts straight from the phone.</p></li><li><h3>Open the PC&rsquo;s terminals</h3><p>Open the PC&rsquo;s terminals and type into them.</p></li><li><h3>Browse the PC&rsquo;s files</h3><p>Browse the PC&rsquo;s files, and send attachments to chats.</p></li><li><h3>Browser</h3><p>Phone and desktop share browser tabs.</p></li><li><h3>Dictation</h3><p>Phone audio is transcribed by the PC&rsquo;s local Whisper. Nothing leaves your machines.</p></li><li><h3>Quick actions</h3><p>Run quick actions from the shortcuts bar and mirror the desktop&rsquo;s settings.</p></li><li><h3>Background mode</h3><p>Opt-in background mode, with notifications when an agent needs you.</p></li><li><h3>Biometric lock</h3><p>Lock the app behind your fingerprint or face.</p></li><li><h3>Home widgets</h3><p>Three pixel-art Android widgets with your agents&rsquo; state.</p></li></ul></div>
+  </section>
+
+  <section class="cat" id="pc2pc" aria-labelledby="pc2pc-t">
+    <div class="cat-head reveal"><span class="idx">03</span><div><h2 id="pc2pc-t">PC &rarr; PC</h2><p>Open another computer&rsquo;s tabs from your desktop, over the same encrypted link.</p></div></div>
+  </section>
+</div>
+</main>
+<section class="cta-band" aria-labelledby="cta-t">
+  <div class="wrap">
+    <canvas class="cta-frog" data-frog="vivid" data-live width="30" height="24" aria-hidden="true"></canvas>
+    <h2 id="cta-t">Ready to hop in?</h2>
+    <p>Windows, macOS, Linux and Android. Free and open source under Apache 2.0.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="download.html"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6.5 10.5L12 16l5.5-5.5M5 20h14"/></svg>Get Flowcode</a>
+      <a class="btn btn-ghost" href="https://github.com/MaxMoffa/flowcode"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Star on GitHub</a>
+    </div>
+  </div>
+</section>
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <a class="brand" href="index.html"><img src="flowcode-icon.svg" alt="" width="24" height="24">Flowcode</a>
+        <p>The terminal where agents live. Free and open source under Apache 2.0.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul><li><a href="features.html">Features</a></li><li><a href="agents.html">Agents</a></li><li><a href="mobile.html">Phone</a></li><li><a href="changelog.html">Changelog</a></li><li><a href="download.html">Download</a></li></ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul><li><a href="https://github.com/MaxMoffa/flowcode">GitHub</a></li><li><a href="https://github.com/MaxMoffa/flowcode/releases">Releases</a></li><li><a href="https://github.com/MaxMoffa/flowcode/blob/master/PLUGINS.md">Plugin docs</a></li><li><a href="https://github.com/MaxMoffa/flowcode/blob/master/LICENSE">Apache 2.0</a></li></ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>&copy; MaxMoffa</span>
+      <span><canvas data-frog width="30" height="24" aria-hidden="true"></canvas>Made with a frog</span>
+    </div>
+  </div>
+</footer>
+<script src="assets/site.js" defer></script>
+<script src="assets/snippets.js" defer></script>
+</body>
+</html>

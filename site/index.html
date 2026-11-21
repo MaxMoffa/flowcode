@@ -1,399 +1,145 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Flowcode</title>
+<title>Flowcode · The terminal where agents live</title>
 <meta name="description" content="The desktop terminal that keeps your shell, files and AI agents together, without breaking your flow. Windows, macOS, Linux and an Android companion app.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Flowcode">
-<meta property="og:description" content="The desktop terminal that keeps your shell, files and AI agents together, without breaking your flow.">
-<meta name="theme-color" content="#fff7e6">
+<meta property="og:title" content="Flowcode · The terminal where agents live">
+<meta property="og:description" content="The desktop terminal that keeps your shell, files and AI agents together, without breaking your flow. Windows, macOS, Linux and an Android companion app.">
+<meta name="theme-color" content="#0a0705">
 <link rel="icon" href="flowcode-icon.svg" type="image/svg+xml">
-<style>
-:root {
-  color-scheme: light dark;
-  --bg: #f6ead2;
-  --bg-glow-1: rgba(168, 104, 58, .22);
-  --bg-glow-2: rgba(79, 110, 58, .18);
-  --surface: rgb(255 250 241);
-  --glass: rgba(255, 250, 241, .66);
-  --glass-strong: rgba(255, 250, 241, .88);
-  --fg: #3a2b17;
-  --muted: #6b5a42;
-  --border: rgba(120, 80, 36, .16);
-  --accent: #4f6e3a;
-  --accent-fg: #ffffff;
-  --accent-2: #8f5428;
-  --focus: #33618f;
-  --term-bg: #fffaf1;
-  --term-fg: #2b2013;
-  --ansi-red: #b33a3a;
-  --ansi-green: #4f6e3a;
-  --ansi-yellow: #8a6a1f;
-  --ansi-blue: #33618f;
-  --ansi-cyan: #2f7d7d;
-  --ansi-dim: #6b5a42;
-  --shadow: 0 10px 40px rgba(90, 55, 20, .14);
-  --radius: 6px;
-  --radius-lg: 14px;
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px; --s8: 72px;
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Cantarell", "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0805;
-    --bg-glow-1: rgba(201, 151, 90, .16);
-    --bg-glow-2: rgba(157, 185, 132, .10);
-    --surface: rgb(14 10 7);
-    --glass: rgba(26, 19, 13, .62);
-    --glass-strong: rgba(22, 16, 11, .88);
-    --fg: #e7d8c5;
-    --muted: #a08a6f;
-    --border: rgba(232, 184, 128, .12);
-    --accent: #9db984;
-    --accent-fg: #14100a;
-    --accent-2: #c9975a;
-    --focus: #8fb4e0;
-    --term-bg: #0e0a07;
-    --term-fg: #f2e6d6;
-    --ansi-red: #e2645c;
-    --ansi-green: #9db984;
-    --ansi-yellow: #d1a752;
-    --ansi-blue: #6f9bcf;
-    --ansi-cyan: #6fc2c2;
-    --ansi-dim: #a08a6f;
-    --shadow: 0 10px 40px rgba(0, 0, 0, .5);
-  }
-}
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 80px; }
-body {
-  margin: 0;
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(900px 520px at 12% -5%, var(--bg-glow-1), transparent 70%),
-    radial-gradient(800px 500px at 95% 8%, var(--bg-glow-2), transparent 70%);
-  background-repeat: no-repeat;
-  color: var(--fg);
-  font: 16px/1.6 var(--font);
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
-a { color: var(--accent); text-underline-offset: 3px; }
-a:hover { color: var(--accent-2); }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius); }
-h1, h2, h3 { line-height: 1.2; margin: 0; letter-spacing: -.01em; }
-p { margin: 0; }
-.wrap { width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 var(--s4); }
-.glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-.skip { position: absolute; left: -999px; top: var(--s2); background: var(--surface); padding: var(--s2) var(--s3); border-radius: var(--radius); z-index: 20; }
-.skip:focus { left: var(--s4); }
-
-/* header */
-header.top {
-  position: sticky; top: 0; z-index: 10;
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border);
-}
-.nav { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 56px; }
-.brand { display: flex; align-items: center; gap: var(--s2); font-weight: 700; color: var(--fg); text-decoration: none; }
-.brand img { width: 28px; height: 28px; display: block; }
-.nav ul { list-style: none; display: flex; gap: var(--s1); margin: 0; padding: 0; flex-wrap: wrap; justify-content: flex-end; }
-.nav ul a { display: block; padding: 6px 10px; border-radius: var(--radius); color: var(--fg); text-decoration: none; font-size: .94rem; }
-.nav ul a:hover { background: var(--border); color: var(--fg); }
-
-/* buttons */
-.btn {
-  display: inline-flex; align-items: center; gap: var(--s2);
-  padding: 10px 20px; border-radius: var(--radius);
-  font: inherit; font-weight: 600; text-decoration: none;
-  border: 1px solid var(--border); color: var(--fg); background: var(--glass);
-  min-height: 44px;
-  transition: transform .15s ease, background-color .15s ease;
-}
-.btn:hover { color: var(--fg); background: var(--glass-strong); transform: translateY(-1px); }
-.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
-.btn.primary:hover { color: var(--accent-fg); filter: brightness(1.08); }
-
-/* hero */
-.hero { padding: var(--s8) 0 var(--s7); text-align: center; }
-.hero img.logo { width: 84px; height: 84px; margin: 0 auto var(--s5); display: block; filter: drop-shadow(0 8px 18px rgba(20, 83, 45, .3)); }
-.hero h1 { font-size: clamp(2.4rem, 8vw, 3.8rem); margin: 0 auto var(--s4); }
-.hero .lead { max-width: 56ch; margin: 0 auto var(--s5); color: var(--muted); font-size: 1.12rem; }
-.cta { display: flex; gap: var(--s3); justify-content: center; flex-wrap: wrap; }
-.latest { display: block; margin-top: var(--s3); font-size: .88rem; color: var(--muted); }
-.platforms { margin-top: var(--s4); color: var(--muted); font-size: .94rem; }
-
-/* mockup */
-.mock { margin: var(--s7) auto 0; max-width: 880px; text-align: left; box-shadow: var(--shadow); overflow: hidden; padding: 0; }
-.chrome { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); background: var(--glass-strong); }
-.dots { display: flex; gap: 6px; }
-.dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--border); display: block; }
-.tabs { display: flex; gap: var(--s1); font-size: .8rem; min-width: 0; }
-.tab { padding: 4px 12px; border-radius: var(--radius); color: var(--muted); white-space: nowrap; }
-.tab.on { background: var(--border); color: var(--fg); }
-.body { display: grid; grid-template-columns: 150px 1fr; min-height: 260px; }
-.side { border-right: 1px solid var(--border); padding: var(--s3); font-size: .8rem; color: var(--muted); font-family: var(--mono); display: flex; flex-direction: column; gap: 6px; }
-.side b { color: var(--fg); font-weight: 600; }
-.side .on { color: var(--accent); }
-.main { display: grid; grid-template-columns: 1fr 210px; min-width: 0; }
-.term { background: var(--term-bg); color: var(--term-fg); font: .8rem/1.65 var(--mono); padding: var(--s4); overflow: hidden; white-space: pre-wrap; word-break: break-word; }
-.term .g { color: var(--ansi-green); } .term .b { color: var(--ansi-blue); } .term .y { color: var(--ansi-yellow); }
-.term .c { color: var(--ansi-cyan); } .term .r { color: var(--ansi-red); } .term .d { color: var(--ansi-dim); }
-.caret { display: inline-block; width: .55em; height: 1em; background: var(--term-fg); vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-.agents { padding: var(--s3); border-left: 1px solid var(--border); font-size: .8rem; display: flex; flex-direction: column; gap: var(--s3); }
-.agents h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
-.acard { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s3); background: var(--glass); }
-.acard .row { display: flex; justify-content: space-between; gap: var(--s2); margin-bottom: var(--s2); }
-.acard .row span:last-child { color: var(--muted); }
-.bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 62%; background: var(--accent); border-radius: 3px; }
-.acard small { display: block; margin-top: 6px; color: var(--muted); font-size: .74rem; }
-
-/* sections */
-section.block { padding: var(--s7) 0; }
-.eyebrow { color: var(--accent-2); font-weight: 600; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: var(--s2); }
-h2.title { font-size: clamp(1.5rem, 4vw, 2.1rem); margin-bottom: var(--s3); }
-.sub { color: var(--muted); max-width: 62ch; margin-bottom: var(--s6); }
-.grid { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); list-style: none; margin: 0; padding: 0; }
-.card { padding: var(--s5); }
-.card h3 { font-size: 1.05rem; margin-bottom: var(--s2); }
-.card p { color: var(--muted); font-size: .94rem; }
-.card .em { font-size: 1.5rem; line-height: 1; display: block; margin-bottom: var(--s3); }
-.phil { counter-reset: p; }
-.phil li { padding: var(--s5); }
-.phil h3::before { content: counter(p); counter-increment: p; display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: var(--s2); border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-size: .8rem; }
-.two { display: grid; gap: var(--s5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
-.panel { padding: var(--s5); }
-.panel h3 { font-size: 1.1rem; margin-bottom: var(--s3); }
-.panel ul, .panel ol { margin: 0; padding-left: 1.2em; }
-.panel li { margin-bottom: var(--s2); }
-.panel li::marker { color: var(--accent); }
-.panel p + p, .panel p + h3, .panel ul + h3, .panel ol + h3 { margin-top: var(--s4); }
-.dl { list-style: none; padding: 0; margin: var(--s4) 0 0; display: grid; gap: var(--s2); }
-.dl a { display: flex; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--fg); background: var(--glass); }
-.dl a:hover { background: var(--glass-strong); border-color: var(--accent); color: var(--fg); }
-.dl b { font-weight: 600; }
-.dl code { font: .82rem var(--mono); color: var(--muted); word-break: break-all; }
-code { font-family: var(--mono); font-size: .88em; }
-
-footer { border-top: 1px solid var(--border); margin-top: var(--s6); padding: var(--s6) 0; color: var(--muted); font-size: .92rem; }
-footer .wrap { display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; }
-footer nav { display: flex; gap: var(--s4); flex-wrap: wrap; }
-
-@media (max-width: 760px) {
-  .side { display: none; }
-  .body { grid-template-columns: 1fr; }
-  .main { grid-template-columns: 1fr; }
-  .agents { border-left: 0; border-top: 1px solid var(--border); }
-  .hero { padding-top: var(--s7); }
-}
-@media (max-width: 520px) {
-  .nav { flex-wrap: wrap; padding: var(--s2) var(--s4); }
-  .nav ul { justify-content: flex-start; }
-  .tab:nth-child(3) { display: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  .caret { animation: none; }
-  .btn { transition: none; }
-  .btn:hover { transform: none; }
-}
-</style>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-
-<header class="top">
-  <div class="wrap nav">
-    <a class="brand" href="#top"><img src="flowcode-icon.svg" alt="" width="28" height="28">Flowcode</a>
-    <nav aria-label="Main">
-      <ul>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#phone">Phone app</a></li>
-        <li><a href="https://github.com/MaxMoffa/flowcode/blob/master/PLUGINS.md">Plugins</a></li>
-        <li><a href="https://github.com/MaxMoffa/flowcode">GitHub</a></li>
-      </ul>
+<header class="nav">
+  <div class="wrap nav-bar">
+    <a class="brand" href="index.html" aria-current="page"><img src="flowcode-icon.svg" alt="" width="26" height="26">Flowcode</a>
+    <button class="nav-menu" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu"><span></span><span></span></button>
+    <nav id="site-nav" aria-label="Main">
+      <ul class="nav-links"><li><a href="features.html">Features</a></li><li><a href="agents.html">Agents</a></li><li><a href="mobile.html">Phone</a></li><li><a href="changelog.html">Changelog</a></li></ul>
+      <div class="nav-cta">
+        <a class="nav-gh" href="https://github.com/MaxMoffa/flowcode"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+        <a class="btn btn-primary btn-sm" href="download.html">Download</a>
+      </div>
     </nav>
   </div>
 </header>
 
 <main id="main">
-  <div class="wrap" id="top">
-    <section class="hero" aria-labelledby="hero-title">
-      <img class="logo" src="flowcode-icon.svg" alt="Flowcode logo: a green frog with a terminal prompt" width="84" height="84">
-      <h1 id="hero-title">Flowcode</h1>
-      <p class="lead">The desktop terminal that keeps your shell, files and AI agents together — without breaking your flow.</p>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/MaxMoffa/flowcode/releases/latest">Download</a>
-        <a class="btn" href="https://github.com/MaxMoffa/flowcode">View on GitHub</a>
-      </div>
-      <span class="latest" id="latest">Latest release</span>
-      <p class="platforms">Windows · macOS · Linux · Android companion app</p>
-
-      <div class="mock glass" role="img" aria-label="Illustration of the Flowcode window: tabs, a file sidebar, a terminal running Claude Code and an agents panel with a usage bar">
-        <div class="chrome" aria-hidden="true">
-          <div class="dots"><i></i><i></i><i></i></div>
-          <div class="tabs"><span class="tab on">app</span><span class="tab">server</span><span class="tab">notes</span></div>
-        </div>
-        <div class="body" aria-hidden="true">
-          <div class="side">
-            <b>~/projects/app</b>
-            <span>src/</span>
-            <span class="on">README.md</span>
-            <span>package.json</span>
-            <span>Cargo.toml</span>
-            <span>.gitignore</span>
-          </div>
-          <div class="main">
-<div class="term"><span class="g">~/projects/app</span> <span class="b">$</span> claude
-<span class="d">Claude Code</span> <span class="c">ready</span>
-<span class="y">&gt;</span> add a dark mode toggle
-<span class="g">✔</span> edited <span class="c">src/theme.ts</span>
-<span class="g">✔</span> edited <span class="c">src/App.css</span>
-<span class="d">usage: 62% of the 5h limit</span>
-<span class="g">~/projects/app</span> <span class="b">$</span> <span class="caret"></span></div>
-            <div class="agents">
-              <h2>Agents</h2>
-              <div class="acard">
-                <div class="row"><span>Claude Code</span><span>app</span></div>
-                <div class="bar"><i></i></div>
-                <small>62% used · resets in 1h 48m</small>
-              </div>
-              <div class="acard">
-                <div class="row"><span>Codex CLI</span><span>server</span></div>
-                <div class="bar"><i style="width:28%"></i></div>
-                <small>28% used</small>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="block" id="philosophy" aria-labelledby="phil-title">
-      <p class="eyebrow">The philosophy</p>
-      <h2 class="title" id="phil-title">The terminal is the center, everything else revolves around it</h2>
-      <p class="sub">Terminal, file manager, editor, a browser to check your usage limits: four windows, and the thread lost every time you switch. Flowcode brings them into one.</p>
-      <ul class="grid phil">
-        <li class="card glass"><h3>One folder, one context</h3><p>The file explorer and the editor follow the active terminal's folder, even inside WSL. You <code>cd</code>, and the rest of the app comes along.</p></li>
-        <li class="card glass"><h3>AI agents feel at home</h3><p>Claude Code, Codex CLI and Mistral Vibe are recognized, shown in a dedicated panel, with how much usage you have left (or, for Mistral Vibe, how much you've spent).</p></li>
-        <li class="card glass"><h3>Light and native</h3><p>Built on Tauri, not Electron: it installs in a moment, starts instantly and uses little memory.</p></li>
-        <li class="card glass"><h3>Extensible without risk</h3><p>Plugins are declarative JSON files, not code: install a colleague's plugin without worrying about what it runs.</p></li>
-        <li class="card glass"><h3>Pick up where you left off</h3><p>Tabs, folders and output come back when you reopen the app, and your settings survive updates.</p></li>
-      </ul>
-    </section>
-
-    <section class="block" id="features" aria-labelledby="feat-title">
-      <p class="eyebrow">Features</p>
-      <h2 class="title" id="feat-title">What you can do</h2>
-      <ul class="grid">
-        <li class="card glass"><span class="em" aria-hidden="true">🗂️</span><h3>Tabbed terminal</h3><p>Several sessions side by side, draggable between windows, grouped automatically when they don't fit the bar. Per-tab text zoom.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">📁</span><h3>Side file explorer</h3><p>Browse, search recursively and manage the files of the active folder. Favorites for the folders you use most.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">✏️</span><h3>Built-in editor</h3><p>Open and edit files on the fly, with syntax highlighting and a symbol outline.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🤖</span><h3>Agents panel</h3><p>See every open Claude Code, Codex CLI and Mistral Vibe session, resume it in one click and watch your remaining usage. Launch agents from the panel, optionally in their own git worktree.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">👤</span><h3>Account profiles</h3><p>Several accounts for Claude Code, Codex and Mistral Vibe, with a profile selector in each agent's popup.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">⏯️</span><h3>Auto-resume</h3><p>When an agent hits a usage limit, Flowcode can resume it on its own once the limit resets.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🌿</span><h3>Git panel</h3><p>Stage files, commit, review diffs and switch branches without leaving the app.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">📱</span><h3>Android companion app</h3><p>Follow and answer your agents, open the PC's terminals and get notifications from your phone.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">⚡</span><h3>Features and shortcuts</h3><p>A customizable quick-action bar: commands, status popups, shortcuts to your own tools.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🐧</span><h3>Your shell of choice</h3><p>PowerShell, cmd, bash, zsh, WSL… pick the default one for new tabs.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🎨</span><h3>Light, dark and automatic themes</h3><p>Frosted-glass panels with adjustable opacity. The layout also adapts to narrow, phone-like windows.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🌐</span><h3>Multilingual</h3><p>English and Italian, following your system language by default.</p></li>
-        <li class="card glass"><span class="em" aria-hidden="true">🔄</span><h3>In-app updates</h3><p>Flowcode checks for new versions on startup and updates itself in one click, verifying signed checksums first.</p></li>
-      </ul>
-    </section>
-
-    <section class="block" id="phone" aria-labelledby="phone-title">
-      <p class="eyebrow">Phone app</p>
-      <h2 class="title" id="phone-title">Android companion app</h2>
-      <p class="sub">Control your desktop's agents and terminals from your phone. There's no account to create and no VPN to set up.</p>
-      <div class="two">
-        <div class="panel glass">
-          <h3>What you can do</h3>
-          <ul>
-            <li>Follow your agents and their usage limits, per profile.</li>
-            <li>Reply to agent prompts straight from the phone.</li>
-            <li>Open the PC's terminals and type into them.</li>
-            <li>Browse the PC's files.</li>
-            <li>Run quick actions from the shortcuts bar.</li>
-            <li>Mirror the desktop's settings.</li>
-            <li>Opt-in background mode, with notifications when an agent needs you.</li>
-            <li>Biometric lock for the app.</li>
-          </ul>
-        </div>
-        <div class="panel glass">
-          <h3>How it connects</h3>
-          <p>The phone and the PC talk through <a href="https://www.iroh.computer">iroh</a>: the connection is end-to-end encrypted and peer-to-peer, with a relay as fallback when a direct path isn't possible.</p>
-          <p>Remote access is off by default, and a paired device can be revoked at any time from the same settings page. Note that a paired device can type into your terminals.</p>
-          <h3>Pair in three steps</h3>
-          <ol>
-            <li>Install <code>Flowcode-Android-&lt;version&gt;.apk</code> on your phone, allowing unknown sources if Android asks.</li>
-            <li>On the PC, open <b>Settings → Agents</b> and turn on <i>Allow access from the Flowcode phone app</i>: a QR code appears.</li>
-            <li>In the app tap <i>Add computer</i> and scan the code.</li>
-          </ol>
-        </div>
-      </div>
-    </section>
-
-    <section class="block" id="install" aria-labelledby="install-title">
-      <p class="eyebrow">Install</p>
-      <h2 class="title" id="install-title">Up and running in a minute</h2>
-      <div class="two">
-        <div class="panel glass">
-          <ol>
-            <li>Go to the <a href="https://github.com/MaxMoffa/flowcode/releases/latest">Releases</a> page.</li>
-            <li>Download the installer for your system.</li>
-            <li>Run it and follow the steps. If Flowcode is already installed, the installer offers to update it, keeping your settings.</li>
-          </ol>
-          <p style="margin-top:var(--s4);color:var(--muted)">On first launch a short tour shows you the main features and lets you pick a theme.</p>
-        </div>
-        <div class="panel glass">
-          <h3>Downloads</h3>
-          <ul class="dl">
-            <li><a href="https://github.com/MaxMoffa/flowcode/releases/latest"><b>Windows</b><code>Flowcode-Setup-&lt;version&gt;.exe</code></a></li>
-            <li><a href="https://github.com/MaxMoffa/flowcode/releases/latest"><b>macOS</b><code>Flowcode-Setup-&lt;version&gt;-macos-universal.zip</code></a></li>
-            <li><a href="https://github.com/MaxMoffa/flowcode/releases/latest"><b>Linux</b><code>Flowcode-Setup-&lt;version&gt;-linux-x86_64.tar.gz</code></a></li>
-            <li><a href="https://github.com/MaxMoffa/flowcode/releases/latest"><b>Android</b><code>Flowcode-Android-&lt;version&gt;.apk</code></a></li>
-          </ul>
-        </div>
-      </div>
-    </section>
-  </div>
-</main>
-
-<footer>
+<section class="hero" aria-labelledby="hero-t">
   <div class="wrap">
-    <span>Made with 🐸</span>
-    <nav aria-label="Footer">
-      <a href="https://github.com/MaxMoffa/flowcode/blob/master/LICENSE">Apache 2.0 License</a>
-      <a href="https://github.com/MaxMoffa/flowcode">GitHub</a>
-    </nav>
+    <div class="hero-copy">
+      <a class="release-chip" href="changelog.html"><b data-latest="%v">v0.37.0</b>What&rsquo;s new in Flowcode<span class="arr" aria-hidden="true">&rarr;</span></a>
+      <h1 id="hero-t">The terminal<br><span class="soft">where agents live</span><span class="caret" aria-hidden="true"></span></h1>
+      <p class="lead">Flowcode keeps your shell, files and AI agents together, without breaking your flow. On Windows, macOS and Linux, with an Android app in your pocket.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="download.html"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6.5 10.5L12 16l5.5-5.5M5 20h14"/></svg><span>Download for <span class="os-name">your system</span></span></a>
+        <a class="btn btn-ghost" href="features.html">See features</a>
+      </div>
+      <p class="hero-meta">Free and open source &middot; Apache 2.0 &middot; Built on Tauri, not Electron</p>
+    </div>
+    <div class="hero-stage reveal">
+      <div class="fc" data-demo="hero">
+        <div class="fc-head"></div>
+        <div class="fc-body"><div class="fc-card fc-main"><div class="fc-term"><div class="ln c-acc">~/flowcode master &#10095;</div><div class="ln c-mut">The live preview needs JavaScript.</div></div></div></div>
+      </div>
+      <div class="stage-hint">
+        <p>This window is live. Type <kbd>help</kbd> in the terminal, give the agent a task in the chat, or press <kbd>+</kbd> to start any of the six agents.</p>
+        <div class="palette-pick" data-palette-for="hero"><span class="lbl">Palette</span><ul class="swatches" aria-label="Window palette"></ul></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <section class="section" aria-labelledby="why">
+    <div class="section-head reveal">
+      <span class="eyebrow">01 &mdash; One place</span>
+      <h2 id="why">One terminal,<br>everything around it.</h2>
+      <p>Terminal, file manager, editor, a browser to check your usage limits: four windows, and the thread lost every time you switch. Flowcode brings them into one.</p>
+    </div>
+    <ul class="grid-3 reveal">
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5c0-1.1.9-2 2-2h4l2 2h7c1.1 0 2 .9 2 2v7c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2z"/><path d="M8 13h8"/></svg></span><h3>One folder, one context</h3><p>The file explorer and the editor follow the active terminal&rsquo;s folder, even inside WSL. You <code>cd</code>, and the rest of the app comes along.</p></li>
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 20 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg></span><h3>Agents feel at home</h3><p>Six agents recognized and shown in a dedicated panel, with how much usage you have left. Talk to them in a real chat too.</p></li>
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/></svg></span><h3>Light and native</h3><p>Built on Tauri, not Electron: it installs in a moment, starts instantly and uses little memory.</p></li>
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 2.5-2 3 1 .5 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 2.5 2 3-1 .5-2 1.5-2 3v2c0 2-1 3-3 3"/></svg></span><h3>Extensible without risk</h3><p>Plugins are declarative JSON files, not code: install a colleague&rsquo;s plugin without worrying about what it runs.</p></li>
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4.5v4h4M12 8v4l3 2"/></svg></span><h3>Pick up where you left off</h3><p>Tabs, folders and output come back when you reopen the app, and your settings survive updates.</p></li>
+      <li class="cell"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span><h3>Your pocket pond</h3><p>An Android companion app follows and answers your agents from anywhere. No account, no VPN.</p></li>
+    </ul>
+  </section>
+
+  <section class="section" aria-labelledby="party">
+    <div class="section-head reveal">
+      <span class="eyebrow">02 &mdash; Agents</span>
+      <h2 id="party">Six agents.<br>Pick any, or all of them.</h2>
+      <p>Each one is recognized in the terminal and gets its own panel, with history and how much usage you have left. One can hand a task to another.</p>
+    </div>
+    <ul class="agents-row reveal"><li><a href="agents.html" style="--ag:#d97757"><span class="glyph" style="--ag:#d97757" aria-hidden="true"><svg viewBox="-3.6 -3.6 31.2 31.2"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" fill="currentColor"/></svg></span><span><b>Claude Code</b><br><small>Anthropic</small></span></a></li><li><a href="agents.html" style="--ag:#6cc4b4"><span class="glyph" style="--ag:#6cc4b4" aria-hidden="true"><svg viewBox="-0.82 -0.73 21.65 21.45"><path d="M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z" fill="currentColor"/></svg></span><span><b>Codex CLI</b><br><small>OpenAI</small></span></a></li><li><a href="agents.html" style="--ag:#7aa2f7"><span class="glyph" style="--ag:#7aa2f7" aria-hidden="true"><svg viewBox="-3.6 -3.6 31.2 31.2"><path d="M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z" fill="currentColor"/></svg></span><span><b>Gemini CLI</b><br><small>Google</small></span></a></li><li><a href="agents.html" style="--ag:#ff8a3d"><span class="glyph" style="--ag:#ff8a3d" aria-hidden="true"><svg viewBox="-1.6 -1.6 27.2 27.2"><path d="M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z" fill="currentColor"/></svg></span><span><b>Mistral Vibe</b><br><small>Mistral AI</small></span></a></li><li><a href="agents.html" style="--ag:#c7a0e8"><span class="glyph" style="--ag:#c7a0e8" aria-hidden="true"><svg viewBox="-3.6 -3.6 31.2 31.2"><path d="M3 0h18a3 3 0 0 1 3 3v18a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zm1 4v16h16V4zm4 4h8v8H8z" fill="currentColor" fill-rule="evenodd"/></svg></span><span><b>OpenCode</b><br><small>Any model</small></span></a></li><li><a href="agents.html" style="--ag:#e6c15a"><span class="glyph" style="--ag:#e6c15a" aria-hidden="true"><svg viewBox="-3.6 -3.6 31.2 31.2"><path d="M21.19 4.29A12 12 0 1 0 21.19 19.71L17.36 16.5A7 7 0 1 1 17.36 7.5Z" fill="currentColor"/></svg></span><span><b>Cline</b><br><small>Cline</small></span></a></li></ul>
+    <div class="split" style="margin-top:96px">
+      <div class="split-copy reveal">
+        <span class="eyebrow">Delegation</span>
+        <h2>Agents that work<br>as a team.</h2>
+        <p>One agent hands a task to another through the Flowcode MCP server. The planner plans, the builder builds, and you stay in the loop.</p>
+        <ul class="ticks"><li>Every session at a glance, resume in one click</li><li>Launch an agent in its own git worktree</li><li>Hit a usage limit? The chat resumes when it resets</li></ul>
+        <a class="more-link" href="agents.html">Meet the agents <span aria-hidden="true">&rarr;</span></a>
+      </div>
+      <div class="reveal" data-snippet="delegate"></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="pocket">
+    <div class="split rev">
+      <div class="split-copy reveal">
+        <span class="eyebrow">03 &mdash; Phone</span>
+        <h2 id="pocket">Your agents,<br>from the couch.</h2>
+        <p>The Android app follows and answers your desktop&rsquo;s agents from anywhere, end-to-end encrypted and peer-to-peer. No account, no VPN.</p>
+        <ul class="ticks"><li>Chats, terminals, files and browser from your phone</li><li>Reply to your agents&rsquo; prompts where you are</li><li>Dictate: the PC&rsquo;s local Whisper transcribes</li></ul>
+        <a class="more-link" href="mobile.html">Pair your phone <span aria-hidden="true">&rarr;</span></a>
+      </div>
+      <div class="reveal phone-host" data-snippet="phone"></div>
+    </div>
+  </section>
+</div>
+</main>
+<section class="cta-band" aria-labelledby="cta-t">
+  <div class="wrap">
+    <canvas class="cta-frog" data-frog="vivid" data-live width="30" height="24" aria-hidden="true"></canvas>
+    <h2 id="cta-t">Ready to hop in?</h2>
+    <p>Windows, macOS, Linux and Android. Free and open source under Apache 2.0.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="download.html"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6.5 10.5L12 16l5.5-5.5M5 20h14"/></svg>Get Flowcode</a>
+      <a class="btn btn-ghost" href="https://github.com/MaxMoffa/flowcode"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Star on GitHub</a>
+    </div>
+  </div>
+</section>
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <a class="brand" href="index.html"><img src="flowcode-icon.svg" alt="" width="24" height="24">Flowcode</a>
+        <p>The terminal where agents live. Free and open source under Apache 2.0.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul><li><a href="features.html">Features</a></li><li><a href="agents.html">Agents</a></li><li><a href="mobile.html">Phone</a></li><li><a href="changelog.html">Changelog</a></li><li><a href="download.html">Download</a></li></ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul><li><a href="https://github.com/MaxMoffa/flowcode">GitHub</a></li><li><a href="https://github.com/MaxMoffa/flowcode/releases">Releases</a></li><li><a href="https://github.com/MaxMoffa/flowcode/blob/master/PLUGINS.md">Plugin docs</a></li><li><a href="https://github.com/MaxMoffa/flowcode/blob/master/LICENSE">Apache 2.0</a></li></ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>&copy; MaxMoffa</span>
+      <span><canvas data-frog width="30" height="24" aria-hidden="true"></canvas>Made with a frog</span>
+    </div>
   </div>
 </footer>
-
-<script>
-(function () {
-  var el = document.getElementById("latest");
-  if (!el || !window.fetch) return;
-  fetch("https://api.github.com/repos/MaxMoffa/flowcode/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) {
-      if (d && typeof d.tag_name === "string" && /^v?[\w.\-]{1,20}$/.test(d.tag_name)) el.textContent = "Latest: " + d.tag_name;
-    })
-    .catch(function () {});
-})();
-</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/demo.js" defer></script>
+<script src="assets/snippets.js" defer></script>
 </body>
 </html>
