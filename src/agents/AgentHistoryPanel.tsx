@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { ChatTab, TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
 import { useI18n } from "../i18n";
 import { relativeCommitTime } from "../lib/time";
 import type { AgentSession } from "./agentSessions";
-import { gitRepoRoot, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
-import { inProject, keepIfSame } from "./agentScope";
+import { isWorktreeCapable } from "./git";
+import { inProject } from "./agentScope";
+import { cachedRepo, refreshClaude, refreshGlobalAgent, resolveRepo, seenRowKeys, useHistoryStore, type RepoInfo } from "./historyStore";
 import { buildHistoryRows, filterRows, groupByDay, type HistoryRow, type OpenSession } from "./historyRows";
 import { AGENT_CLIS, CLI_INFO, cliName, type AgentCli } from "./cliInfo";
 import { useAvailableClis } from "./useAvailableClis";
@@ -17,10 +17,16 @@ import { childKeys, useDelegateHistory, type DelegateChild } from "./delegateHis
 import { useAllTabDelegations } from "../chat/delegateStore";
 import type { DelegateInfo } from "../chat/chatModel";
 import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
-import type { ClaudeSessionEntry, ClineSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
+import type { ClaudeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
 
 const POLL_MS = 5000;
+/** How long the first Claude scan waits for the repo's worktrees before going ahead with the folder alone. */
+const ROOTS_WAIT_MS = 300;
+/** Nothing arrived for this long: ghost rows appear (a faster answer shows no flash). */
+const GHOST_DELAY_MS = 150;
+const GHOST_ROWS = 8;
+const EMPTY_CLAUDE: ClaudeSessionEntry[] = [];
 
 interface AgentHistoryPanelProps {
   /** The active agent tab's folder. */
@@ -118,66 +124,43 @@ export function AgentHistoryPanel({
   const delegations = useAllTabDelegations();
   /** Orchestrator sessions whose delegated chats are listed under them. */
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
-  const [claude, setClaude] = useState<ClaudeSessionEntry[]>([]);
-  const [codex, setCodex] = useState<CodexSessionEntry[]>([]);
-  const [vibe, setVibe] = useState<VibeSessionEntry[]>([]);
-  const [opencode, setOpencode] = useState<OpencodeSessionEntry[]>([]);
-  const [cline, setCline] = useState<ClineSessionEntry[]>([]);
-  const [repo, setRepo] = useState<{ cwd: string; roots: string[]; worktrees: GitWorktree[] } | null>(null);
+  const store = useHistoryStore();
+  const capable = isWorktreeCapable(projectCwd, wslDistro);
+  const [repo, setRepo] = useState<{ cwd: string; wsl: string | undefined; info: RepoInfo } | null>(() => {
+    const info = cachedRepo(projectCwd, wslDistro);
+    return info ? { cwd: projectCwd, wsl: wslDistro, info } : null;
+  });
+  /** Roots unknown for too long: the Claude scan goes ahead with the folder alone. */
+  const [rootsWaited, setRootsWaited] = useState<string | null>(null);
+  const waitKey = `${wslDistro ?? ""}
+${projectCwd}`;
 
-  // The repo's worktrees count as the project; looked up when the folder changes.
+  // The repo's worktrees count as the project; looked up once per folder (cached).
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      let roots = [projectCwd];
-      let worktrees: GitWorktree[] = [];
-      if (isWorktreeCapable(projectCwd, wslDistro)) {
-        try {
-          const root = await gitRepoRoot(projectCwd);
-          if (root) {
-            worktrees = await gitWorktrees(root);
-            roots = worktrees.length > 0 ? worktrees.map((w) => w.path) : [root];
-          }
-        } catch {
-          roots = [projectCwd];
-          worktrees = [];
-        }
-      }
-      if (!cancelled) setRepo({ cwd: projectCwd, roots, worktrees });
-    })();
+    const hit = cachedRepo(projectCwd, wslDistro);
+    if (hit) {
+      setRepo({ cwd: projectCwd, wsl: wslDistro, info: hit });
+      return;
+    }
+    resolveRepo(projectCwd, wslDistro).then((info) => !cancelled && setRepo({ cwd: projectCwd, wsl: wslDistro, info }));
+    const timer = setTimeout(() => !cancelled && setRootsWaited(waitKey), ROOTS_WAIT_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [projectCwd, wslDistro]);
+  }, [projectCwd, wslDistro, waitKey]);
 
-  const roots = repo?.cwd === projectCwd ? repo.roots : [projectCwd];
-  const worktrees = repo?.cwd === projectCwd ? repo.worktrees : [];
+  const repoReady = repo?.cwd === projectCwd && repo.wsl === wslDistro;
+  const roots = repoReady ? repo.info.roots : [projectCwd];
+  const worktrees = repoReady ? repo.info.worktrees : [];
   const rootsKey = JSON.stringify(roots);
+  const claudeReady = !capable || repoReady || rootsWaited === waitKey;
 
+  // The agents without a project scope: each list shows as soon as its scan answers.
   useEffect(() => {
     if (!visible) return;
-    let cancelled = false;
-    const list: string[] = JSON.parse(rootsKey);
-    function load() {
-      // Rejections keep what was last known.
-      if (!wslDistro) {
-        invoke<ClaudeSessionEntry[]>("list_claude_sessions", { roots: list })
-          .then((r) => !cancelled && setClaude((prev) => keepIfSame(prev, r)))
-          .catch(() => {});
-      }
-      invoke<CodexSessionEntry[]>("list_codex_sessions", { fresh: false })
-        .then((r) => !cancelled && setCodex((prev) => keepIfSame(prev, r)))
-        .catch(() => {});
-      invoke<VibeSessionEntry[]>("list_vibe_sessions", { fresh: false })
-        .then((r) => !cancelled && setVibe((prev) => keepIfSame(prev, r)))
-        .catch(() => {});
-      invoke<OpencodeSessionEntry[]>("list_opencode_sessions", { fresh: false })
-        .then((r) => !cancelled && setOpencode((prev) => keepIfSame(prev, r)))
-        .catch(() => {});
-      invoke<ClineSessionEntry[]>("list_cline_sessions", { fresh: false })
-        .then((r) => !cancelled && setCline((prev) => keepIfSame(prev, r)))
-        .catch(() => {});
-    }
+    const load = () => (["codex", "vibe", "opencode", "cline"] as const).forEach(refreshGlobalAgent);
     load();
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") load();
@@ -187,11 +170,36 @@ export function AgentHistoryPanel({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      cancelled = true;
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [visible, rootsKey, wslDistro]);
+  }, [visible]);
+
+  // Claude: scoped to the roots. Same roots = same scan, so a late-arriving identical set doesn't rescan.
+  useEffect(() => {
+    if (!visible || wslDistro || !claudeReady) return;
+    const list: string[] = JSON.parse(rootsKey);
+    const load = () => refreshClaude(list);
+    load();
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, POLL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [visible, rootsKey, wslDistro, claudeReady]);
+
+  const claude = store.claude[rootsKey] ?? store.claudeLast ?? EMPTY_CLAUDE;
+  const { codex, vibe, opencode, cline } = store;
+  /** Some agent has not answered yet since the app started. */
+  const pending =
+    !(["codex", "vibe", "opencode", "cline"] as const).every((id) => store.loaded.has(id)) ||
+    (!wslDistro && !store.loaded.has(`claude:${rootsKey}`) && store.claudeLast === null);
 
   const rows = useMemo(() => {
     const open: OpenSession[] = [];
@@ -214,6 +222,24 @@ export function AgentHistoryPanel({
     return buildHistoryRows({ entries: { claude, codex, vibe, opencode, cline }, roots, wslDistro, open, exclude: childKeys(delegateHistory) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claude, codex, vibe, opencode, cline, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
+
+  // Ghost rows only when the wait lasts: nothing here after GHOST_DELAY_MS.
+  const [ghost, setGhost] = useState(false);
+  const waiting = pending && rows.length === 0;
+  useEffect(() => {
+    if (!waiting) return setGhost(false);
+    const timer = setTimeout(() => setGhost(true), GHOST_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [waiting]);
+  // A warm store (return to the tab) draws at once; only rows arriving during the first load rise, once.
+  const riseKeys = useRef(new Set<string>());
+  const warmStart = useRef(!pending);
+  if (pending && !warmStart.current) {
+    for (const row of rows) {
+      if (!seenRowKeys.has(row.key)) riseKeys.current.add(row.key);
+    }
+  }
+  for (const row of rows) seenRowKeys.add(row.key);
 
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;
   const shown = filterRows(rows, query, titleOf);
@@ -267,11 +293,29 @@ export function AgentHistoryPanel({
           onChange={(e) => setQuery(e.target.value)}
         />
       </label>
+      <div className="agent-history-listwrap">
+      {pending && <div className="agent-history-topbar" role="progressbar" aria-busy="true" />}
       <div className={"agent-history-list" + (hasDelegates ? " has-delegates" : "")}>
-        {groups.length === 0 && <div className="agent-history-empty">{needle ? t("history.noMatch") : t("history.empty")}</div>}
+        {groups.length === 0 && !pending && <div className="agent-history-empty">{needle ? t("history.noMatch") : t("history.empty")}</div>}
+        {groups.length === 0 && ghost && (
+          <div className="agent-history-ghosts" aria-hidden="true">
+            {Array.from({ length: GHOST_ROWS }, (_, i) => (
+              <div key={i} className="agent-history-ghost">
+                <span className="agent-history-ghost-icon" />
+                <span className="agent-history-ghost-body">
+                  <span className="agent-history-ghost-bar" style={{ width: `${[78, 62, 70, 55, 82, 66, 74, 58][i]}%` }} />
+                  <span className="agent-history-ghost-bar is-short" style={{ width: `${[38, 30, 42, 34, 28, 40, 36, 31][i]}%` }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {groups.map((group) => (
           <section key={group.label}>
-            <div className="agent-history-group">{group.label}</div>
+            <div className="agent-history-group">
+              {group.label}
+              {pending && <span className="agent-history-count">{group.rows.length}</span>}
+            </div>
             {group.rows.map((row) => {
               const branch = branchOf(row.cwd);
               const time = timeOf(row);
@@ -281,7 +325,7 @@ export function AgentHistoryPanel({
                 <Fragment key={row.key}>
                 <button
                   type="button"
-                  className={"agent-history-row" + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
+                  className={"agent-history-row" + (riseKeys.current.has(row.key) ? " is-rise" : "") + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
                   title={`${titleOf(row)}\n${row.cwd}`}
                   onClick={() => {
@@ -340,6 +384,7 @@ export function AgentHistoryPanel({
             })}
           </section>
         ))}
+      </div>
       </div>
       <div className="agent-history-footer" ref={footerRef}>
         {menuOpen && (

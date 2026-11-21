@@ -378,3 +378,126 @@
 .agent-history-dot--off {
   background: var(--fg-muted);
 }
+
+/* ---- loading: top bar, rising rows, short ghost rows ---- */
+.agent-history-listwrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.agent-history-topbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.agent-history-topbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: agent-history-indet 1.1s ease-in-out infinite;
+}
+
+@keyframes agent-history-indet {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+
+.agent-history-row.is-rise {
+  animation: agent-history-rise 0.38s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes agent-history-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.agent-history-count {
+  margin-left: 6px;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.agent-history-ghost {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  margin: 0 6px;
+}
+
+.agent-history-ghost-icon,
+.agent-history-ghost-bar {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.agent-history-ghost-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.agent-history-ghost-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.agent-history-ghost-bar {
+  height: 9px;
+  border-radius: 5px;
+}
+
+.agent-history-ghost-bar.is-short {
+  height: 7px;
+  opacity: 0.7;
+}
+
+.agent-history-ghost-icon::after,
+.agent-history-ghost-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 9%, transparent) 50%, transparent);
+  animation: agent-history-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes agent-history-sweep {
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-history-topbar::before {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+  .agent-history-row.is-rise {
+    animation: none;
+  }
+  .agent-history-ghost-icon::after,
+  .agent-history-ghost-bar::after {
+    animation: none;
+    display: none;
+  }
+}
