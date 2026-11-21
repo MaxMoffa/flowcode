@@ -53,6 +53,27 @@ const TOOLS = [
     },
   },
   {
+    name: "attach_crash_diagnosis",
+    timeoutMs: 15_000,
+    description:
+      "Attach your conclusion about the crash you are investigating to Flowcode's crash report, where the user reads it before deciding what to send. Call it exactly once, when you have finished investigating. Never put user names, folder paths, machine names, emails or tokens in any field.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        verdict: { type: "string", enum: ["machine", "flowcode", "unknown"], description: "machine: the crash comes from this computer (driver, antivirus, injected DLL, low memory, CPU, broken install). flowcode: a bug in Flowcode. unknown: you could not tell." },
+        confidence: { type: "number", minimum: 0, maximum: 1, description: "How sure you are, from 0 to 1." },
+        title: { type: "string", description: "Short headline of the cause, 80 characters at most." },
+        summary: { type: "string", description: "What you found and why, 1200 characters at most, plain text or markdown." },
+        evidence: { type: "array", items: { type: "string" }, maxItems: 10, description: "The facts behind the verdict, 300 characters each at most." },
+        local_fix: { type: "array", items: { type: "string" }, maxItems: 8, description: "Steps the user can take on this computer, 300 characters each at most." },
+        repro_steps: { type: "array", items: { type: "string" }, maxItems: 10, description: "For a Flowcode bug: steps to reproduce it." },
+        existing_issue: { type: "integer", minimum: 1, description: "Number of an open issue in MaxMoffa/flowcode that reports the same crash, if you found one." },
+      },
+      required: ["verdict", "confidence", "title", "summary"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_agents",
     timeoutMs: 15_000,
     description:

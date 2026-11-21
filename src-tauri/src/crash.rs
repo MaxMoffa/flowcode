@@ -8,6 +8,7 @@
 //! - `session-<pid>.json`  written at startup, removed on a clean exit
 //! - `panic-<pid>.json`    written by the panic hook just before the abort
 //! - `pending-<id>.json`   a finished report waiting for the frontend to show
+//! - `diagnosis-<id>.json` what an agent concluded about that report (see `attach_diagnosis`)
 //! - `muted.json`          signatures the user asked never to be told about
 //!
 //! A marker with no evidence (no panic file, no Windows "Application Error"
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use sysinfo::{Pid, ProcessesToUpdate, System};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Where crash files live. Set once in `init`; the panic hook reads it, so a
 /// panic before `init` simply leaves no trace.
@@ -90,11 +91,38 @@ pub struct CrashReport {
     pub body: String,
 }
 
+/// What an agent concluded about a crash, attached to its report by the
+/// `attach_crash_diagnosis` tool. Every text is already scrubbed and clamped.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnosis {
+    /// "machine", "flowcode" or "unknown".
+    pub verdict: String,
+    /// 0..1.
+    pub confidence: f64,
+    pub title: String,
+    pub summary: String,
+    pub evidence: Vec<String>,
+    pub local_fix: Vec<String>,
+    pub repro_steps: Vec<String>,
+    /// An open issue with the same crash, when the agent found one.
+    pub existing_issue: Option<u32>,
+    /// The agent that investigated (its id, for the badge).
+    pub agent: String,
+    pub at: u64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingCrash {
     pub report: CrashReport,
     pub other_count: usize,
+    /// The agent's diagnosis of `report`, once it attached one; its section is in `report.body`.
+    pub diagnosis: Option<Diagnosis>,
+    /// The crash folder, where a diagnosis chat works.
+    pub dir: String,
+    /// The memory watch's log, when there is one.
+    pub memory_log: Option<String>,
 }
 
 fn now_ms() -> u64 {
@@ -133,6 +161,10 @@ fn pending_files(dir: &Path) -> Vec<PathBuf> {
                 .is_some_and(|n| n.starts_with("pending-") && n.ends_with(".json"))
         })
         .collect()
+}
+
+fn diagnosis_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("diagnosis-{id}.json"))
 }
 
 fn read_muted(dir: &Path) -> Vec<String> {
@@ -215,6 +247,7 @@ fn detect(dir: &Path, app_data: &Path, own_pid: u32) {
             let _ = std::fs::remove_file(p);
         }
     }
+    drop_orphan_diagnoses(dir);
 
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     let markers: Vec<PathBuf> = rd
@@ -820,6 +853,149 @@ fn scrub(text: &str, ctx: &ScrubCtx) -> String {
     out
 }
 
+// ---------------------------------------------------------------- diagnosis
+
+const DIAGNOSIS_TITLE_MAX: usize = 80;
+const DIAGNOSIS_SUMMARY_MAX: usize = 1200;
+const DIAGNOSIS_ITEM_MAX: usize = 300;
+const EVIDENCE_MAX: usize = 10;
+const LOCAL_FIX_MAX: usize = 8;
+const REPRO_MAX: usize = 10;
+const ISSUE_NUMBER_MAX: u64 = 10_000_000;
+
+fn clamp_text(text: &str, max: usize, ctx: &ScrubCtx) -> String {
+    scrub(text.trim().chars().take(max).collect::<String>().trim(), ctx)
+}
+
+/// A list of short strings: the non-empty ones, at most `count`, each cut to `DIAGNOSIS_ITEM_MAX`.
+fn clamp_list(value: Option<&serde_json::Value>, count: usize, ctx: &ScrubCtx) -> Vec<String> {
+    value
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str())
+        .map(|s| clamp_text(s, DIAGNOSIS_ITEM_MAX, ctx))
+        .filter(|s| !s.is_empty())
+        .take(count)
+        .collect()
+}
+
+/// Checks and clamps the arguments of `attach_crash_diagnosis`; the texts are scrubbed like the report's.
+fn parse_diagnosis(args: &serde_json::Value, agent: &str, ctx: &ScrubCtx, at: u64) -> Result<Diagnosis, String> {
+    let verdict = args.get("verdict").and_then(|v| v.as_str()).unwrap_or_default();
+    if !matches!(verdict, "machine" | "flowcode" | "unknown") {
+        return Err("`verdict` must be \"machine\", \"flowcode\" or \"unknown\"".to_string());
+    }
+    let confidence = args
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .filter(|c| c.is_finite())
+        .ok_or("`confidence` must be a number between 0 and 1")?
+        .clamp(0.0, 1.0);
+    let text = |key: &str, max: usize| clamp_text(args.get(key).and_then(|v| v.as_str()).unwrap_or_default(), max, ctx);
+    let title = text("title", DIAGNOSIS_TITLE_MAX);
+    let summary = text("summary", DIAGNOSIS_SUMMARY_MAX);
+    if title.is_empty() || summary.is_empty() {
+        return Err("`title` and `summary` are required".to_string());
+    }
+    let existing_issue = args
+        .get("existing_issue")
+        .and_then(|v| v.as_u64())
+        .filter(|n| (1..=ISSUE_NUMBER_MAX).contains(n))
+        .map(|n| n as u32);
+    Ok(Diagnosis {
+        verdict: verdict.to_string(),
+        confidence,
+        title,
+        summary,
+        evidence: clamp_list(args.get("evidence"), EVIDENCE_MAX, ctx),
+        local_fix: clamp_list(args.get("local_fix"), LOCAL_FIX_MAX, ctx),
+        repro_steps: clamp_list(args.get("repro_steps"), REPRO_MAX, ctx),
+        existing_issue,
+        agent: agent.to_string(),
+        at,
+    })
+}
+
+/// The `### Agent diagnosis` section of the issue body.
+fn diagnosis_section(d: &Diagnosis) -> String {
+    let verdict = match (d.existing_issue, d.verdict.as_str()) {
+        (Some(n), _) => format!("already reported (#{n})"),
+        (None, "machine") => "problem with this computer".to_string(),
+        (None, "flowcode") => "probable Flowcode bug".to_string(),
+        _ => "undetermined".to_string(),
+    };
+    let mut out = format!(
+        "### Agent diagnosis\n- Verdict: {verdict}\n- Confidence: {}%\n- Agent: {}\n\n**{}**\n\n{}\n",
+        (d.confidence * 100.0).round() as u32,
+        d.agent,
+        d.title,
+        d.summary
+    );
+    let list = |out: &mut String, heading: &str, items: &[String], numbered: bool| {
+        if items.is_empty() {
+            return;
+        }
+        out.push_str(&format!("\n{heading}\n"));
+        for (i, item) in items.iter().enumerate() {
+            if numbered {
+                out.push_str(&format!("{}. {item}\n", i + 1));
+            } else {
+                out.push_str(&format!("- {item}\n"));
+            }
+        }
+    };
+    list(&mut out, "Evidence:", &d.evidence, false);
+    list(&mut out, "Possible local fix:", &d.local_fix, false);
+    list(&mut out, "Steps to reproduce:", &d.repro_steps, true);
+    out
+}
+
+/// `body` with the diagnosis section in front of its signature (the part a duplicate search keys on).
+fn insert_diagnosis(body: &str, d: &Diagnosis) -> String {
+    let section = diagnosis_section(d);
+    match body.find("\n### Signature") {
+        Some(i) => format!("{}\n{section}{}", &body[..i], &body[i..]),
+        None => format!("{body}\n\n{section}"),
+    }
+}
+
+/// Removes the diagnoses whose report is gone (dismissed or reported).
+fn drop_orphan_diagnoses(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for path in rd.flatten().map(|e| e.path()) {
+        let Some(id) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix("diagnosis-"))
+            .and_then(|n| n.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        if !dir.join(format!("pending-{id}.json")).exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Whether `id` is a report still waiting for the user (what a diagnosis chat may be started for).
+pub(crate) fn report_pending(id: &str) -> bool {
+    valid_id(id) && crash_dir().is_ok_and(|dir| dir.join(format!("pending-{id}.json")).is_file())
+}
+
+/// The `attach_crash_diagnosis` tool of the diagnosis chat of report `id`: stores the checked diagnosis next to
+/// the report (a second call replaces the first) and tells the window (`crash-diagnosis`).
+pub(crate) fn attach_diagnosis(app: &tauri::AppHandle, id: &str, agent: &str, args: &serde_json::Value) -> Result<String, String> {
+    if !report_pending(id) {
+        return Err("this crash report no longer exists".to_string());
+    }
+    let dir = crash_dir()?;
+    let diagnosis = parse_diagnosis(args, agent, &ScrubCtx::from_env(), now_ms())?;
+    write_json(&diagnosis_path(dir, id), &diagnosis).map_err(|e| e.to_string())?;
+    let _ = app.emit("crash-diagnosis", serde_json::json!({ "reportId": id }));
+    Ok("The diagnosis was attached to the crash report. Now give the user a 2-3 sentence summary.".to_string())
+}
+
 // ---------------------------------------------------------------- issue URL
 
 fn percent_encode(s: &str) -> String {
@@ -888,7 +1064,20 @@ pub async fn crash_pending() -> Result<Option<PendingCrash>, String> {
             pending_files(dir).iter().filter_map(|p| read_json::<CrashReport>(p)).collect();
         reports.sort_by_key(|r| r.crashed_at.unwrap_or(r.started_at));
         let other_count = reports.len().saturating_sub(1);
-        Ok(reports.pop().map(|report| PendingCrash { report, other_count }))
+        Ok(reports.pop().map(|mut report| {
+            let diagnosis = read_json::<Diagnosis>(&diagnosis_path(dir, &report.id));
+            if let Some(d) = &diagnosis {
+                report.body = insert_diagnosis(&report.body, d);
+            }
+            let memory_log = dir.parent().map(|p| p.join("memory.log")).filter(|p| p.is_file());
+            PendingCrash {
+                report,
+                other_count,
+                diagnosis,
+                dir: dir.to_string_lossy().into_owned(),
+                memory_log: memory_log.map(|p| p.to_string_lossy().into_owned()),
+            }
+        }))
     })
     .await
 }
@@ -911,6 +1100,7 @@ pub async fn crash_dismiss(id: String, mute: bool) -> Result<(), String> {
             }
         }
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(diagnosis_path(dir, &id));
         Ok(())
     })
     .await
@@ -919,9 +1109,11 @@ pub async fn crash_dismiss(id: String, mute: bool) -> Result<(), String> {
 #[tauri::command]
 pub async fn crash_dismiss_all() -> Result<(), String> {
     crate::blocking(|| {
-        for p in pending_files(crash_dir()?) {
+        let dir = crash_dir()?;
+        for p in pending_files(dir) {
             let _ = std::fs::remove_file(p);
         }
+        drop_orphan_diagnoses(dir);
         Ok(())
     })
     .await
@@ -1027,6 +1219,66 @@ mod tests {
         assert_eq!(scrub("http://203.0.113.9:80/x", &c), "http://<ip>/x");
         // Versions and source locations survive.
         assert_eq!(scrub("flowcode.exe 0.36.0.0 at src/a.rs:12:5 v10.0.26300.1", &c), "flowcode.exe 0.36.0.0 at src/a.rs:12:5 v10.0.26300.1");
+    }
+
+
+    fn sample_args() -> serde_json::Value {
+        serde_json::json!({
+            "verdict": "machine",
+            "confidence": 1.7,
+            "title": "Driver video NVIDIA",
+            "summary": "Crash in nvoglv64.dll for massi on DESKTOP-ABC",
+            "evidence": ["a", "  ", "b"],
+            "local_fix": ["Aggiorna il driver"],
+            "repro_steps": [],
+            "existing_issue": 214,
+        })
+    }
+
+    #[test]
+    fn diagnosis_is_validated_clamped_and_scrubbed() {
+        let c = ctx();
+        let d = parse_diagnosis(&sample_args(), "claude", &c, 5).unwrap();
+        assert_eq!(d.confidence, 1.0);
+        assert_eq!(d.summary, "Crash in nvoglv64.dll for <user> on <host>");
+        assert_eq!(d.evidence, ["a", "b"]);
+        assert_eq!((d.existing_issue, d.agent.as_str(), d.at), (Some(214), "claude", 5));
+
+        let mut bad = sample_args();
+        bad["verdict"] = "duplicate".into();
+        assert!(parse_diagnosis(&bad, "claude", &c, 0).is_err());
+        let mut bad = sample_args();
+        bad["confidence"] = "high".into();
+        assert!(parse_diagnosis(&bad, "claude", &c, 0).is_err());
+        let mut bad = sample_args();
+        bad["summary"] = "  ".into();
+        assert!(parse_diagnosis(&bad, "claude", &c, 0).is_err());
+
+        let mut long = sample_args();
+        long["title"] = "t".repeat(200).into();
+        long["summary"] = "s".repeat(5000).into();
+        long["evidence"] = serde_json::Value::Array((0..30).map(|_| "e".repeat(900).into()).collect());
+        long["existing_issue"] = 0.into();
+        let d = parse_diagnosis(&long, "codex", &c, 0).unwrap();
+        assert_eq!((d.title.len(), d.summary.len(), d.evidence.len()), (DIAGNOSIS_TITLE_MAX, DIAGNOSIS_SUMMARY_MAX, EVIDENCE_MAX));
+        assert!(d.evidence.iter().all(|e| e.len() == DIAGNOSIS_ITEM_MAX));
+        assert_eq!(d.existing_issue, None);
+    }
+
+    #[test]
+    fn diagnosis_section_goes_before_the_signature() {
+        let d = parse_diagnosis(&sample_args(), "claude", &ctx(), 0).unwrap();
+        let section = diagnosis_section(&d);
+        assert!(section.starts_with("### Agent diagnosis\n- Verdict: already reported (#214)\n- Confidence: 100%\n- Agent: claude"));
+        assert!(section.contains("Evidence:\n- a\n- b\n"));
+        assert!(section.contains("Possible local fix:\n- Aggiorna il driver\n"));
+        assert!(!section.contains("Steps to reproduce"));
+        let body = "### What happened\nx\n\n### Signature\n`s`\n\n<!-- flowcode-crash-signature: s -->";
+        let merged = insert_diagnosis(body, &d);
+        assert!(merged.find("### Agent diagnosis").unwrap() < merged.find("### Signature").unwrap());
+        assert!(merged.starts_with("### What happened\nx\n"));
+        assert!(merged.ends_with("<!-- flowcode-crash-signature: s -->"));
+        assert!(insert_diagnosis("no signature", &d).ends_with(&section));
     }
 
     #[test]

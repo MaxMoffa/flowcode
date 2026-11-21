@@ -65,6 +65,8 @@ interface UseChatOptions {
   attachWslDistro?: string | null;
   /** The app tab this chat lives in: pages the agent opens wait for it instead of popping over another tab. */
   openTabId?: string;
+  /** The crash report this chat investigates: the backend gives the agent the tool that attaches its diagnosis to it. */
+  diagnosisId?: string;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
   /** The chat's status; `error` is why it failed to start, when it did. */
@@ -78,7 +80,7 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
   const confirmOpen = useConfirmDialog();
   const confirmOpenRef = useRef(confirmOpen);
   confirmOpenRef.current = confirmOpen;
@@ -277,6 +279,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
                 shell: shell ?? getConfiguredShell(),
                 // What the agent may do through Flowcode's own tools, as the settings say now.
                 tools: await readAgentToolsConfig(),
+                diagnosis: diagnosisId ?? null,
               });
           // Only a chat started here is this hook's to close.
           if (!attachChatId) startedId = started.chatId;

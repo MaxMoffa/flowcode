@@ -22,6 +22,7 @@ import { TabStrip } from "./terminal/TabStrip";
 import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
 import { PairHostDialog } from "./remoteHosts/PairHostDialog";
 import { CrashReportDialog } from "./crash/CrashReportDialog";
+import { useDiagnosisTabEvents, type ChatDiagnosis } from "./crash/diagnosis";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
@@ -576,6 +577,18 @@ function Shell() {
   panelRestoreRef.current = panelLayout.markRestore;
 
   useCliLoginEvent();
+  // The crash dialog's diagnosis chat: opened, shown and closed on its behalf.
+  useDiagnosisTabEvents({
+    open: (d) => void openChatTab(d.agent, d.cwd, { shell: "host", label: d.label, diagnosis: { reportId: d.reportId, prompt: d.prompt, when: d.when } }).then(d.opened),
+    focus: (reportId) => {
+      const tab = latestRef.current.tabs.find((t) => t.kind === "chat" && t.diagnosis?.reportId === reportId);
+      if (tab) selectTab(tab.id);
+    },
+    close: (reportId) => {
+      const tab = latestRef.current.tabs.find((t) => t.kind === "chat" && t.diagnosis?.reportId === reportId);
+      if (tab) void closeTab(tab.id);
+    },
+  });
 
   // A PC in front of the phone-style remote workspace takes the shortcuts.
   const remote = activeHost !== LOCAL_HOST ? activeHost : null;
@@ -2100,14 +2113,14 @@ function Shell() {
   async function openChatTab(
     cli: AgentCli,
     cwd: string,
-    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string } = {},
+    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string; label?: string; diagnosis?: ChatDiagnosis } = {},
   ): Promise<boolean> {
-    const { profileId, viewId, resume, replaceTabId, at, shell } = opts;
+    const { profileId, viewId, resume, replaceTabId, at, shell, label, diagnosis } = opts;
     const inWsl = !!wslDistroOfPath(cwd) || wslDistroOfShell(shell) !== undefined;
     if (!inWsl && !(await ensureCliReady(cli, profileId))) return false;
     if (!inWsl && cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt };
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt, diagnosis };
     setTabs((prev) => {
       const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
       return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;
@@ -3066,6 +3079,7 @@ function Shell() {
                             openTabId={tab.id}
                             onOpenDelegate={(delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro)}
                             viewId={pane.viewId}
+                            diagnosis={pane.shown ? tab.diagnosis : undefined}
                             hidden={tab.id !== activeTabId || !pane.shown}
                             title={pane.label}
                             onSessionId={(sessionId) => {

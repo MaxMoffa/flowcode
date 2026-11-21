@@ -1,5 +1,6 @@
 import type { AgentCli } from "../agents/cliInfo";
 import type { ChatStatus } from "../chat/chatTypes";
+import type { ChatDiagnosis } from "../crash/diagnosis";
 
 export interface TermTab {
   kind: "terminal";
@@ -80,6 +81,8 @@ export interface ChatTab {
    * isn't on disk, so a switch to the terminal starts a new one instead of
    * resuming. Absent (restored, resumed) = there is a conversation. Not saved. */
   talked?: boolean;
+  /** The chat investigates a crash report (see src/crash/diagnosis.ts); never saved: a restored tab is a normal chat. */
+  diagnosis?: ChatDiagnosis;
   /** The terminal tab whose agent this chat takes over; closed once the session has loaded, kept if it fails. Not saved. */
   handoffFrom?: string;
   /** The folder the sidebar explorer browses while this chat is in front;

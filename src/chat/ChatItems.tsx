@@ -1,4 +1,5 @@
 import { GoalMarker } from "./GoalMarker";
+import { DiagnosisAttachedCard } from "../crash/DiagnosisChatParts";
 import { memo, useMemo, useState } from "react";
 import { permissionDetail } from "./permissionDetail";
 import { SubagentTray as SharedSubagentTray } from "../../shared/SubagentTray";
@@ -486,6 +487,8 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
       return <CompactionDivider item={item} />;
     case "goal":
       return <GoalMarker item={item} />;
+    case "diagnosis":
+      return <DiagnosisAttachedCard />;
     case "ask": {
       if (!item.resolved) return null;
       const text = item.resolved.action === "accept" ? askSummary(item.questions, item.resolved.content) : "";

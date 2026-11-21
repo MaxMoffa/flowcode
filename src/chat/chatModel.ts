@@ -104,7 +104,9 @@ export type ChatItem =
   /** The agent compacted its context (ACP `compaction_update`): a divider at that point, everything above it is now only a summary for the agent. `status`: `in_progress`, `completed`, `failed` or `cancelled`; `manual`: the user asked for it (`/compact`), as opposed to the agent's own. */
   | { type: "compaction"; id: string; compactionId: string; status: string; summary: string; error?: string; at: number; manual: boolean }
   /** The goal (`/goal`) ended at this point: reached, or given up as impossible (Claude). A marker in the conversation; the composer's chip says the rest. */
-  | { type: "goal"; id: string; status: "complete" | "failed"; objective: string; at: number; durationMs?: number; iterations?: number; reason?: string };
+  | { type: "goal"; id: string; status: "complete" | "failed"; objective: string; at: number; durationMs?: number; iterations?: number; reason?: string }
+  /** The agent of a crash's diagnosis chat attached its diagnosis to the crash report (`_flowcode/crashdiagnosis`). */
+  | { type: "diagnosis"; id: string };
 
 /** Where a goal stands (the backend's `_flowcode/goal`): `limited` = paused by a usage or budget limit, `blocked` = the agent says it can't go on (Codex), `failed` = judged impossible (Claude). */
 export type GoalStatus = "active" | "paused" | "limited" | "blocked" | "complete" | "failed";
@@ -230,6 +232,7 @@ const DELEGATE_EXT_METHOD = "_flowcode/delegate";
 const DELEGATE_REQUEST_EXT_METHOD = "_flowcode/delegate_request";
 const DELEGATE_RESOLVED_EXT_METHOD = "_flowcode/delegate_request_resolved";
 const TASK_EXT_METHOD = "_flowcode/task";
+const DIAGNOSIS_EXT_METHOD = "_flowcode/crashdiagnosis";
 
 const DELEGATE_STATUSES: readonly string[] = ["running", "waiting_for_user", "done", "failed", "cancelled"];
 
@@ -773,6 +776,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       // The agent sent a message too big to read: it was skipped, so the answer may be incomplete. Said in the conversation.
       if (ev.method === WARNING_EXT_METHOD) return withItems(state, [...state.items, { type: "stop", id: `stop-${ev.seq}`, reason: SKIPPED_MESSAGE_REASON }]);
       if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
+      if (ev.method === DIAGNOSIS_EXT_METHOD) return withItems(state, [...state.items, { type: "diagnosis", id: `diagnosis-${ev.seq}` }]);
       if (ev.method === TASK_EXT_METHOD) {
         const task = parseTask(ev.params);
         return task ? { ...state, task } : state;

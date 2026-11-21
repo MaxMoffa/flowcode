@@ -24,6 +24,8 @@ import { CopyIcon, SessionMenuHead, StopIcon, ViewSwitch, viewIcon } from "./Ses
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 import { isProviderAuthError } from "../../shared/providerAuth";
 import { OfflineIcon } from "../net/OfflineIcon";
+import { DiagnosisBanner } from "../crash/DiagnosisChatParts";
+import { reportDiagnosisChat, type ChatDiagnosis } from "../crash/diagnosis";
 
 interface AgentSessionViewProps {
   agent: AgentCli;
@@ -49,6 +51,8 @@ interface AgentSessionViewProps {
   onOpenDelegate?: (delegate: DelegateInfo, wslDistro: string | null) => void;
   /** The registered view the session is shown with (absent: the default). */
   viewId?: string;
+  /** The chat investigates a crash (see src/crash): it gets the diagnosis tool, a banner, and its first message goes out by itself. */
+  diagnosis?: ChatDiagnosis;
   /** Another tab is in front: the view stays mounted (the agent keeps running). */
   hidden: boolean;
   /** The tab's name, shown in the header. */
@@ -85,6 +89,7 @@ export function AgentSessionView({
   openTabId,
   onOpenDelegate,
   viewId,
+  diagnosis,
   hidden,
   title,
   onSessionId,
@@ -98,7 +103,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, initialActivityAt: lastActiveAt, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId: diagnosis?.reportId, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one shows it as soon as there is
   // something to show (the saved preview, or messages), and ghost bubbles until then.
@@ -130,6 +135,20 @@ export function AgentSessionView({
   // The delegation bookkeeping is not urgent: it follows the stream at low priority instead of running on every event.
   const { delegateRequests, task } = model;
   const modelItems = useDeferredValue(model.items);
+  // A diagnosis chat: the first message (the crash and what to find out) goes out once the agent is up, and the crash dialog follows its progress.
+  const diagnosisId = diagnosis?.reportId;
+  const diagnosisPrompt = diagnosis?.prompt;
+  const promptSentRef = useRef(false);
+  useEffect(() => {
+    if (!diagnosisPrompt || promptSentRef.current || phase !== "ready") return;
+    promptSentRef.current = true;
+    chat.send(diagnosisPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagnosisPrompt, phase]);
+  useEffect(() => {
+    if (diagnosisId) reportDiagnosisChat(diagnosisId, status);
+  }, [diagnosisId, status]);
+  useEffect(() => (diagnosisId ? () => reportDiagnosisChat(diagnosisId, "closed") : undefined), [diagnosisId]);
   useChatCalls(agent, openTabId, model.items, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached, { parked: !tabId, sessionId });
   useEffect(() => {
     if (!tabId) return;
@@ -261,6 +280,7 @@ export function AgentSessionView({
             }}
           </AgentHeader>
 
+          {diagnosis && <DiagnosisBanner when={diagnosis.when} />}
           {authRequired && showView && (
             <div className="chat-auth-banner" role="alert">
               <span className="chat-auth-symbol" aria-hidden="true">!</span>

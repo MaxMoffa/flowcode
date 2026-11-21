@@ -25,6 +25,7 @@ const SERVER_NAME: &str = "flowcode";
 /// How Claude names the open tool (`mcp__<server>__<tool>`).
 const CLAUDE_OPEN_TOOL: &str = "mcp__flowcode__open_in_browser";
 const CLAUDE_CALL_TOOL: &str = "mcp__flowcode__call_user";
+const CLAUDE_DIAGNOSIS_TOOL: &str = "mcp__flowcode__attach_crash_diagnosis";
 const SCRIPT: &str = include_str!("flowcode-mcp.cjs");
 
 pub(crate) const OPEN: &str = "open_in_browser";
@@ -33,6 +34,8 @@ pub(crate) const LIST_AGENTS: &str = "list_agents";
 pub(crate) const DELEGATE_TASK: &str = "delegate_task";
 pub(crate) const GET_TASK_RESULT: &str = "get_task_result";
 pub(crate) const CANCEL_TASK: &str = "cancel_task";
+/// Only the diagnosis chat of a crash report gets it (see `ToolsConfig::diagnosis`).
+pub(crate) const ATTACH_DIAGNOSIS: &str = "attach_crash_diagnosis";
 
 const POLL: Duration = Duration::from_millis(150);
 const IDLE_POLL: Duration = Duration::from_secs(1);
@@ -62,11 +65,18 @@ pub(crate) struct ToolsConfig {
     pub max_parallel: usize,
     /// WSL terminal tabs start bash through Flowcode's startup file, so the agent shims lead PATH (see terminal_mcp.rs).
     pub shell_integration: bool,
+    /// The crash report this chat investigates: it gets `attach_crash_diagnosis` even with the tools off. Set by
+    /// `chat_start` for a diagnosis chat, never read from the frontend's settings.
+    #[serde(skip)]
+    pub diagnosis: Option<String>,
 }
 
-/// The tools a chat gets. A delegated child (depth 1) never delegates further.
+/// The tools a chat gets. A delegated child (depth 1) never delegates further, nor attaches a diagnosis.
 pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     let mut tools = Vec::new();
+    if cfg.diagnosis.is_some() && depth == 0 {
+        tools.push(ATTACH_DIAGNOSIS);
+    }
     if !cfg.enabled {
         return tools;
     }
@@ -513,6 +523,10 @@ pub(crate) fn open_target(target: &str, cwd: &str, homes: &[String], wsl_distro:
 /// and what the app then opens is bound by the Browser settings. Never the
 /// "always" option: nothing is written to the user's agent settings.
 pub(crate) fn auto_allow(cfg: &ToolsConfig, cwd: &str, params: &Value) -> Option<String> {
+    // `attach_crash_diagnosis` only writes into Flowcode's own crash report, and only a diagnosis chat has it.
+    if cfg.diagnosis.is_some() && is_attach_diagnosis(params.get("toolCall")?) {
+        return allow_once_option(params);
+    }
     // `call_user` only shows the user a message: nothing to ask about.
     if cfg.enabled && cfg.call && is_call_user(params.get("toolCall")?) {
         return allow_once_option(params);
@@ -568,6 +582,23 @@ fn is_call_user(tool_call: &Value) -> bool {
     matches!(title.as_str(), "flowcode/call_user" | "tool: flowcode/call_user") && only_message
 }
 
+/// Whether a permission request's tool call is Flowcode's `attach_crash_diagnosis`, matched as strictly as
+/// `is_open_call`: its input is only the tool's own arguments.
+fn is_attach_diagnosis(tool_call: &Value) -> bool {
+    if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
+        return tool == CLAUDE_DIAGNOSIS_TOOL
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/name").and_then(Value::as_str) == Some(SERVER_NAME)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/source").and_then(Value::as_str) == Some("dynamic");
+    }
+    const ARGS: [&str; 8] = ["verdict", "confidence", "title", "summary", "evidence", "local_fix", "repro_steps", "existing_issue"];
+    let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+    let only_args = tool_call
+        .get("rawInput")
+        .and_then(Value::as_object)
+        .is_some_and(|input| input.contains_key("verdict") && input.keys().all(|k| ARGS.contains(&k.as_str())));
+    matches!(title.as_str(), "flowcode/attach_crash_diagnosis" | "tool: flowcode/attach_crash_diagnosis") && only_args
+}
+
 fn allow_once_option(params: &Value) -> Option<String> {
     let options = params.get("options")?.as_array()?;
     let once = options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some("allow_once"))?;
@@ -596,6 +627,7 @@ mod tests {
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
             shell_integration: true,
+            diagnosis: None,
         }
     }
 
@@ -862,6 +894,30 @@ mod tests {
         let call = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
         assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/call_user", json!({ "message": "hi", "reason": "done" }))).as_deref(), Some("once"));
         assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/call_user", json!({ "command": "x" }))), None);
+    }
+
+    #[test]
+    fn only_a_diagnosis_chat_gets_the_diagnosis_tool_even_with_the_tools_off() {
+        let diagnosis = |cfg: ToolsConfig| ToolsConfig { diagnosis: Some("r1".into()), ..cfg };
+        assert_eq!(enabled_tools(&diagnosis(ToolsConfig::default()), 0), [ATTACH_DIAGNOSIS]);
+        assert_eq!(enabled_tools(&diagnosis(on()), 0)[0], ATTACH_DIAGNOSIS);
+        assert_eq!(enabled_tools(&diagnosis(on()), 1), [OPEN]);
+        assert!(!enabled_tools(&on(), 0).contains(&ATTACH_DIAGNOSIS));
+        assert!(terminal_tools(&ToolsConfig::default()).is_empty());
+        // The frontend's settings can't switch it on.
+        let cfg: ToolsConfig = serde_json::from_value(json!({ "enabled": true, "diagnosis": "r1" })).unwrap();
+        assert_eq!(cfg.diagnosis, None);
+    }
+
+    #[test]
+    fn the_diagnosis_tool_never_asks_in_a_diagnosis_chat_only() {
+        let cfg = ToolsConfig { diagnosis: Some("r1".into()), ..ToolsConfig::default() };
+        assert_eq!(auto_allow(&cfg, &claude(CLAUDE_DIAGNOSIS_TOOL)).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&cfg, &claude("mcp__other__attach_crash_diagnosis")), None);
+        assert_eq!(auto_allow(&on(), &claude(CLAUDE_DIAGNOSIS_TOOL)), None);
+        let call = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/attach_crash_diagnosis", json!({ "verdict": "machine", "confidence": 0.5 }))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/attach_crash_diagnosis", json!({ "command": "x" }))), None);
     }
 
     #[test]

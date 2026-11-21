@@ -31,6 +31,8 @@ const RESOLVED_METHOD: &str = "_flowcode/delegate_request_resolved";
 const TASK_METHOD: &str = "_flowcode/task";
 pub(crate) const OPEN_METHOD: &str = "_flowcode/open";
 pub(crate) const CALL_METHOD: &str = "_flowcode/call";
+/// A diagnosis chat's agent attached its diagnosis to the crash report (params: `{ reportId }`).
+const DIAGNOSIS_METHOD: &str = "_flowcode/crashdiagnosis";
 
 /// How long `delegate_task` and `get_task_result` wait for the child at most:
 /// under the script's own timeout, which also covers the child's start.
@@ -604,6 +606,7 @@ pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Valu
     match tool {
         chat_mcp::OPEN => open_in_browser(&chat, args),
         chat_mcp::CALL_USER => call_user(&chat, args),
+        chat_mcp::ATTACH_DIAGNOSIS => attach_diagnosis(&chat, args),
         _ => delegation_call(app, &state, &ParentCtx::of_chat(&chat), tool, args, deadline_ms),
     }
 }
@@ -648,6 +651,14 @@ fn call_user(chat: &Chat, args: &Value) -> Result<String, String> {
     Ok("The user has been notified.".to_string())
 }
 
+/// Attaches the agent's diagnosis to the crash report this chat investigates, and shows the chat a confirmation (`_flowcode/crashdiagnosis`).
+fn attach_diagnosis(chat: &Chat, args: &Value) -> Result<String, String> {
+    let report_id = chat.tools.diagnosis.as_deref().ok_or("this chat has no crash report to diagnose")?;
+    let reply = crate::crash::attach_diagnosis(&chat.app, report_id, &chat.agent, args)?;
+    chat.emit(ChatBody::Ext { method: DIAGNOSIS_METHOD.to_string(), params: json!({ "reportId": report_id }) });
+    Ok(reply)
+}
+
 /// The `{message, reason}` of a `call_user` call, checked; shared with terminal tabs.
 pub(crate) fn call_params(args: &Value) -> Result<Value, String> {
     let message: String = string_arg(args, "message")?.trim().chars().take(400).collect();
@@ -689,6 +700,26 @@ fn fail_task(app: &AppHandle, task: &Task, message: &str) {
     }
 }
 
+/// Puts a new chat in the mode `inherited_mode` chose (none: the agent's own default stays).
+fn set_start_mode(chat: &Chat, mode: Result<Option<String>, String>) -> Result<(), String> {
+    if let Some(mode) = mode? {
+        chat.request("session/set_mode", json!({ "sessionId": chat.session_id()?, "modeId": mode }), super::MODE_TIMEOUT)?;
+        *lock(&chat.current_mode) = Some(mode.clone());
+        chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode }) });
+    }
+    Ok(())
+}
+
+/// A diagnosis chat starts like a delegated child of an unrestricted parent: in its agent's auto-review mode,
+/// else its normal mode that asks. It never keeps a bypass mode.
+pub(super) fn set_diagnosis_mode(chat: &Chat) -> Result<(), String> {
+    // An agent with no modes has none to choose.
+    if chat.modes.get().is_none() {
+        return Ok(());
+    }
+    set_start_mode(chat, inherited_mode(false, None, chat.modes.get()))
+}
+
 /// Starts the child chat of `task` and gives it its prompt.
 fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Task, deadline_ms: Option<u64>) -> Result<(), String> {
     let parent_live = || parent_live(app, &parent.owner);
@@ -712,15 +743,7 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Ta
         child.kill();
         return Err(error);
     }
-    let inherited = inherited_mode(same_agent, parent.mode.as_deref(), child.modes.get());
-    let inherit = inherited.and_then(|mode| {
-        if let Some(mode) = mode {
-            child.request("session/set_mode", json!({ "sessionId": child.session_id()?, "modeId": mode }), super::MODE_TIMEOUT)?;
-            *lock(&child.current_mode) = Some(mode.clone());
-            child.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode }) });
-        }
-        Ok(())
-    });
+    let inherit = set_start_mode(&child, inherited_mode(same_agent, parent.mode.as_deref(), child.modes.get()));
     if let Err(error) = inherit { child.kill(); return Err(error); }
     state.adopt(app, Arc::clone(&child))?;
     if let Err(error) = check() {
@@ -937,7 +960,7 @@ mod tests {
     }
 
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
     }
 
     fn chat(id: &str) -> Owner {
