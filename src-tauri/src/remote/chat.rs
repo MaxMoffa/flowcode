@@ -175,33 +175,63 @@ fn chunk_events(events: &[ChatEvent]) -> Vec<Vec<Value>> {
     chunks
 }
 
-/// Queues `events` as `chatevents` messages. A replay always sends one, even
-/// empty, so the phone knows it is up to date. False when the connection is
-/// gone.
-async fn send_events(out: &mpsc::Sender<ServerMsg>, chat_id: &str, events: Vec<ChatEvent>, replay: bool) -> bool {
-    if events.is_empty() && !replay {
+/// Where an answer's events go: a `chatevents` message (live or replay), or a
+/// `chatolder` page.
+#[derive(Clone, Copy)]
+enum Dest {
+    Live,
+    /// A replay; with the page info of a `paged` open (`has_more`, `first_seq`).
+    Replay(Option<(bool, u64)>),
+    Older(bool, u64),
+}
+
+/// Serializes `events` off the async threads when there are many.
+async fn chunked(events: Vec<ChatEvent>) -> Option<Vec<Vec<Value>>> {
+    if events.len() > MAX_EVENTS {
+        crate::blocking(move || Ok(chunk_events(&events))).await.ok()
+    } else {
+        Some(chunk_events(&events))
+    }
+}
+
+/// Queues `events` as `chatevents` messages (or a `chatolder` page). A replay
+/// or a page always sends one, even empty, so the phone knows it is up to
+/// date. False when the connection is gone.
+async fn send_events(out: &mpsc::Sender<ServerMsg>, chat_id: &str, events: Vec<ChatEvent>, dest: Dest) -> bool {
+    if events.is_empty() && matches!(dest, Dest::Live) {
         return true;
     }
     // A replay can be the whole log: serializing it is not for the async threads.
-    let chunks = if replay && events.len() > MAX_EVENTS {
-        match crate::blocking(move || Ok(chunk_events(&events))).await {
-            Ok(chunks) => chunks,
-            Err(_) => return true,
-        }
-    } else {
-        chunk_events(&events)
-    };
+    let Some(mut chunks) = chunked(events).await else { return true };
     if chunks.is_empty() {
-        let msg = ServerMsg::ChatEvents { chat_id: chat_id.to_string(), events: Vec::new(), replay };
-        return out.send(msg).await.is_ok();
+        chunks.push(Vec::new());
     }
-    for events in chunks {
-        let msg = ServerMsg::ChatEvents { chat_id: chat_id.to_string(), events, replay };
+    let count = chunks.len();
+    for (i, events) in chunks.into_iter().enumerate() {
+        let partial = i + 1 < count;
+        let chat_id = chat_id.to_string();
+        let msg = match dest {
+            Dest::Live => ServerMsg::ChatEvents { chat_id, events, replay: false, partial: false, has_more: None, first_seq: None },
+            Dest::Replay(page) => ServerMsg::ChatEvents { chat_id, events, replay: true, partial, has_more: page.map(|p| p.0), first_seq: page.map(|p| p.1) },
+            Dest::Older(has_more, first_seq) => ServerMsg::ChatOlder { chat_id, events, partial, has_more, first_seq },
+        };
         if out.send(msg).await.is_err() {
             return false;
         }
     }
     true
+}
+
+/// Answers `chatolder`: the page of the log before `before_seq`.
+pub(super) async fn send_older(shared: Arc<Shared>, chat_id: String, before_seq: u64, out: mpsc::Sender<ServerMsg>) {
+    let found = {
+        let app = shared.app.clone();
+        let id = chat_id.clone();
+        crate::blocking(move || crate::chat::older_page(&app.state::<ChatState>(), &id, before_seq)).await
+    };
+    // A chat closed meanwhile has nothing to page.
+    let Ok((events, has_more, first_seq)) = found else { return };
+    send_events(&out, &chat_id, events, Dest::Older(has_more, first_seq)).await;
 }
 
 /// One client's view of one chat: `replay` (what it missed, from `Chat::
@@ -214,16 +244,19 @@ pub(super) async fn stream_chat(
     chat_id: String,
     after_seq: u64,
     mut replay: Vec<ChatEvent>,
+    page: Option<(bool, u64)>,
     mut feed: broadcast::Receiver<ChatEvent>,
     out: mpsc::Sender<ServerMsg>,
     sent: Arc<AtomicU64>,
 ) {
     let mut last_seq = after_seq;
     let mut first = true;
+    // Only the first replay is a page; a resync after lagging is a plain delta.
+    let mut page = page;
     loop {
         if first || !replay.is_empty() {
             last_seq = replay.last().map_or(last_seq, |e| e.seq);
-            if !send_events(&out, &chat_id, std::mem::take(&mut replay), true).await {
+            if !send_events(&out, &chat_id, std::mem::take(&mut replay), Dest::Replay(page.take())).await {
                 return;
             }
             sent.store(last_seq, Ordering::Relaxed);
@@ -254,7 +287,7 @@ pub(super) async fn stream_chat(
         }
         batch.retain(|e| e.seq > last_seq);
         last_seq = batch.last().map_or(last_seq, |e| e.seq);
-        if !send_events(&out, &chat_id, batch, false).await {
+        if !send_events(&out, &chat_id, batch, Dest::Live).await {
             return;
         }
         sent.store(last_seq, Ordering::Relaxed);
@@ -333,7 +366,7 @@ mod tests {
     }
 
     fn assert_fits(chunk: Vec<Value>) {
-        let msg = ServerMsg::ChatEvents { chat_id: "c".repeat(64), events: chunk, replay: true };
+        let msg = ServerMsg::ChatEvents { chat_id: "c".repeat(64), events: chunk, replay: true, partial: false, has_more: None, first_seq: None };
         proto::encode_frame(&msg, false).expect("frame fits");
     }
 

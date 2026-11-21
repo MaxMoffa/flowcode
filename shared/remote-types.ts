@@ -330,6 +330,7 @@ export type RemoteCap =
   | "chatGoal"
   /** `chatresume`: editing or cancelling the message scheduled for the usage limit's reset. */
   | "chatResume"
+  | "chatPaging"
   /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
   | "chatClear"
   /** `updatecheck` / `updateinstall` / `update`: updating the desktop's Flowcode from the phone. */
@@ -381,7 +382,9 @@ export type ServerMsg =
   | { t: "chats"; chats: ChatInfo[] }
   /** Events of a chat followed with `chatopen` (src/chat/chatTypes.ts ChatEvent):
    * `replay` = the answer to `chatopen` (every event after its `afterSeq`), then live batches. */
-  | { t: "chatevents"; chatId: string; events: unknown[]; replay: boolean }
+  | { t: "chatevents"; chatId: string; events: unknown[]; replay: boolean; /** A replay split over several messages: more follows. Absent = this one is the last. */ partial?: boolean; /** Only on the replay of a `paged` open: older events than these exist. */ hasMore?: boolean; /** With `hasMore`: `seq` of the first event sent, the `beforeSeq` of the next `chatolder`. */ firstSeq?: number }
+  /** The answer to `chatolder` (needs "chatPaging"): that page's events in `seq` order, possibly over several messages (`partial`). */
+  | { t: "chatolder"; chatId: string; events: unknown[]; partial?: boolean; hasMore: boolean; firstSeq: number }
   /** The agent view plugins a phone may show (only those listing "phone" or "tablet"). */
   | { t: "views"; views: ViewPackage[] }
   /** One chunk of a view plugin's file, base64; chunks of one file arrive in order. */
@@ -434,7 +437,9 @@ export type ClientMsg =
   /** Opens a new desktop terminal tab, in `cwd` (else the start folder), starting `cli` in it if given. */
   | { t: "newtab"; cwd?: string; cli?: string; /** Account profile id; "" = the default one; absent = automatic. */ profile?: string }
   /** Follows a chat: the desktop answers with its events after `afterSeq`, then streams new ones. */
-  | { t: "chatopen"; chatId: string; afterSeq: number }
+  | { t: "chatopen"; chatId: string; afterSeq: number; /** Needs "chatPaging": with `afterSeq` 0 only the newest page of the log is sent, older ones come with `chatolder`. */ paged?: boolean }
+  /** Needs "chatPaging": the page of a followed chat's log before `beforeSeq`, answered with `chatolder`. */
+  | { t: "chatolder"; chatId: string; beforeSeq: number }
   | { t: "chatclose"; chatId: string }
   | { t: "chatprompt"; chatId: string; text: string; requestId?: string; attachments?: ChatAttachmentRef[] }
   | { t: "chatcancel"; chatId: string }

@@ -233,7 +233,15 @@ pub enum ClientMsg {
         /// Desktop clients up to 0.31 sent `-1` for "nothing seen yet": read as 0.
         #[serde(deserialize_with = "seq_at_least_zero")]
         after_seq: u64,
+        /// Needs `chatPaging`: with `after_seq` 0 the answer is only the newest
+        /// page of the log (`ChatEvents.has_more` / `first_seq` say whether older
+        /// ones exist), not all of it. Absent = the whole log, as before.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        paged: bool,
     },
+    /// Needs `chatPaging`: the page of a followed chat's log before `before_seq`,
+    /// answered with `ServerMsg::ChatOlder`.
+    ChatOlder { chat_id: String, before_seq: u64 },
     ChatClose { chat_id: String },
     /// A prompt for the chat's agent, at most `MAX_INPUT_BYTES`.
     ChatPrompt {
@@ -484,7 +492,33 @@ pub enum ServerMsg {
     /// Events of a chat followed with `chatopen`, in `seq` order. `replay`
     /// marks the answer to `chatopen` (possibly split over several messages),
     /// `false` the live ones after it. Each event is a `ChatEvent` of src/chat.
-    ChatEvents { chat_id: String, events: Vec<serde_json::Value>, replay: bool },
+    ChatEvents {
+        chat_id: String,
+        events: Vec<serde_json::Value>,
+        replay: bool,
+        /// A replay split over several messages: more of it follows this one.
+        /// Absent (an older desktop) = this is the whole message / the last.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        partial: bool,
+        /// Only on the replay of a `paged` open: older events than these exist.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        has_more: Option<bool>,
+        /// Only with `has_more`: `seq` of the first event sent (0 if none), the
+        /// `before_seq` of the next `ChatOlder`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        first_seq: Option<u64>,
+    },
+    /// The answer to `ChatOlder`: that page's events in `seq` order (possibly
+    /// over several messages: `partial` = more follow), `has_more` / `first_seq`
+    /// as in `ChatEvents`.
+    ChatOlder {
+        chat_id: String,
+        events: Vec<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        partial: bool,
+        has_more: bool,
+        first_seq: u64,
+    },
     /// The agent view plugins a phone may show.
     Views { views: Vec<ViewPackage> },
     /// One chunk of a view plugin file (base64), `offset` and `total` in raw
@@ -917,9 +951,15 @@ mod tests {
     #[test]
     fn chat_messages_round_trip() {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":12}"#).unwrap();
-        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 12 });
+        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 12, paged: false });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":-1}"#).unwrap();
-        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 0 });
+        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 0, paged: false });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":0,"paged":true}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 0, paged: true });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatolder","chatId":"c1","beforeSeq":40}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatOlder { chat_id: "c1".into(), before_seq: 40 });
+        let json = serde_json::to_value(ServerMsg::ChatOlder { chat_id: "c1".into(), events: Vec::new(), partial: false, has_more: true, first_seq: 40 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatolder", "chatId": "c1", "events": [], "hasMore": true, "firstSeq": 40 }));
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatpermission","chatId":"c1","requestId":"a1","optionId":null}"#).unwrap();
         assert_eq!(msg, ClientMsg::ChatPermission { chat_id: "c1".into(), request_id: serde_json::json!("a1"), option_id: None });
         let json = serde_json::to_value(ClientMsg::ChatMode { chat_id: "c1".into(), mode_id: "plan".into() }).unwrap();
@@ -931,7 +971,7 @@ mod tests {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"newchat","cli":"claude"}"#).unwrap();
         assert_eq!(msg, ClientMsg::NewChat { cli: "claude".into(), cwd: None, profile: None });
         let events = vec![serde_json::json!({ "seq": 1 })];
-        let json = serde_json::to_value(ServerMsg::ChatEvents { chat_id: "c1".into(), events, replay: true }).unwrap();
+        let json = serde_json::to_value(ServerMsg::ChatEvents { chat_id: "c1".into(), events, replay: true, partial: false, has_more: None, first_seq: None }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "chatevents", "chatId": "c1", "events": [{ "seq": 1 }], "replay": true }));
         let info = ChatInfo {
             chat_id: "c1".into(),

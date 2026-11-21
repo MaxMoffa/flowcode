@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
+import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, prependOlder, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
 import { t } from "../i18n";
 import { eventsActivity } from "../chat/cacheWarning";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
@@ -20,6 +20,13 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   // A remote that can't switch models shows no choice.
   const promptReceipts = !!host?.caps.includes("chatPromptAck");
   const canSetModel = !!host?.caps.includes("chatModel");
+  // A remote that pages its log sends only the newest page; older ones come on request.
+  const chatPaging = !!host?.caps.includes("chatPaging");
+  const pagingRef = useRef(chatPaging);
+  pagingRef.current = chatPaging;
+  // Chunks of a split replay (or older page) wait for the last one and are folded as one batch.
+  const replayBuf = useRef<unknown[]>([]);
+  const olderBuf = useRef<unknown[]>([]);
   const onlineRef = useRef(online);
   onlineRef.current = online;
   // This view among the window's senders to the host: an `agent_busy` refusal names no chat, so it is ours only while our prompt is the window's one in flight (see `claimBusyRefusal`).
@@ -53,9 +60,12 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   useEffect(() => {
     if (!online) return;
     // `lastSeq` starts at -1 (nothing seen yet) but the wire field is unsigned: -1 is refused as an invalid message and the chat never loads.
-    void sendToHost(hostId, { t: "chatopen", chatId, afterSeq: Math.max(0, sessionRef.current.model.lastSeq) });
+    replayBuf.current = [];
+    olderBuf.current = [];
+    update((s) => (s.older.loading ? { ...s, older: { ...s.older, loading: false } } : s));
+    void sendToHost(hostId, { t: "chatopen", chatId, afterSeq: Math.max(0, sessionRef.current.model.lastSeq), ...(pagingRef.current ? { paged: true } : {}) });
     return () => void sendToHost(hostId, { t: "chatclose", chatId });
-  }, [hostId, chatId, online]);
+  }, [hostId, chatId, online, update]);
 
   useEffect(
     () =>
@@ -71,11 +81,26 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             update((s) => requeueRefused(s) ?? s);
             continue;
           }
+          if (m.t === "chatolder" && m.chatId === chatId) {
+            olderBuf.current = [...olderBuf.current, ...m.events];
+            if (m.partial) continue;
+            const page = olderBuf.current;
+            olderBuf.current = [];
+            update((s) => prependOlder(s, page, { hasMore: m.hasMore, firstSeq: m.firstSeq }));
+            continue;
+          }
           if (m.t !== "chatevents" || m.chatId !== chatId) continue;
+          if (m.replay && m.partial) {
+            replayBuf.current = [...replayBuf.current, ...m.events];
+            continue;
+          }
+          const events = replayBuf.current.length > 0 ? [...replayBuf.current, ...m.events] : m.events;
+          replayBuf.current = [];
           const status = infoRef.current?.status;
           const wasUncertain = sessionRef.current.deliveryUncertain;
+          const page = m.replay && m.hasMore !== undefined ? { hasMore: m.hasMore, firstSeq: m.firstSeq ?? 0 } : undefined;
           update((s) => {
-            const next = applyEvents(s, m.events, { replay: m.replay, busy: status === "busy" || status === "waiting" });
+            const next = applyEvents(s, events, { replay: m.replay, busy: status === "busy" || status === "waiting", page });
             return m.replay && !promptReceipts && next.sentRequestId ? pauseUnconfirmedPrompt(next) : next;
           });
           const pending = sessionRef.current;
@@ -149,6 +174,16 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const close = useCallback(async () => {}, []);
 
   const activity = useMemo(() => eventsActivity(session.events), [session.events]);
+  const olderHas = session.older.has;
+  const olderLoading = session.older.loading;
+  const loadOlder = useCallback(async () => {
+    const s = sessionRef.current;
+    if (!s.older.has || s.older.loading) return;
+    update((cur) => ({ ...cur, older: { ...cur.older, loading: true } }));
+    const ok = await sendToHost(hostId, { t: "chatolder", chatId, beforeSeq: s.older.firstSeq });
+    if (!ok) update((cur) => ({ ...cur, older: { ...cur.older, loading: false } }));
+  }, [hostId, chatId, update]);
+  const older = useMemo(() => (chatPaging ? { has: olderHas, loading: olderLoading, load: loadOlder } : undefined), [chatPaging, olderHas, olderLoading, loadOlder]);
 
   return {
     model,
@@ -166,6 +201,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     canAttach: false,
     resumed: true,
     loaded: true,
+    older,
     clearCount: 0,
     sessionId: info?.sessionId,
     lastActivityAt: activity.at,

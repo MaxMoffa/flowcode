@@ -343,9 +343,16 @@ impl Conn {
 
     /// Streams `chat_id` to this client from after `after_seq`, replacing any
     /// stream of it already running. Errs (already reported) when it can't.
-    pub(super) fn open_chat(&mut self, chat_id: String, after_seq: u64) {
-        let subscribed = self.shared.app.state::<ChatState>().subscribe(&chat_id, after_seq);
-        let Ok((replay, feed)) = subscribed else {
+    /// `paged` (the phone supports `chatPaging`) with nothing seen yet answers
+    /// with only the newest page of the log.
+    pub(super) fn open_chat(&mut self, chat_id: String, after_seq: u64, paged: bool) {
+        let state = self.shared.app.state::<ChatState>();
+        let subscribed = if paged && after_seq == 0 {
+            crate::chat::subscribe_tail(&state, &chat_id).map(|((events, has_more, first_seq), feed)| (events, Some((has_more, first_seq)), feed))
+        } else {
+            state.subscribe(&chat_id, after_seq).map(|(events, feed)| (events, None, feed))
+        };
+        let Ok((replay, page, feed)) = subscribed else {
             self.error(tr("Chat non trovata", "Chat not found"), None);
             return;
         };
@@ -358,6 +365,7 @@ impl Conn {
             chat_id.clone(),
             after_seq,
             replay,
+            page,
             feed,
             self.out_tx.clone(),
             Arc::clone(&sent),
@@ -397,7 +405,7 @@ impl Conn {
         let live = self.shared.chat_infos();
         for (chat_id, after_seq) in std::mem::take(&mut self.paused_chats) {
             if live.iter().any(|c| c.chat_id == chat_id) {
-                self.open_chat(chat_id, after_seq);
+                self.open_chat(chat_id, after_seq, false);
             }
         }
         self.last_tabs = self.shared.latest_tabs();

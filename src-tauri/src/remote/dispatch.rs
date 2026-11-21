@@ -168,7 +168,7 @@ impl Conn {
                 let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_CHAT, payload);
             }
-            ClientMsg::ChatOpen { chat_id, after_seq } => {
+            ClientMsg::ChatOpen { chat_id, after_seq, paged } => {
                 self.prune_subs();
                 if chat_id.len() > MAX_ID_BYTES {
                     self.error(tr("Chat non trovata", "Chat not found"), None);
@@ -179,7 +179,14 @@ impl Conn {
                     return;
                 }
                 self.paused_chats.retain(|(id, _)| *id != chat_id);
-                self.open_chat(chat_id, after_seq);
+                self.open_chat(chat_id, after_seq, paged);
+            }
+            ClientMsg::ChatOlder { chat_id, before_seq } => {
+                if chat_id.len() > MAX_ID_BYTES || !self.chat_subs.contains_key(&chat_id) {
+                    return;
+                }
+                let task = tokio::spawn(super::chat::send_older(Arc::clone(&self.shared), chat_id, before_seq, self.out_tx.clone()));
+                drop(task);
             }
             ClientMsg::ChatClose { chat_id } => {
                 self.paused_chats.retain(|(id, _)| *id != chat_id);

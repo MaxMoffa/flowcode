@@ -14,7 +14,7 @@ import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { Tab } from "./remote";
 import { isAgentBusy } from "../../src/chat/chatModel";
 import { toolTitleText } from "../../src/chat/mcpToolLabel";
-import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
+import { acknowledgePrompt, pauseUnconfirmedPrompt, prependOlder, promptRequestId, applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatAttachmentRef, ChatInfo, ServerMsg } from "../../shared/remote-types";
@@ -36,6 +36,12 @@ const store = createStore<ChatsSnapshot>({ sessions: {}, openRequest: null, clea
 /** How long a requested chat or a handoff is waited for before giving up: a chat
  * starts its agent's adapter and replays the session first, which takes a while. */
 const WAIT_MS = 45_000;
+
+/** The desktop pages a chat's log: a fresh follow gets its newest page, older ones come on request. */
+let chatPaging = false;
+/** Chunks of a replay (or of an older page) that is still arriving, applied together when its last one is in: one render instead of one per frame. */
+const replayBuf = new Map<string, unknown[]>();
+const olderBuf = new Map<string, unknown[]>();
 
 /** Screens showing each chat; a chat with any is followed. */
 const refs = new Map<string, number>();
@@ -74,11 +80,13 @@ function syncFollows() {
     if (opened.has(chatId)) continue;
     opened.add(chatId);
     const lastSeq = store.get().sessions[chatId]?.model.lastSeq ?? 0;
-    send({ t: "chatopen", chatId, afterSeq: Math.max(0, lastSeq) });
+    send({ t: "chatopen", chatId, afterSeq: Math.max(0, lastSeq), ...(chatPaging ? { paged: true } : {}) });
   }
   for (const chatId of [...opened]) {
     if (wanted.has(chatId)) continue;
     opened.delete(chatId);
+    replayBuf.delete(chatId);
+    olderBuf.delete(chatId);
     if (known.has(chatId)) send({ t: "chatclose", chatId });
   }
   pruneSessions(wanted, pendingSend);
@@ -153,11 +161,11 @@ function pump(chatId: string) {
 
 const pumpAll = () => Object.keys(store.get().sessions).forEach(pump);
 
-function onChatEvents(chatId: string, events: unknown[], replay: boolean) {
+function onChatEvents(chatId: string, events: unknown[], replay: boolean, page?: { hasMore: boolean; firstSeq: number }) {
   const before = store.get().sessions[chatId] ?? emptySession();
   const fresh = freshEvents(before, events);
   const status = infoOf(chatId)?.status;
-  patchSession(chatId, () => applyEvents(before, events, { replay, busy: status === "busy" || status === "waiting" }));
+  patchSession(chatId, () => applyEvents(before, events, { replay, busy: status === "busy" || status === "waiting", page }));
   const listeners = eventListeners.get(chatId);
   if (listeners) for (const event of fresh) listeners.forEach((l) => l(event, replay));
   const current = store.get().sessions[chatId];
@@ -179,6 +187,41 @@ function onRefusedBusy() {
     return;
   }
   patchSession(chatId, () => back);
+}
+
+/** `chatevents`: the chunks of a split replay wait for the last one and are folded as one batch. */
+function onChatEventsMsg(m: Extract<ServerMsg, { t: "chatevents" }>) {
+  const held = replayBuf.get(m.chatId);
+  if (m.replay && m.partial) {
+    replayBuf.set(m.chatId, held ? [...held, ...m.events] : [...m.events]);
+    return;
+  }
+  replayBuf.delete(m.chatId);
+  const page = m.replay && m.hasMore !== undefined ? { hasMore: m.hasMore, firstSeq: m.firstSeq ?? 0 } : undefined;
+  onChatEvents(m.chatId, held ? [...held, ...m.events] : m.events, m.replay, page);
+}
+
+/** `chatolder`: an older page, folded in front once all of it is in. */
+function onChatOlderMsg(m: Extract<ServerMsg, { t: "chatolder" }>) {
+  const held = olderBuf.get(m.chatId);
+  if (m.partial) {
+    olderBuf.set(m.chatId, held ? [...held, ...m.events] : [...m.events]);
+    return;
+  }
+  olderBuf.delete(m.chatId);
+  if (!store.get().sessions[m.chatId]) return;
+  const events = held ? [...held, ...m.events] : m.events;
+  patchSession(m.chatId, (s) => prependOlder(s, events, { hasMore: m.hasMore, firstSeq: m.firstSeq }));
+}
+
+/** Asks the desktop for the page of the log before the oldest event held. */
+export function loadOlderChat(chatId: string) {
+  const s = store.get().sessions[chatId];
+  if (!s || !s.older.has || s.older.loading) return;
+  patchSession(chatId, (cur) => ({ ...cur, older: { ...cur.older, loading: true } }));
+  void sendChecked({ t: "chatolder", chatId, beforeSeq: s.older.firstSeq }).then((ok) => {
+    if (!ok) patchSession(chatId, (cur) => ({ ...cur, older: { ...cur.older, loading: false } }));
+  });
 }
 
 function onChatList(chats: ChatInfo[]) {
@@ -215,6 +258,11 @@ function onChatMsg(m: ServerMsg) {
   switch (m.t) {
     case "ready":
       promptReceipts = !!m.caps?.includes("chatPromptAck");
+      chatPaging = !!m.caps?.includes("chatPaging");
+      // A new link forgot every stream: half-received answers are void, and a page asked for is asked again.
+      replayBuf.clear();
+      olderBuf.clear();
+      for (const [id, s] of Object.entries(store.get().sessions)) if (s.older.loading) patchSession(id, (cur) => ({ ...cur, older: { ...cur.older, loading: false } }));
       if (!promptReceipts) store.set({ sessions: Object.fromEntries(Object.entries(store.get().sessions).map(([id, s]) => [id, s.sentRequestId ? pauseUnconfirmedPrompt(s) : s])) });
       opened.clear();
       awaitingChats = true;
@@ -233,7 +281,10 @@ function onChatMsg(m: ServerMsg) {
       onChatList(m.chats);
       break;
     case "chatevents":
-      onChatEvents(m.chatId, m.events, m.replay);
+      onChatEventsMsg(m);
+      break;
+    case "chatolder":
+      onChatOlderMsg(m);
       break;
     case "chatpromptack":
       patchSession(m.chatId, (s) => acknowledgePrompt(s, m.requestId, m.message));

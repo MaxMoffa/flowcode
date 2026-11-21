@@ -65,6 +65,25 @@ const RESUME_GRACE_MS: u64 = 60_000;
 const RESUME_TICK: Duration = Duration::from_secs(5);
 /// Longest resume message accepted.
 pub(crate) const MAX_RESUME_TEXT_BYTES: usize = 4096;
+/// A page of a chat's log for a phone (see `Log::tail_page`): `(events,
+/// has_more, first_seq)`, `before_seq` None for the newest one.
+pub(crate) type LogPage = (Vec<ChatEvent>, bool, u64);
+
+/// The newest page of the log and a receiver of every event after it, taken
+/// under the log lock so none is missed or doubled in between.
+pub(crate) fn subscribe_tail(state: &ChatState, chat_id: &str) -> Result<(LogPage, broadcast::Receiver<ChatEvent>), String> {
+    let chat = state.get(chat_id)?;
+    let log = lock(&chat.log);
+    let page = log.tail_page(None, FIRST_PAGE_EVENTS, FIRST_PAGE_TURNS);
+    Ok((page, chat.feed.subscribe()))
+}
+
+/// The page of the log before `before_seq`, at least one turn.
+pub(crate) fn older_page(state: &ChatState, chat_id: &str, before_seq: u64) -> Result<LogPage, String> {
+    let chat = state.get(chat_id)?;
+    let page = lock(&chat.log).tail_page(Some(before_seq), FIRST_PAGE_EVENTS, 1);
+    Ok(page)
+}
 /// How often the goal is looked at while it may change.
 const GOAL_POLL: Duration = Duration::from_secs(4);
 /// Time the agent gets to write its goal down after a turn or a control.

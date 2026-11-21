@@ -35,9 +35,11 @@ export interface ChatSession {
   deliveryVersion: number;
   /** The desktop answered `chatopen` (even with nothing): the conversation shown is complete up to now. */
   loaded: boolean;
+  /** Older events of the log than the ones held: the desktop sent only its newest page (`chatPaging`). `firstSeq` is the `beforeSeq` of the next request; `loading` while one is out. */
+  older: { has: boolean; firstSeq: number; loading: boolean };
 }
 
-export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false });
+export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false, older: { has: false, firstSeq: 0, loading: false } });
 
 export const promptRequestId = () => `${Date.now()}-${crypto.randomUUID()}`;
 
@@ -58,7 +60,7 @@ export function freshEvents(session: ChatSession, raw: unknown[]): ChatEvent[] {
  * the agent isn't working (a resumed session's history reads like a turn in
  * progress), busy when it is.
  */
-export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay: boolean; busy: boolean }): ChatSession {
+export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay: boolean; busy: boolean; page?: { hasMore: boolean; firstSeq: number } }): ChatSession {
   const fresh = freshEvents(session, raw);
   let model = applyModelEvents(session.model, fresh);
   if (model.items.length > MAX_ITEMS) model = { ...model, items: model.items.slice(-MAX_ITEMS) };
@@ -67,11 +69,37 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
   const events = fresh.length === 0 ? session.events : [...session.events, ...fresh].slice(-MAX_RAW_EVENTS);
   // The sent message's own `user` event (or the agent's end) settles it: nothing left to put back.
   const landed = session.sentRequestId === null && session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.text === session.sentText && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
-  const next = { ...session, model, events, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText, sentFiles: landed ? [] : session.sentFiles };
+  // The replay of a paged open says whether older events exist (a delta replay says nothing: what is known stays).
+  const older = opts.replay && opts.page ? { has: opts.page.hasMore, firstSeq: opts.page.firstSeq, loading: false } : session.older;
+  const next = { ...session, model, events, older, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText, sentFiles: landed ? [] : session.sentFiles };
   if (opts.replay && next.sentText !== null && next.sentRequestId === null) {
     return { ...next, queued: [{ text: next.sentText, files: next.sentFiles }, ...next.queued], sentText: null, sentFiles: [], sentAtSeq: null, deliveryUncertain: true };
   }
   return next;
+}
+
+/**
+ * Puts an older page (the answer to `chatolder`) in front of the conversation.
+ * It is folded alone (a page starts at a user turn, so nothing in it waits for
+ * an event of the newer ones); an item the session already has keeps its newer
+ * state. Raw events go in front too, within MAX_RAW_EVENTS.
+ */
+export function prependOlder(session: ChatSession, raw: unknown[], page: { hasMore: boolean; firstSeq: number }): ChatSession {
+  const events = raw.filter(isChatEvent).sort((a, b) => a.seq - b.seq);
+  // A page that brought nothing ends the paging: asking again would loop.
+  const older = { has: page.hasMore && events.length > 0, firstSeq: events.length > 0 ? page.firstSeq : session.older.firstSeq, loading: false };
+  if (events.length === 0) return { ...session, older };
+  const items = settleChat(applyModelEvents(initialChat(), events)).items;
+  const known = new Set(session.model.items.map((i) => i.id));
+  const fresh = items.filter((i) => !known.has(i.id));
+  const held = new Set(session.events.map((e) => e.seq));
+  const rawOlder = events.filter((e) => !held.has(e.seq));
+  return {
+    ...session,
+    model: fresh.length === 0 ? session.model : { ...session.model, items: [...fresh, ...session.model.items] },
+    events: rawOlder.length === 0 ? session.events : [...rawOlder, ...session.events].slice(-MAX_RAW_EVENTS),
+    older,
+  };
 }
 
 /**

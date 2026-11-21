@@ -3985,3 +3985,163 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   max-width: 100%;
   height: auto;
 }
+
+/* ---- loading a conversation (ghost bubbles, top bar, older-history pill) -------------------- */
+
+/* Marks the top of the rendered window; older turns are added when it comes into view. The negative margin cancels the column's gap. */
+.chat-top-sentinel {
+  flex: none;
+  height: 1px;
+  margin-bottom: -12px;
+}
+
+/* Before the first page arrives: shimmering ghost bubbles instead of a blank column. */
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chat-sk-bub {
+  position: relative;
+  overflow: hidden;
+  width: 72%;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.chat-sk-bub.is-user {
+  align-self: flex-end;
+  width: 48%;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.chat-sk-line {
+  height: 9px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.chat-sk-line.is-short {
+  width: 60%;
+}
+
+.chat-sk-bub::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 7%, transparent) 45%, color-mix(in srgb, var(--accent) 7%, transparent) 55%, transparent);
+  animation: chat-sk-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-sk-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Indeterminate 2px accent bar over the thread while the first page loads. */
+.chat-loadbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.chat-loadbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: chat-loadbar-run 1.1s ease-in-out infinite;
+}
+
+@keyframes chat-loadbar-run {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* Older messages being fetched: a pill at the top of the thread, under the floating buttons. */
+.chat-older-pill {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.has-floating-top .chat-older-pill {
+  top: calc(var(--safe-t) + 62px);
+}
+
+.chat-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.chat-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: chat-dots-pulse 1s infinite ease-in-out;
+}
+
+.chat-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chat-dots-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-sk-bub::after,
+  .chat-dots i {
+    animation: none;
+  }
+  .chat-loadbar::before {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

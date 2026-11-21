@@ -766,7 +766,7 @@ mod tests {
     #[test]
     fn only_a_final_owned_close_is_forwarded() {
         let (mut conn, _, mut recv) = queued_conn(4);
-        let msg = ClientMsg::ChatOpen { chat_id: "c".into(), after_seq: 0 };
+        let msg = ClientMsg::ChatOpen { chat_id: "c".into(), after_seq: 0, paged: false };
         send_owned(&mut conn, "main", msg.clone()).unwrap();
         send_owned(&mut conn, "other", msg).unwrap();
         recv.try_recv().unwrap();

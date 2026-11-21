@@ -130,6 +130,53 @@ describe("following a chat", () => {
   });
 });
 
+describe("paged history", () => {
+  const user = (seq: number, text: string) => ({ seq, at: 0, kind: "user", text });
+  const texts = () => getChatSession("c1")?.model.items.flatMap((i) => (i.type === "user" ? [i.text] : []));
+  it("asks for the newest page only when the desktop pages, and folds a split replay in one go", () => {
+    say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPaging"] });
+    chats([info("idle")]);
+    followChat("c1");
+    expect(opens()).toEqual([{ t: "chatopen", chatId: "c1", afterSeq: 0, paged: true }]);
+    // Two chunks of one replay: nothing shows until the last one is in.
+    say({ t: "chatevents", chatId: "c1", events: [user(10, "ten")], replay: true, partial: true });
+    expect(getChatSession("c1")).toBeUndefined();
+    say({ t: "chatevents", chatId: "c1", events: [user(11, "eleven")], replay: true, hasMore: true, firstSeq: 10 });
+    expect(texts()).toEqual(["ten", "eleven"]);
+    expect(getChatSession("c1")?.older).toEqual({ has: true, firstSeq: 10, loading: false });
+  });
+
+  it("does not page an older desktop", () => {
+    ready();
+    chats([info("idle")]);
+    followChat("c1");
+    expect(opens()).toEqual([{ t: "chatopen", chatId: "c1", afterSeq: 0 }]);
+  });
+
+  it("fetches an older page and puts it in front", () => {
+    say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPaging"] });
+    chats([info("idle")]);
+    followChat("c1");
+    say({ t: "chatevents", chatId: "c1", events: [user(10, "ten")], replay: true, hasMore: true, firstSeq: 10 });
+    link.sent = [];
+    chatsModule.loadOlderChat("c1");
+    chatsModule.loadOlderChat("c1");
+    expect(link.sent).toEqual([{ t: "chatolder", chatId: "c1", beforeSeq: 10 }]);
+    expect(getChatSession("c1")?.older.loading).toBe(true);
+    say({ t: "chatolder", chatId: "c1", events: [user(1, "one")], partial: true, hasMore: true, firstSeq: 1 });
+    say({ t: "chatolder", chatId: "c1", events: [user(2, "two")], hasMore: false, firstSeq: 1 });
+    expect(texts()).toEqual(["one", "two", "ten"]);
+    expect(getChatSession("c1")?.older).toEqual({ has: false, firstSeq: 1, loading: false });
+    // A live event after it still lands at the end, and a reconnect resumes from it.
+    say({ t: "chatevents", chatId: "c1", events: [user(11, "eleven")], replay: false });
+    expect(texts()).toEqual(["one", "two", "ten", "eleven"]);
+    link.sent = [];
+    say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPaging"] });
+    chats([info("idle")]);
+    expect(opens()).toEqual([{ t: "chatopen", chatId: "c1", afterSeq: 11, paged: true }]);
+  });
+});
+
 describe("the send queue", () => {
   it("retries an unacknowledged prompt with the same receipt after reconnect", async () => {
     const modernReady = () => say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPromptAck"] });

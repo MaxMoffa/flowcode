@@ -1,4 +1,4 @@
-import { memo, useContext, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode, type RefObject } from "react";
 import { askSummary } from "../../src/chat/askQuestions";
 import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { ToolTitle } from "../../shared/ToolTitle";
@@ -431,7 +431,7 @@ function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id
 }
 
 /** A turn's items in order, with each run of consecutive tool calls folded into one rail; a background terminal's launch stands on its own, as a block. */
-function Turn({ group: flat, onLink, onOpenSubagent, onOpenChat, nested }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void; nested?: boolean }) {
+const Turn = memo(function Turn({ group: flat, onLink, onOpenSubagent, onOpenChat, nested }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void; nested?: boolean }) {
   const terminals = useContext(TerminalsContext);
   const out: ReactNode[] = [];
   // A subagent's tool calls fold into its own row, apart from the agent's run of calls.
@@ -482,19 +482,98 @@ function Turn({ group: flat, onLink, onOpenSubagent, onOpenChat, nested }: { gro
     out.push(<ToolRun key={item.id} calls={calls} />);
   }
   return <div className="chat-turn">{out}</div>;
+}, (a, b) => a.onLink === b.onLink && a.onOpenSubagent === b.onOpenSubagent && a.onOpenChat === b.onOpenChat && a.nested === b.nested && a.group.length === b.group.length && a.group.every((item, i) => item === b.group[i]));
+
+/** Turns and user messages rendered at first, and how many more each time the reader reaches the top. */
+const WINDOW_STEP = 40;
+
+/** Older history the desktop has not sent yet (chats.ts `loadOlderChat`). */
+export interface OlderHistory {
+  has: boolean;
+  load: () => void;
 }
 
-/** The conversation: the user's small bubbles, and each run of agent output as one turn of plain text with its tool calls on a rail, then the plan. `onLink` gets a tapped link. */
-export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSubagent, onOpenChat }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void }) {
-  const groups: ChatItem[][] = [];
-  for (const item of items) {
-    const last = groups[groups.length - 1];
-    if (last && item.type !== "user" && last[0].type !== "user") last.push(item);
-    else groups.push([item]);
+/** The conversation: the user's small bubbles, and each run of agent output as one turn of plain text with its tool calls on a rail, then the plan. `onLink` gets a tapped link. Only the last turns are rendered: reaching the top shows more, then asks the desktop for older ones (`older`). `scrollRef` is the scrolling thread, kept in place when turns appear above. */
+export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSubagent, onOpenChat, older, loadingOlder, scrollRef }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void; older?: OlderHistory; loadingOlder?: boolean; scrollRef?: RefObject<HTMLDivElement | null> }) {
+  // Rebuilt only when the items change; a turn whose items are the same objects is not redrawn (Turn compares them).
+  const groups = useMemo(() => {
+    const out: ChatItem[][] = [];
+    for (const item of items) {
+      const last = out[out.length - 1];
+      if (last && item.type !== "user" && last[0].type !== "user") last.push(item);
+      else out.push([item]);
+    }
+    return out;
+  }, [items]);
+  // The window starts at a group (not a count), so turns appended below don't shift what the reader sees.
+  const windowAt = useRef<string | null>(null);
+  let startIdx = 0;
+  if (groups.length > WINDOW_STEP) {
+    let idx = windowAt.current ? groups.findIndex((g) => g[0].id === windowAt.current) : -1;
+    if (idx < 0) idx = groups.length - WINDOW_STEP;
+    startIdx = idx;
+    windowAt.current = groups[idx][0].id;
+  } else {
+    windowAt.current = null;
   }
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const hasOlder = !!older?.has;
+  const live = useRef({ groups, startIdx, hasOlder, loadingOlder: !!loadingOlder, load: older?.load });
+  live.current = { groups, startIdx, hasOlder, loadingOlder: !!loadingOlder, load: older?.load };
+  const revealMore = useCallback(() => {
+    const { groups: all, startIdx: from } = live.current;
+    if (from <= 0) return false;
+    windowAt.current = all[Math.max(0, from - WINDOW_STEP)][0].id;
+    rerender();
+    return true;
+  }, []);
+  // Turns added above the reader (the window grew, or an older page came in) push them down: the scroll is put back by the added height, unless the thread follows its end.
+  const snap = useRef<{ height: number; top: number; first: string | null }>({ height: 0, top: 0, first: null });
+  const firstId = groups[startIdx]?.[0].id ?? null;
+  useLayoutEffect(() => {
+    const el = scrollRef?.current;
+    if (!el) return;
+    const prev = snap.current;
+    const atEnd = prev.height - prev.top - el.clientHeight < 40;
+    if (prev.first !== null && firstId !== prev.first && !atEnd && groups.some((g) => g[0].id === prev.first)) {
+      el.scrollTop = prev.top + (el.scrollHeight - prev.height);
+    }
+    snap.current = { height: el.scrollHeight, top: el.scrollTop, first: firstId };
+  });
+  useEffect(() => {
+    const el = scrollRef?.current;
+    if (!el) return;
+    const keep = () => void (snap.current = { ...snap.current, height: el.scrollHeight, top: el.scrollTop });
+    el.addEventListener("scroll", keep, { passive: true });
+    return () => el.removeEventListener("scroll", keep);
+  }, [scrollRef]);
+  // The top sentinel: when it nears the viewport, show more of what is held, else fetch an older page (once per length, so a page that brought nothing isn't retried in a loop).
+  const topRef = useRef<HTMLDivElement>(null);
+  const askedAt = useRef(-1);
+  const hasMoreAbove = startIdx > 0 || hasOlder;
+  useEffect(() => {
+    const el = topRef.current;
+    const column = scrollRef?.current;
+    if (!el || !column || !hasMoreAbove || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (revealMore()) return;
+        const state = live.current;
+        if (!state.hasOlder || state.loadingOlder || !state.load || askedAt.current === state.groups.length) return;
+        askedAt.current = state.groups.length;
+        state.load();
+      },
+      { root: column, rootMargin: "400px 0px 0px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMoreAbove, startIdx, groups.length, hasOlder, loadingOlder, revealMore, scrollRef]);
+  const shown = startIdx > 0 ? groups.slice(startIdx) : groups;
   return (
     <>
-      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} onOpenSubagent={onOpenSubagent} onOpenChat={onOpenChat} />))}
+      {hasMoreAbove && <div className="chat-top-sentinel" ref={topRef} aria-hidden="true" />}
+      {shown.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} onOpenSubagent={onOpenSubagent} onOpenChat={onOpenChat} />))}
       {plan && plan.length > 0 && <PlanCard plan={plan} />}
     </>
   );

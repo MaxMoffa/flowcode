@@ -30,7 +30,7 @@ import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
 import { loadChatCacheInfo } from "./chatCacheInfo";
-import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, resumeChat, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, loadOlderChat, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, resumeChat, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { lastInWindow } from "./homeSessions";
@@ -119,6 +119,9 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   }, [cleared]);
   const session = useMemo(() => stored ?? emptySession(), [stored]);
   const { model } = session;
+  // Older history the desktop still holds (it sends the newest page first); stable, so the body isn't redrawn for it.
+  const olderHas = session.older.has;
+  const older = useMemo(() => ({ has: olderHas, load: () => loadOlderChat(chatId) }), [olderHas, chatId]);
   const iconsOn = useRemoteSelector((s) => !!s.host?.caps.includes("mcpIcon") && s.settings?.chatMcpIcons !== false);
   const iconLoader = useMemo(() => (iconsOn ? mcpIconLoader(chatId) : null), [iconsOn, chatId]);
   // Provider errors only: never inspect tool output or text written by the model.
@@ -183,6 +186,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     item.type === "subagent" && subagentState(item).running ? [item] : []), [model.items, sub, exited]);
   // The agent is starting: the frog floats in its pond.
   const starting = status === "starting";
+  // The first page of the conversation has not arrived yet.
+  const firstLoad = model.items.length === 0 && !session.loaded && !starting && !cleared;
   const working = status === "busy" || status === "waiting";
   // An agent that is gone can't take an answer: no request is offered once the chat has exited.
   const pending = exited ? [] : pendingPermissions(model);
@@ -508,6 +513,17 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
       {shown === CHAT_VIEW || !pkg ? (
         <>
           <div className="chat-thread-wrap">
+            {firstLoad && <div className="chat-loadbar" role="progressbar" aria-busy="true" />}
+            {!sub && session.older.loading && (
+              <div className="chat-older-pill" role="status">
+                <span>{t("chatOlderLoading")}</span>
+                <span className="chat-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+            )}
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 <ChatImagesProvider chatId={chatId}>
@@ -518,8 +534,17 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                         <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                       ) : (
                         <>
-                          {model.items.length === 0 && !session.loaded && !starting && !cleared && <div className="chat-empty">{t("loading")}</div>}
-                          <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} onOpenChat={onOpenChat} />
+                          {firstLoad && (
+                            <div className="chat-skeleton" role="status" aria-label={t("loading")}>
+                              {[false, true, false, true, false].map((user, i) => (
+                                <div key={i} className={"chat-sk-bub" + (user ? " is-user" : "")} aria-hidden="true">
+                                  <div className="chat-sk-line" />
+                                  {!user && <div className="chat-sk-line is-short" />}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} onOpenChat={onOpenChat} older={older} loadingOlder={session.older.loading} scrollRef={scrollRef} />
                         </>
                       )}
                     </TerminalsContext.Provider>
