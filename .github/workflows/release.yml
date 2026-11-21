@@ -31,7 +31,9 @@ jobs:
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER: clang-cl
       CMAKE_CXX_COMPILER: clang-cl
-      CXXFLAGS: -EHsc
+      # The runner's MSVC STL can require a newer clang than the LLVM it ships
+      # (STL1000); the mismatch escape hatch lets clang-cl build against it.
+      CXXFLAGS: -EHsc -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
       GGML_CCACHE: "OFF"
       GGML_NATIVE: "OFF"
       LIBCLANG_PATH: C:/Program Files/LLVM/bin

@@ -53,7 +53,7 @@ jobs:
             echo "CMAKE_GENERATOR=Ninja"
             echo "CMAKE_C_COMPILER=clang-cl"
             echo "CMAKE_CXX_COMPILER=clang-cl"
-            echo "CXXFLAGS=-EHsc"
+            echo "CXXFLAGS=-EHsc -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
             echo "GGML_CCACHE=OFF"
             echo "GGML_NATIVE=OFF"
             echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin"
