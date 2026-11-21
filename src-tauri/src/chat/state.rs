@@ -412,19 +412,34 @@ impl ChatState {
 /// The shell script that starts an agent's ACP server inside WSL (the managed
 /// install under the distro's home, else `npx`/the binary), with a readable
 /// description of it for error messages.
+#[cfg(test)]
 pub(super) fn wsl_script(agent: &str) -> Option<(String, String)> {
+    wsl_script_with(agent, None)
+}
+
+/// The shell snippet that resolves the distro's own codex into `CODEX_PATH` (see `local_codex`);
+/// the distro's own only (not a Windows one seen through /mnt). Runs `codex --version`.
+fn wsl_codex_probe() -> String {
+    format!(
+        "[ -n \"$CODEX_PATH\" ] || {{ c=$(command -v codex 2>/dev/null); case \"$c\" in /mnt/*) ;; /*) \
+         v=$(timeout 10 \"$c\" --version 2>/dev/null | awk '{{print $NF}}'); \
+         [ \"$(printf '%s\\n' {MIN_LOCAL_CODEX} \"$v\" | sort -V | head -n1)\" = {MIN_LOCAL_CODEX} ] && export CODEX_PATH=\"$c\";; esac; }}; "
+    )
+}
+
+/// `codex_cached`: `Some(path)` when a recent probe of the distro already resolved codex (`""`: none
+/// usable), so the script skips `codex --version`; `None` probes inline.
+fn wsl_script_with(agent: &str, codex_cached: Option<&str>) -> Option<(String, String)> {
     let (program, args) = launch_command(agent)?;
     let fallback = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
     let version = crate::acp_adapters::package_spec(agent).and_then(|spec| spec.rsplit_once('@')).map(|(_, version)| version).unwrap_or_default();
-    // See `local_codex`; the distro's own codex only (not a Windows one seen through /mnt).
-    let codex = if agent == "codex" {
-        format!(
-            "[ -n \"$CODEX_PATH\" ] || {{ c=$(command -v codex 2>/dev/null); case \"$c\" in /mnt/*) ;; /*) \
-             v=$(timeout 10 \"$c\" --version 2>/dev/null | awk '{{print $NF}}'); \
-             [ \"$(printf '%s\\n' {MIN_LOCAL_CODEX} \"$v\" | sort -V | head -n1)\" = {MIN_LOCAL_CODEX} ] && export CODEX_PATH=\"$c\";; esac; }}; "
-        )
-    } else {
-        String::new()
+    let codex = match (agent == "codex", codex_cached) {
+        (false, _) => String::new(),
+        (true, None) => wsl_codex_probe(),
+        (true, Some("")) => String::new(),
+        // Only plain paths are put in the script (quoted), anything odd is probed inline.
+        (true, Some(path)) if path.starts_with('/') && !path.contains(['\'', '\n', '\0']) => format!("[ -n \"$CODEX_PATH\" ] || export CODEX_PATH='{path}'; "),
+        (true, Some(_)) => wsl_codex_probe(),
     };
     Some(match crate::acp_adapters::package(agent) {
         Some(_) => (
@@ -484,13 +499,42 @@ fn version_at_least(output: &str, min: &str) -> bool {
     parse(min).is_some_and(|min| have >= min)
 }
 
+/// The distro's usable codex (`""`: none), probed in one login-shell `wsl.exe` call and remembered for
+/// `WSL_CODEX_TTL`, so later starts don't run `codex --version` (a node startup) each time. `None`: the
+/// probe failed (the script then probes inline).
+#[cfg(target_os = "windows")]
+fn wsl_codex_cached(distro: Option<&str>) -> Option<String> {
+    const WSL_CODEX_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+    type Seen = Mutex<HashMap<Option<String>, (std::time::Instant, String)>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let key = distro.map(str::to_string);
+    if let Some((at, path)) = lock(SEEN.get_or_init(Default::default)).get(&key) {
+        if at.elapsed() < WSL_CODEX_TTL {
+            return Some(path.clone());
+        }
+    }
+    let started = std::time::Instant::now();
+    let mut cmd = Command::new("wsl.exe");
+    if let Some(distro) = distro {
+        cmd.arg("-d").arg(distro);
+    }
+    cmd.arg("--exec").args(["bash", "-lc"]).arg(format!("{}printf %s \"$CODEX_PATH\"", wsl_codex_probe()));
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = crate::acp_adapters::run_with_timeout(cmd, "wsl codex probe", std::time::Duration::from_secs(15)).ok()?;
+    let path = out.trim().to_string();
+    eprintln!("chat: wsl codex probe ({}) took {} ms: {}", distro.unwrap_or("default"), started.elapsed().as_millis(), if path.is_empty() { "none" } else { &path });
+    lock(SEEN.get_or_init(Default::default)).insert(key, (std::time::Instant::now(), path.clone()));
+    Some(path)
+}
+
 /// Starts the agent's ACP server in `cwd` with its pipes open - inside the
 /// distro of `wsl` when given, else as a Windows process.
 pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>, wsl_tag: Option<&str>) -> Result<(Child, String), String> {
     let (program, args) = launch_command(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
     #[cfg(target_os = "windows")]
     if let Some(wsl) = wsl {
-        let (script, line) = wsl_script(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
+        let cached = (agent == "codex").then(|| wsl_codex_cached(wsl.distro.as_deref())).flatten();
+        let (script, line) = wsl_script_with(agent, cached.as_deref()).ok_or_else(|| format!("unknown agent: {agent}"))?;
         crate::acp_adapters::refresh_wsl_in_background(wsl.distro.clone(), agent);
         let mut cmd = Command::new("wsl.exe");
         if let Some(distro) = &wsl.distro {
@@ -744,6 +788,7 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
     if chat.agent == "opencode" {
         capabilities["_meta"]["opencode/child-session-updates"] = json!(true);
     }
+    let t_init = std::time::Instant::now();
     let init = chat.request(
         "initialize",
         json!({
@@ -756,6 +801,7 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
     )?;
     // The agent opened its state store to answer `initialize`: others may start now.
     drop(gate.take());
+    eprintln!("chat: timing {} initialize {} ms", chat.agent, t_init.elapsed().as_millis());
     let images = init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false);
     chat.prompt_images.store(images, Ordering::Release);
     let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
@@ -765,6 +811,7 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
     match resume.filter(|id| can_load && !id.is_empty()) {
         Some(session_id) => {
             let mut loaded = Err(String::new());
+            let t_load = std::time::Instant::now();
             // A terminal that just handed its session over, or the agent a restart replaces, may still
             // be letting go of it (Codex: "already has an active writer"): a resume tries again briefly.
             for attempt in 0..=LOAD_RETRIES {
@@ -780,6 +827,7 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
                     break;
                 }
             }
+            eprintln!("chat: timing {} session/load {} ms (ok: {})", chat.agent, t_load.elapsed().as_millis(), loaded.is_ok());
             match loaded {
                 Ok(result) => Ok((result, session_id, true)),
                 // An agent that died explains itself better than a
@@ -846,7 +894,11 @@ pub(super) fn start_blocking(
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let mut attempt = 0;
     loop {
+        let t_gate = std::time::Instant::now();
         let gate = start_gate(&agent);
+        if gate.is_some() {
+            eprintln!("chat: timing {agent} start gate waited {} ms", t_gate.elapsed().as_millis());
+        }
         let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone(), extras.clone(), gate);
         match started {
             Err(e) if attempt < START_RETRIES && transient_start_failure(&agent, &e) => {
@@ -874,7 +926,9 @@ pub(super) fn start_once(
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let wsl = wsl_target(&cwd, shell.as_deref());
     let wsl_tag = wsl.is_some().then(|| uuid::Uuid::new_v4().to_string());
+    let t_spawn = std::time::Instant::now();
     let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref(), wsl_tag.as_deref())?;
+    eprintln!("chat: timing {agent} spawn {} ms (gate held: {}, wsl: {})", t_spawn.elapsed().as_millis(), gate.is_some(), wsl.is_some());
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
         kill_tree(child.id());
