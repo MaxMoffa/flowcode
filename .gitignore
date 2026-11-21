@@ -23,3 +23,7 @@ src-tauri/target/
 # mobile app
 mobile/src-tauri/target/
 mobile/src-tauri/gen/schemas/
+
+# Changelog pages built by scripts/site-releases.mjs (CI generates them before deploying)
+site/releases/
+site/changelog.html

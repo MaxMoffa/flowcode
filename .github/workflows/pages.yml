@@ -1,13 +1,22 @@
 name: Pages
 
-# Publishes the static landing page in site/ to GitHub Pages. Only runs when
-# the page itself (or this workflow) changes - not on every push to master,
-# that's ci.yml's job. `workflow_dispatch` redeploys by hand. One-time setup:
+# Publishes the static site in site/ to GitHub Pages. Before uploading it,
+# scripts/site-releases.mjs builds the changelog (site/changelog.html and one
+# site/releases/<tag>.html per release) from the GitHub releases, so a new or
+# edited release redeploys the site too. Only runs when the site, its
+# generator or this workflow change - not on every push to master, that's
+# ci.yml's job. `workflow_dispatch` redeploys by hand. One-time setup:
 # Settings > Pages > Source = "GitHub Actions".
 on:
   push:
     branches: [master]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths:
+      - "site/**"
+      - "scripts/site-releases.mjs"
+      - "scripts/site-templates/**"
+      - ".github/workflows/pages.yml"
+  release:
+    types: [published, edited]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +35,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+      - id: pages
+        uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the changelog pages from the GitHub releases
+        run: node scripts/site-releases.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
