@@ -515,7 +515,7 @@ const PIX = {
 };
 
 const VARIANTS = {
-  F: "D finale: doodle per pagina, \"Dettagli tecnici\" senza triangolino apre un dialog, \"✦ Chiedi a un agente\" sceglie l'agente e apre una chat con l'errore già descritto. Tre posizioni per il pulsante agente: provale con la riga \"Agente\". Sulla nuova scheda il pulsante agente non c'è (non c'è niente da diagnosticare).",
+  F: "D finale: doodle per pagina, \"Dettagli tecnici\" (senza triangolino) apre un dialog; nel dialog, accanto a Copia, \"✦ Chiedi a un agente\" sceglie l'agente e apre una chat con l'errore già descritto. Sulla nuova scheda niente agente (non c'è niente da diagnosticare).",
   E:"E · Pannello + 8-bit: come D, ma le illustrazioni sono pixel art 8-bit (griglia di pixel, animazioni a scatti come un vecchio gioco). Stessi dettagli tecnici, espansi o in dialog.",
   D:"D · Pannello + doodle: la sobrietà di A, un'illustrazione per pagina (forme diverse: larga, alta, tonda) e i dati tecnici di B nascosti dietro \"Dettagli tecnici\", espansi sotto o in un dialog.",
   A: "A · Pannello: stesso linguaggio del vuoto attuale (icona in riquadro, titolo, frase, pulsanti). Sobria, coerente, il codice errore piccolo in fondo.",
@@ -523,7 +523,7 @@ const VARIANTS = {
   C: "C · Rana dello stagno: la mascotte pixel-art delle chat (dorme, salta, occhi a X) con frasi leggere. Più carattere, meno tecnica; il dettaglio resta nell'etichetta.",
 };
 
-let page = "local", variant = "F", detailMode = "dialog", techOpen = false, agentPos = "link", agentMenu = null, toast = null;
+let page = "local", variant = "F", detailMode = "dialog", techOpen = true, agentPos = "dialog", agentMenu = null, toast = null;
 const AGENTS = [["Claude", "#d08a5c"], ["Codex", "#8fb0d9"], ["Gemini", "#a48be0"], ["OpenCode", "#9db984"]];
 const plain = (html) => html.replace(/<[^>]+>/g, "");
 function agentPop(pg, b, where) {
@@ -579,7 +579,7 @@ function render() {
   }
   $("view").innerHTML = html;
   $("dmode").style.display = variant === "D" || variant === "E" ? "" : "none";
-  $("apos").style.display = variant === "F" ? "" : "none";
+  $("apos").style.display = "none";
   document.querySelectorAll("#dmode button").forEach((b) => b.classList.toggle("on", b.dataset.id === detailMode));
   document.querySelectorAll("#apos button").forEach((b) => b.classList.toggle("on", b.dataset.id === agentPos));
   document.querySelectorAll("[data-agent]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); agentMenu = agentMenu === b.dataset.agent ? null : b.dataset.agent; render(); });
