@@ -14,8 +14,18 @@ export function useGitChangeCount(cwd: string, enabled: boolean): number {
   useEffect(() => {
     if (!enabled || !cwd) return;
     let active = true;
+    let polling = false;
 
     const refresh = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        await refreshOnce();
+      } finally {
+        polling = false;
+      }
+    };
+    const refreshOnce = async () => {
       const id = ++requestRef.current;
       const stillCurrent = () => active && id === requestRef.current;
       try {

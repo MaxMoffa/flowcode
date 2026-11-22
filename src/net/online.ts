@@ -12,14 +12,18 @@ export function isOnline(): boolean {
   return online;
 }
 
+function startPoll() {
+  if (!poll) poll = setInterval(() => void checkOnline(), 10_000);
+}
+
 function setOnline(next: boolean) {
   if (next === online) return;
   online = next;
   if (next) {
     if (poll) clearInterval(poll);
     poll = undefined;
-  } else if (!poll) {
-    poll = setInterval(() => void checkOnline(), 10_000);
+  } else {
+    startPoll();
   }
   listeners.forEach((l) => l());
   changeListeners.forEach((l) => l(next));
@@ -68,6 +72,8 @@ export function useOnline(): boolean {
 }
 
 if (typeof window !== "undefined") {
+  // setOnline returns early when already offline at load: start the poll here.
+  if (!online) startPoll();
   window.addEventListener("offline", () => setOnline(false));
   window.addEventListener("online", () => void checkOnline());
   void checkOnline();

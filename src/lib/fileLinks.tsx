@@ -41,9 +41,13 @@ export const FileLinkWslContext = createContext<string | null>(null);
 
 /** How long an answer is trusted: a file can be created or deleted meanwhile. */
 const CHECK_TTL_MS = 60_000;
+/** A negative answer is trusted only briefly: the file is often created right after. */
+const MISS_TTL_MS = 4_000;
 const PATH_SETTLE_MS = 275;
 const CACHE_MAX = 2000;
-const cache = new Map<string, { at: number; value: Promise<PathTarget | null> }>();
+type CacheEntry = { at: number; ttl: number; value: Promise<PathTarget | null> };
+const cache = new Map<string, CacheEntry>();
+const isFresh = (e: CacheEntry, now: number) => now - e.at < e.ttl;
 
 /** Checks asked within one frame, sent to the backend as one batch. */
 let batch: Array<{ path: string; cwd: string | null; resolve: (target: PathTarget | null) => void }> = [];
@@ -78,13 +82,21 @@ export function checkPath(path: string, cwd?: string | null): Promise<PathTarget
   const key = `${cwd ?? ""}\0${path}`;
   const now = Date.now();
   const hit = cache.get(key);
-  if (hit && now - hit.at < CHECK_TTL_MS) return hit.value;
+  if (hit && isFresh(hit, now)) return hit.value;
   if (cache.size >= CACHE_MAX) {
-    for (const [k, v] of cache) if (now - v.at >= CHECK_TTL_MS) cache.delete(k);
+    for (const [k, v] of cache) if (!isFresh(v, now)) cache.delete(k);
     if (cache.size >= CACHE_MAX) cache.clear();
   }
   const value = askBackend(path, cwd || null);
-  cache.set(key, { at: now, value });
+  const entry: CacheEntry = { at: now, ttl: CHECK_TTL_MS, value };
+  cache.set(key, entry);
+  // Once known to be a miss, the entry expires soon (counted from the answer).
+  void value.then((found) => {
+    if (found === null) {
+      entry.at = Date.now();
+      entry.ttl = MISS_TTL_MS;
+    }
+  });
   return value;
 }
 
@@ -216,7 +228,7 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
     };
     const hit = cache.get(key);
     // Partial paths change with each streamed chunk; cached paths stay immediate.
-    const timer = hit && Date.now() - hit.at < CHECK_TTL_MS ? null : window.setTimeout(resolve, PATH_SETTLE_MS);
+    const timer = hit && isFresh(hit, Date.now()) ? null : window.setTimeout(resolve, PATH_SETTLE_MS);
     if (timer === null) resolve();
     return () => {
       live = false;

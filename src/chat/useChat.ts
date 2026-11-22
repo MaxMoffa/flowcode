@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { cliName, type AgentCli } from "../agents/cliInfo";
@@ -540,7 +540,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   wslDistroRef.current = wslDistro;
   // This chat's delegates' ids, kept apart so an event of any chat is checked with a lookup, not a scan of the items.
   const childIdsRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
+  // Layout effect: the set is current before any event arriving after this commit is checked.
+  useLayoutEffect(() => {
     childIdsRef.current = new Set(delegatesOf(model.items).map((d) => d.childChatId));
   }, [model.items]);
   useEffect(() => {

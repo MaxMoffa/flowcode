@@ -232,6 +232,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // What this tab's agent delegated to others (Flowcode's MCP tools), from the backend's events.
   const [delegation, setDelegation] = useState<TerminalDelegates>(EMPTY_TERMINAL_DELEGATES);
   const [ptyEnded, setPtyEnded] = useState(false);
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
   const wslDistroRef = useRef(wslDistro);
   wslDistroRef.current = wslDistro;
   const onOpenDelegateRef = useRef(onOpenDelegate);
@@ -241,11 +248,12 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   /** The tasks already running or finished when this view started watching (spawn, or a move from another window). */
   const seedDelegates = (ptyId: string) => {
     invoke<unknown[]>("terminal_delegates", { ptyId })
-      .then((raw) => setDelegation((prev) => seedTerminalDelegates(prev, raw)))
+      .then((raw) => !unmountedRef.current && setDelegation((prev) => seedTerminalDelegates(prev, raw)))
       .catch(() => {});
   };
   // Flowcode's MCP tools (see `tools` in spawnPty). Refs, so the handlers handed to the channel at spawn time stay current.
   const onExt = (method: string, params: unknown) => {
+    if (unmountedRef.current) return;
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     if (method === "_flowcode/delegate") {
       const delegate = parseDelegate(params);
@@ -1239,9 +1247,16 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   useEffect(() => {
     let off: (() => void) | null = null;
     let gone = false;
-    const track = createAgentOpenTracker(cwdRef.current ?? "");
+    // The tracker captures the cwd: rebuilt when the tab's cwd changed.
+    let trackCwd = cwdRef.current ?? "";
+    let track = createAgentOpenTracker(trackCwd);
     void listen<{ chatId: string; event: ChatEvent }>("chat-event", (e) => {
       if (!delegationRef.current.delegates.some((d) => d.childChatId === e.payload.chatId)) return;
+      const nowCwd = cwdRef.current ?? "";
+      if (nowCwd !== trackCwd) {
+        trackCwd = nowCwd;
+        track = createAgentOpenTracker(trackCwd);
+      }
       const open = track(e.payload.event);
       if (open) void routeAgentOpen(open, wslDistroRef.current, confirmRef.current, tabIdRef.current);
     }).then((stop) => (gone ? stop() : (off = stop)));

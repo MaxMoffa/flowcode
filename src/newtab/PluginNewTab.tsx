@@ -136,9 +136,10 @@ export function PluginNewTab(props: PluginNewTabProps) {
 
   useEffect(() => {
     if (connected) return;
+    setUnresponsive(false);
     const timer = setTimeout(() => setUnresponsive(true), HELLO_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [connected]);
+  }, [connected, src]);
 
   const failed = unresponsive && !connected;
 
