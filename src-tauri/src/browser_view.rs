@@ -171,6 +171,90 @@ struct DownloadPayload<'a> {
     success: Option<bool>,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ErrorPayload<'a> {
+    page_id: &'a str,
+    kind: &'a str,
+    code: &'a str,
+    url: &'a str,
+}
+
+fn emit_error(app: &AppHandle, window: &str, page_id: &str, kind: &str, code: &str, url: &str) {
+    emit(app, window, "browser-view-error", ErrorPayload { page_id, kind, code, url });
+}
+
+/// Error `kind` of the `browser-view-error` contract for a WebView2
+/// `COREWEBVIEW2_WEB_ERROR_STATUS` name (prefix stripped). `None` = not an
+/// error worth a page (the user or a login prompt interrupted the load).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn kind_for_web_error(code: &str) -> Option<&'static str> {
+    match code {
+        "OPERATION_CANCELED" | "VALID_AUTHENTICATION_CREDENTIALS_REQUIRED" | "VALID_PROXY_AUTHENTICATION_REQUIRED" => None,
+        "CONNECTION_REFUSED" | "CONNECTION_ABORTED" | "CONNECTION_RESET" | "CANNOT_CONNECT" => Some("refused"),
+        "HOST_NAME_NOT_RESOLVED" => Some("dns"),
+        "DISCONNECTED" => Some("offline"),
+        "TIMEOUT" => Some("timeout"),
+        c if c.starts_with("CERTIFICATE_") || c.starts_with("CLIENT_CERTIFICATE_") => Some("cert"),
+        _ => Some("other"),
+    }
+}
+
+/// Same mapping from a GLib/WebKit error message (Linux has no status enum).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn kind_for_message(msg: &str) -> &'static str {
+    let m = msg.to_ascii_lowercase();
+    if m.contains("connection refused") {
+        "refused"
+    } else if m.contains("resolve") || m.contains("name or service") {
+        "dns"
+    } else if m.contains("timed out") {
+        "timeout"
+    } else {
+        "other"
+    }
+}
+
+/// Loopback hosts only: `localhost`, 127.0.0.0/8, `::1`.
+fn is_loopback_host(host: &str) -> bool {
+    let h = host.trim_matches(|c| c == '[' || c == ']');
+    h.eq_ignore_ascii_case("localhost") || h.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// True when a TCP connect to the loopback `host:port` of `raw` succeeds within
+/// 700 ms. Anything not loopback is an error, so this can never scan other hosts.
+fn probe_loopback(raw: &str) -> Result<bool, String> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+    let url: Url = raw.trim().parse().map_err(|e| format!("invalid url: {e}"))?;
+    let host = url.host_str().ok_or("url has no host")?;
+    if !is_loopback_host(host) {
+        return Err("only loopback hosts can be probed".into());
+    }
+    let port = url.port_or_known_default().ok_or("url has no port")?;
+    let ips: Vec<IpAddr> = match host.trim_matches(|c| c == '[' || c == ']').parse::<IpAddr>() {
+        Ok(ip) => vec![ip],
+        Err(_) => vec![Ipv4Addr::LOCALHOST.into(), Ipv6Addr::LOCALHOST.into()],
+    };
+    let deadline = std::time::Instant::now() + Duration::from_millis(700);
+    for ip in ips {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        if TcpStream::connect_timeout(&SocketAddr::new(ip, port), left).is_ok() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether a loopback `url` accepts TCP connections: the "server down" page
+/// polls this to reload by itself when the dev server comes back.
+#[tauri::command]
+pub async fn browser_probe_local(url: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || probe_loopback(&url)).await.map_err(|e| e.to_string())?
+}
+
 fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
     Rect {
         position: LogicalPosition::new(x, y).into(),
@@ -221,6 +305,7 @@ fn build_child(
     }
 
     let nav_note = note_url.clone();
+    let (nav_app, nav_win, nav_pid) = (app.clone(), win.clone(), page_id.to_string());
     builder = builder.on_navigation(move |u| {
         if u.as_str() == "about:blank" {
             return true;
@@ -228,6 +313,8 @@ fn build_child(
         let ok = validate_url(u.as_str()).is_ok();
         if ok {
             nav_note(u.as_str());
+        } else {
+            emit_error(&nav_app, &nav_win, &nav_pid, "blocked", "BLOCKED_LOCAL_ORIGIN", u.as_str());
         }
         ok
     });
@@ -303,6 +390,8 @@ fn build_child(
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))
         .map_err(|e| e.to_string())?;
 
+    attach_error_handlers(app, &win, label, page_id);
+
     // on_navigation does not fire for history.pushState (SPA routes), so the
     // address bar is kept honest by polling the webview's current URL.
     let (app, label) = (app.clone(), label.to_string());
@@ -318,6 +407,124 @@ fn build_child(
         }
     });
     Ok(())
+}
+
+/// Engine-level load failures -> `browser-view-error` (wry only reports
+/// started/finished). macOS: nothing yet, WKWebView's delegate belongs to wry.
+fn attach_error_handlers(app: &AppHandle, window: &str, label: &str, page_id: &str) {
+    let Some(wv) = app.get_webview(label) else { return };
+    let (app, window, page_id) = (app.clone(), window.to_string(), page_id.to_string());
+    #[cfg(windows)]
+    let _ = wv.with_webview(move |pw| unsafe { attach_webview2_errors(pw, app, window, page_id) });
+    #[cfg(target_os = "linux")]
+    let _ = wv.with_webview(move |pw| attach_webkit_errors(pw, app, window, page_id));
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let _ = (wv, app, window, page_id);
+}
+
+#[cfg(windows)]
+unsafe fn attach_webview2_errors(pw: tauri::webview::PlatformWebview, app: AppHandle, window: String, page_id: String) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    use webview2_com::{take_pwstr, NavigationCompletedEventHandler, ProcessFailedEventHandler};
+    use windows::core::PWSTR;
+    use windows::core::BOOL;
+
+    let Ok(core) = pw.controller().CoreWebView2() else { return };
+
+    fn status_name(s: COREWEBVIEW2_WEB_ERROR_STATUS) -> &'static str {
+        match s {
+            COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT => "CERTIFICATE_COMMON_NAME_IS_INCORRECT",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED => "CERTIFICATE_EXPIRED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS => "CLIENT_CERTIFICATE_CONTAINS_ERRORS",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED => "CERTIFICATE_REVOKED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID => "CERTIFICATE_IS_INVALID",
+            COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE => "SERVER_UNREACHABLE",
+            COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT => "TIMEOUT",
+            COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE => "ERROR_HTTP_INVALID_SERVER_RESPONSE",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED => "CONNECTION_ABORTED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET => "CONNECTION_RESET",
+            COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED => "DISCONNECTED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT => "CANNOT_CONNECT",
+            COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED => "HOST_NAME_NOT_RESOLVED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED => "OPERATION_CANCELED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED => "REDIRECT_FAILED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR => "UNEXPECTED_ERROR",
+            COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED => "VALID_AUTHENTICATION_CREDENTIALS_REQUIRED",
+            COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED => "VALID_PROXY_AUTHENTICATION_REQUIRED",
+            _ => "UNKNOWN",
+        }
+    }
+
+    // NavigationCompleted only fires for the main document (frames have their own event).
+    let (a, w, p) = (app.clone(), window.clone(), page_id.clone());
+    let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+        let (Some(args), Some(sender)) = (args, sender) else { return Ok(()) };
+        let mut ok = BOOL(1);
+        let mut status = COREWEBVIEW2_WEB_ERROR_STATUS(0);
+        if args.IsSuccess(&mut ok).is_err() || ok.as_bool() || args.WebErrorStatus(&mut status).is_err() {
+            return Ok(());
+        }
+        let code = status_name(status);
+        if let Some(kind) = kind_for_web_error(code) {
+            let mut src = PWSTR::null();
+            let url = if sender.Source(&mut src).is_ok() { take_pwstr(src) } else { String::new() };
+            emit_error(&a, &w, &p, kind, code, &url);
+        }
+        Ok(())
+    }));
+    // The tokens are dropped on purpose: the handlers live as long as the view.
+    let mut token = Default::default();
+    let _ = core.add_NavigationCompleted(&nav, &mut token);
+
+    let proc = ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+        let (Some(args), Some(sender)) = (args, sender) else { return Ok(()) };
+        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND(0);
+        if args.ProcessFailedKind(&mut kind).is_err() {
+            return Ok(());
+        }
+        // FRAME_RENDER_PROCESS_EXITED only kills an iframe: the page itself still works.
+        let code = match kind {
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => "RENDER_PROCESS_EXITED",
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE => "RENDER_PROCESS_UNRESPONSIVE",
+            _ => return Ok(()),
+        };
+        let mut src = PWSTR::null();
+        let url = if sender.Source(&mut src).is_ok() { take_pwstr(src) } else { String::new() };
+        emit_error(&app, &window, &page_id, "crash", code, &url);
+        Ok(())
+    }));
+    let mut token = Default::default();
+    let _ = core.add_ProcessFailed(&proc, &mut token);
+}
+
+/// WebKitGTK: `load-failed` (network), `load-failed-with-tls-errors` and a dead
+/// web process. Load handlers return `false` so WebKit's default handling runs.
+/// Not compiled on the Windows dev machine: typed against webkit2gtk 2.0.2.
+#[cfg(target_os = "linux")]
+fn attach_webkit_errors(pw: tauri::webview::PlatformWebview, app: AppHandle, window: String, page_id: String) {
+    use webkit2gtk::{NetworkError, WebViewExt};
+
+    let wv = pw.inner();
+    {
+        let (app, window, page_id) = (app.clone(), window.clone(), page_id.clone());
+        wv.connect_load_failed(move |_, _, uri, err| {
+            if !err.matches(NetworkError::Cancelled) {
+                emit_error(&app, &window, &page_id, kind_for_message(err.message()), err.message(), uri);
+            }
+            false
+        });
+    }
+    {
+        let (app, window, page_id) = (app.clone(), window.clone(), page_id.clone());
+        wv.connect_load_failed_with_tls_errors(move |_, uri, _, flags| {
+            emit_error(&app, &window, &page_id, "cert", &format!("{flags:?}"), uri);
+            false
+        });
+    }
+    wv.connect_web_process_terminated(move |view, reason| {
+        let url = view.uri().map(|u| u.to_string()).unwrap_or_default();
+        emit_error(&app, &window, &page_id, "crash", &format!("{reason:?}"), &url);
+    });
 }
 
 fn destroy(app: &AppHandle, label: &str) {
@@ -660,4 +867,48 @@ pub async fn browser_favicon(url: String) -> Result<Option<String>, String> {
 /// The window is gone: its children died with it; drop the bookkeeping.
 pub fn forget_window(app: &AppHandle, window: &str) {
     lock(&app.state::<BrowserViews>().0).remove(window);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_error_kinds() {
+        assert_eq!(kind_for_web_error("CANNOT_CONNECT"), Some("refused"));
+        assert_eq!(kind_for_web_error("CONNECTION_RESET"), Some("refused"));
+        assert_eq!(kind_for_web_error("HOST_NAME_NOT_RESOLVED"), Some("dns"));
+        assert_eq!(kind_for_web_error("DISCONNECTED"), Some("offline"));
+        assert_eq!(kind_for_web_error("TIMEOUT"), Some("timeout"));
+        assert_eq!(kind_for_web_error("CERTIFICATE_EXPIRED"), Some("cert"));
+        assert_eq!(kind_for_web_error("CLIENT_CERTIFICATE_CONTAINS_ERRORS"), Some("cert"));
+        assert_eq!(kind_for_web_error("REDIRECT_FAILED"), Some("other"));
+        assert_eq!(kind_for_web_error("OPERATION_CANCELED"), None);
+        assert_eq!(kind_for_web_error("VALID_PROXY_AUTHENTICATION_REQUIRED"), None);
+    }
+
+    #[test]
+    fn message_kinds() {
+        assert_eq!(kind_for_message("Could not connect: Connection refused"), "refused");
+        assert_eq!(kind_for_message("Name or service not known"), "dns");
+        assert_eq!(kind_for_message("Could not resolve hostname"), "dns");
+        assert_eq!(kind_for_message("Operation timed out"), "timeout");
+        assert_eq!(kind_for_message("boom"), "other");
+    }
+
+    #[test]
+    fn probe_accepts_only_loopback() {
+        for u in ["http://example.com:80", "http://192.168.1.10:3000", "http://10.0.0.1", "http://localhost.evil.com:80"] {
+            assert!(probe_loopback(u).is_err(), "{u}");
+        }
+        assert!(probe_loopback("nope").is_err());
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert_eq!(probe_loopback(&format!("http://127.0.0.1:{port}")), Ok(true));
+        assert_eq!(probe_loopback(&format!("http://localhost:{port}/x")), Ok(true));
+        drop(l);
+        assert_eq!(probe_loopback(&format!("http://127.0.0.1:{port}")), Ok(false));
+        assert!(probe_loopback("http://[::1]:1").is_ok());
+        assert!(probe_loopback("http://127.9.9.9:1").is_ok());
+    }
 }

@@ -83,6 +83,9 @@ export interface ChatTab {
   talked?: boolean;
   /** The chat investigates a crash report (see src/crash/diagnosis.ts); never saved: a restored tab is a normal chat. */
   diagnosis?: ChatDiagnosis;
+  /** A message sent once the agent is up (a browser page diagnosis, see src/browser/browserDiagnosis.ts); cleared by the
+   * view when sent. Not saved: a restored tab never sends it again. */
+  firstPrompt?: string;
   /** The terminal tab whose agent this chat takes over; closed once the session has loaded, kept if it fails. Not saved. */
   handoffFrom?: string;
   /** The folder the sidebar explorer browses while this chat is in front;

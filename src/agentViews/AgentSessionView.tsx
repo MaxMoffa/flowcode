@@ -53,6 +53,9 @@ interface AgentSessionViewProps {
   viewId?: string;
   /** The chat investigates a crash (see src/crash): it gets the diagnosis tool, a banner, and its first message goes out by itself. */
   diagnosis?: ChatDiagnosis;
+  /** A message to send once the agent is up (no banner, no tool, nothing auto-allowed); `onFirstPromptSent` tells the tab it went. */
+  firstPrompt?: string;
+  onFirstPromptSent?: () => void;
   /** Another tab is in front: the view stays mounted (the agent keeps running). */
   hidden: boolean;
   /** The tab's name, shown in the header. */
@@ -90,6 +93,8 @@ export function AgentSessionView({
   onOpenDelegate,
   viewId,
   diagnosis,
+  firstPrompt,
+  onFirstPromptSent,
   hidden,
   title,
   onSessionId,
@@ -145,6 +150,15 @@ export function AgentSessionView({
     chat.send(diagnosisPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagnosisPrompt, phase]);
+  // A plain first message (see ChatTab.firstPrompt): once per view, and the tab forgets it so a remount never repeats it.
+  const firstSentRef = useRef(false);
+  useEffect(() => {
+    if (!firstPrompt || firstSentRef.current || phase !== "ready") return;
+    firstSentRef.current = true;
+    chat.send(firstPrompt);
+    onFirstPromptSent?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstPrompt, phase]);
   useEffect(() => {
     if (diagnosisId) reportDiagnosisChat(diagnosisId, status);
   }, [diagnosisId, status]);

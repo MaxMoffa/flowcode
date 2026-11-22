@@ -2,13 +2,18 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type RefOb
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
+import { cliName, type AgentCli } from "../agents/cliInfo";
 import { basename, parentPath } from "../lib/path";
 import { pluginFileUrl } from "../../shared/agentViewBridge";
 import { useBrowserSettings } from "./browserSettings";
+import { BrowserStatusPage } from "./BrowserStatusPage";
+import { focusBrowserDiagnosisTab, openBrowserDiagnosisChat, openBrowserTerminal } from "./browserDiagnosis";
+import { portOfUrl } from "./statusPageModel";
 import {
   activatePage,
   closePage,
   convertPageToPdf,
+  dismissBlockedPage,
   getBrowser,
   goBack,
   goForward,
@@ -18,7 +23,10 @@ import {
   normalizeLocalUrl,
   normalizeTypedUrl,
   openUrlInPreview,
+  pageLoadFinished,
+  pageLoadStarted,
   setBrowserOpen,
+  setPageError,
   setPageFavicon,
   setPageTitle,
   setServerAlive,
@@ -26,7 +34,7 @@ import {
   useBrowser,
   type PreviewPage,
 } from "./browserStore";
-import { nativeView, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView } from "./nativeView";
+import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView } from "./nativeView";
 import { useViewportCovered } from "./useViewportCovered";
 import "./browser-panel.css";
 
@@ -277,6 +285,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   activeIdRef.current = activeId;
   // A page opened by another page's popup: the notice with the way back.
   const [toast, setToast] = useState<{ sourceId: string; host: string } | null>(null);
+  // An agent was asked to look into a failed page: the notice with the way to its chat.
+  const [diagToast, setDiagToast] = useState<{ agent: AgentCli; host: string; tabId: string } | null>(null);
   // Pages whose address passed the PDF check (a web page is shown only after it).
   const [checked, setChecked] = useState<string[]>([]);
   const [suspended, setSuspended] = useState(false);
@@ -295,6 +305,11 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     const timer = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (!diagToast) return;
+    const timer = setTimeout(() => setDiagToast(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [diagToast]);
 
   // What the native views report. `loading` follows the page in front only.
   useEffect(() => {
@@ -302,9 +317,16 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       onNativeNavigated(({ pageId, url }) => syncPageUrl(pageId, url)),
       onNativeTitle(({ pageId, title }) => setPageTitle(pageId, title)),
       onNativeLoad(({ pageId, state, url }) => {
-        if (state === "finished") requestFavicon(pageId, url);
+        if (state === "finished") {
+          requestFavicon(pageId, url);
+          pageLoadFinished(pageId);
+        } else pageLoadStarted(pageId);
         if (pageId !== activeIdRef.current) return;
         setLoading((prev) => (state === "started" ? NATIVE_LOADING : prev === NATIVE_LOADING ? null : prev));
+      }),
+      onNativeError(({ pageId, kind, code, url }) => {
+        setPageError(pageId, { kind, code, url });
+        if (pageId === activeIdRef.current) setLoading((prev) => (prev === NATIVE_LOADING ? null : prev));
       }),
       onNativeNewWindow(({ pageId, url }) => {
         let host = url;
@@ -525,8 +547,9 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const coverNow = covered || tabsOpen || menuOpen;
   // Shown only after the PDF check, except pages already shown (a later navigation is checked alongside).
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
-  const nativeLive = !!urlPage && visible && !!nativeUrl;
-  const insetBottom = toast && urlPage ? TOAST_INSET : 0;
+  // A failed page is shown by us instead: the native view stays hidden until a load works again.
+  const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
+  const insetBottom = (toast || diagToast) && urlPage ? TOAST_INSET : 0;
 
   useNativeBrowserView({
     viewportRef,
@@ -536,6 +559,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     suspended,
     currentUrl: urlPage?.url ?? null,
     insetBottom,
+    // The backend refuses the app's own addresses: our blocked page says so.
+    onRejected: (reason) => {
+      if (urlId && nativeUrl && /reserved app host|dev server cannot be opened/i.test(reason)) setPageError(urlId, { kind: "blocked", code: "BLOCKED_LOCAL_ORIGIN", url: nativeUrl });
+    },
     onShown: () =>
       requestAnimationFrame(() => {
         if (suspendedFor.current === null) setFreeze(null);
@@ -578,6 +605,26 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       .then(() => nativeView.reload(urlId))
       .catch(() => {});
   };
+  // The folder of a diagnosis or a terminal opened from a failed page follows the dev server's terminal, or the tab it was opened for.
+  const hintTabId = () => {
+    if (!urlPage) return undefined;
+    const port = Number(portOfUrl(urlPage.error?.url ?? urlPage.url));
+    return (isLocalUrl(urlPage.url) ? servers.find((s) => s.port === port)?.tabId : undefined) ?? urlPage.fromTabId;
+  };
+  const leaveErrorPage = () => {
+    if (!urlPage?.error) return;
+    if (urlPage.error.kind === "blocked") dismissBlockedPage(urlPage.id);
+    else if (urlPage.back.length > 0) goBack(urlPage.id);
+    else closePage(urlPage.id);
+  };
+  const diagnose = (agent: AgentCli, prompt: string, host: string) =>
+    openBrowserDiagnosisChat({
+      agent,
+      prompt,
+      label: t("browser.page.chatLabel", { host }),
+      hintTabId: hintTabId(),
+      onOpened: (tabId) => setDiagToast({ agent, host, tabId }),
+    });
   const toastSourceOpen = !!toast && pages.some((p) => p.id === toast.sourceId);
 
   return (
@@ -675,14 +722,17 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             <ImageFileViewer key={page.path} path={page.path} reloadNonce={reloadNonce} onLoading={(busy) => setLoading(busy ? PDF_LOADING : null)} />
           </Suspense>
         )}
-        {!page && (
-          <div className="browser-panel-state">
-            <div className="browser-panel-state-icon">
-              <GlobeIcon size={20} />
-            </div>
-            <h4>{t("browser.empty.title")}</h4>
-            <p>{t("browser.empty.hint")}</p>
-          </div>
+        {(!page || urlPage?.error) && (
+          <BrowserStatusPage
+            failure={urlPage?.error ? { pageId: urlPage.id, error: urlPage.error, retrying: !!urlPage.retrying } : null}
+            servers={servers}
+            onReload={reload}
+            onBack={leaveErrorPage}
+            onOpenExternal={openExternal}
+            onOpenTerminal={() => openBrowserTerminal({ hintTabId: hintTabId() })}
+            onOpenUrl={(url) => openUrlInPreview(url)}
+            onDiagnose={diagnose}
+          />
         )}
         {urlPage && freeze?.src && <img className="browser-panel-freeze" src={freeze.src} alt="" draggable={false} style={{ height: `calc(100% - ${insetBottom}px)` }} />}
         {urlPage && freeze && !freeze.src && (
@@ -693,7 +743,23 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             </div>
           </div>
         )}
-        {toast && (
+        {diagToast && (
+          <div className="browser-panel-toast" data-cover-ignore role="status">
+            <PopupIcon />
+            <span>{t("browser.toast.diagnosing", { agent: cliName(diagToast.agent), host: diagToast.host })}</span>
+            <button
+              type="button"
+              className="browser-panel-toast-link"
+              onClick={() => {
+                focusBrowserDiagnosisTab(diagToast.tabId);
+                setDiagToast(null);
+              }}
+            >
+              {t("browser.toast.openChat")}
+            </button>
+          </div>
+        )}
+        {toast && !diagToast && (
           <div className="browser-panel-toast" data-cover-ignore role="status">
             <PopupIcon />
             <span>{t("browser.toast.newTab", { host: toast.host })}</span>

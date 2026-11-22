@@ -29,6 +29,8 @@ export const nativeView = {
   snapshot: (pageId: string) => invoke<string | null>("browser_view_snapshot", { pageId }),
   /** `<origin>/favicon.ico` of a public site as a data URL, or null. */
   favicon: (url: string) => invoke<string | null>("browser_favicon", { url }),
+  /** Whether something listens at a loopback address (TCP connect, 700 ms). Rejects for any other host. */
+  probeLocal: (url: string) => invoke<boolean>("browser_probe_local", { url }),
 };
 
 export interface NativeNavigated {
@@ -46,6 +48,14 @@ export interface NativeTitle {
 }
 export interface NativeNewWindow {
   pageId: string;
+  url: string;
+}
+export type NativeErrorKind = "refused" | "dns" | "offline" | "timeout" | "cert" | "blocked" | "crash" | "other";
+export interface NativeError {
+  pageId: string;
+  kind: NativeErrorKind;
+  /** The engine's raw code (CONNECTION_REFUSED, RENDER_PROCESS_EXITED...), for the details dialog. */
+  code: string;
   url: string;
 }
 export interface NativeDownload {
@@ -67,6 +77,7 @@ export const onNativeNavigated = (cb: (p: NativeNavigated) => void) => sub("brow
 export const onNativeLoad = (cb: (p: NativeLoad) => void) => sub("browser-view-load", cb);
 export const onNativeTitle = (cb: (p: NativeTitle) => void) => sub("browser-view-title", cb);
 export const onNativeNewWindow = (cb: (p: NativeNewWindow) => void) => sub("browser-view-new-window", cb);
+export const onNativeError = (cb: (p: NativeError) => void) => sub("browser-view-error", cb);
 export const onNativeDownload = (cb: (p: NativeDownload) => void) => sub("browser-view-download", cb);
 
 function readRect(el: HTMLElement, insetBottom: number): NativeViewRect | null {
@@ -99,6 +110,8 @@ export interface UseNativeBrowserViewOptions {
   insetBottom?: number;
   /** Called after every successful show (the view is on screen again). */
   onShown?: () => void;
+  /** The backend refused to show or navigate to the address (its reason). */
+  onRejected?: (reason: string) => void;
 }
 
 /**
@@ -106,7 +119,7 @@ export interface UseNativeBrowserViewOptions {
  * active && !suspended && url, hidden otherwise and on unmount (the view stays
  * alive in the backend, which destroys the least recently shown past 4).
  */
-export function useNativeBrowserView({ viewportRef, pageId, url, active, suspended, currentUrl, insetBottom = 0, onShown }: UseNativeBrowserViewOptions): void {
+export function useNativeBrowserView({ viewportRef, pageId, url, active, suspended, currentUrl, insetBottom = 0, onShown, onRejected }: UseNativeBrowserViewOptions): void {
   const shownUrl = useRef<string | null>(null);
   const live = active && !suspended && !!url;
   const insetRef = useRef(insetBottom);
@@ -115,6 +128,8 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
   currentRef.current = currentUrl;
   const shownCb = useRef(onShown);
   shownCb.current = onShown;
+  const rejectedCb = useRef(onRejected);
+  rejectedCb.current = onRejected;
   const kickRef = useRef<(() => void) | null>(null);
 
   // Show / hide.
@@ -165,9 +180,9 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
           kick();
           shownCb.current?.();
           // A request made while the view was hidden: re-showing never navigates.
-          if (currentRef.current && currentRef.current !== url) void nativeView.navigate(pageId, url).catch(() => {});
+          if (currentRef.current && currentRef.current !== url) void nativeView.navigate(pageId, url).catch((e) => rejectedCb.current?.(String(e)));
         })
-        .catch(() => {});
+        .catch((e) => rejectedCb.current?.(String(e)));
     }
 
     const ro = new ResizeObserver(kick);
@@ -200,6 +215,6 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     shownUrl.current = url;
     // Already there (back/forward, an in-page link): nothing to load.
     if (currentRef.current === url) return;
-    void nativeView.navigate(pageId, url).catch(() => {});
+    void nativeView.navigate(pageId, url).catch((e) => rejectedCb.current?.(String(e)));
   }, [live, pageId, url]);
 }

@@ -5,10 +5,19 @@ import { addCall, removeCallByKey } from "../calls/callStore";
 import { t } from "../i18n";
 import { basename } from "../lib/path";
 import type { BrowserTabPage, BrowserTabsSnapshot } from "../../shared/remote-types";
-import { nativeView } from "./nativeView";
+import { nativeView, type NativeErrorKind } from "./nativeView";
 export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
+
+/** Why a page failed to open: what the native view reported (see browser-view-error). */
+export interface PageError {
+  kind: NativeErrorKind;
+  code: string;
+  url: string;
+  /** When it was reported (ms epoch). */
+  at: number;
+}
 
 export type PreviewPage =
   | {
@@ -23,6 +32,12 @@ export type PreviewPage =
       title?: string;
       /** Data URL of the site's favicon. */
       favicon?: string;
+      /** The load failed: our own page stands in for the native view until it loads again. */
+      error?: PageError;
+      /** A new load started while `error` shows (the page's Retry button spins). */
+      retrying?: boolean;
+      /** The tab this page was opened for (an agent, a dev server), for the folder of a diagnosis. */
+      fromTabId?: string;
     }
   | { id: string; kind: "file"; path: string }
   /** `src` is an http(s) URL or an absolute local path. */
@@ -262,7 +277,9 @@ export function convertPageToPdf(id: string, url: string) {
 /** `fromTabId`: the tab this is opened for, when not the user's own action on screen. */
 export function openUrlInPreview(url: string, fromTabId?: string) {
   if (isPdfTarget(url)) return openPdfInPreview(url, fromTabId);
-  showPage(addOrFindPage({ kind: "url", url }), fromTabId);
+  const id = addOrFindPage({ kind: "url", url });
+  if (fromTabId) updateUrlPage(id, (p) => (p.fromTabId ? p : { ...p, fromTabId }));
+  showPage(id, fromTabId);
 }
 
 export function openFileInPreview(path: string, fromTabId?: string) {
@@ -276,6 +293,7 @@ export function activatePage(id: string) {
 
 export function closePage(id: string) {
   native(() => nativeView.close(id));
+  forgetErrorTiming(id);
   store.update((s) => {
     const index = s.pages.findIndex((p) => p.id === id);
     if (index < 0) return s;
@@ -308,6 +326,57 @@ export function syncPageUrl(id: string, url: string) {
     if (p.forward[0] === url) return { ...base, back: [...p.back, p.url], forward: p.forward.slice(1) };
     return { ...base, back: [...p.back, p.url], forward: [] };
   });
+}
+
+// ---- load errors ----
+// `browser-view-load finished` can arrive before `browser-view-error` for the same navigation (one engine event
+// feeds both), so a finished load only clears the error when none came in the CLEAR_ERROR_MS after it.
+const CLEAR_ERROR_MS = 300;
+let timingSeq = 0;
+const errorSeq = new Map<string, number>();
+const finishToken = new Map<string, number>();
+
+function forgetErrorTiming(id: string) {
+  errorSeq.delete(id);
+  finishToken.delete(id);
+}
+
+/** The view reported a failure: our page shows, the retry spinner stops. */
+export function setPageError(id: string, error: { kind: NativeErrorKind; code: string; url: string }) {
+  errorSeq.set(id, ++timingSeq);
+  updateUrlPage(id, (p) => ({ ...p, error: { ...error, at: Date.now() }, retrying: false }));
+}
+
+/** "Back" on the blocked page: the address was never loaded, so the page returns to where it really is
+ * (or closes when it was opened on the blocked address). */
+export function dismissBlockedPage(id: string) {
+  const page = store.get().pages.find((p) => p.id === id);
+  if (page?.kind !== "url") return;
+  if (page.error && page.url === page.error.url) {
+    closePage(id);
+    return;
+  }
+  updateUrlPage(id, (p) => ({ ...p, requestedUrl: p.url, error: undefined, retrying: undefined }));
+}
+
+export function clearPageError(id: string) {
+  updateUrlPage(id, (p) => (p.error || p.retrying ? { ...p, error: undefined, retrying: undefined } : p));
+}
+
+/** A load started: an error page stays (it is not hidden until the load works) and shows it is trying again. */
+export function pageLoadStarted(id: string) {
+  updateUrlPage(id, (p) => (p.error && !p.retrying ? { ...p, retrying: true } : p));
+}
+
+/** A load finished: the error page goes unless an error is reported right after. */
+export function pageLoadFinished(id: string) {
+  const token = ++timingSeq;
+  finishToken.set(id, token);
+  setTimeout(() => {
+    if (finishToken.get(id) !== token) return;
+    if ((errorSeq.get(id) ?? 0) > token) return;
+    clearPageError(id);
+  }, CLEAR_ERROR_MS);
 }
 
 export function setPageTitle(id: string, title: string) {

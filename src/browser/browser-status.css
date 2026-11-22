@@ -1,0 +1,490 @@
+/* The browser's own pages (new tab, load errors): a doodle, a sentence, actions, a details dialog. */
+.bsp {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+}
+
+.bsp-main {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px;
+  text-align: center;
+  overflow: auto;
+}
+
+.bsp-art {
+  margin-bottom: 6px;
+  max-width: 100%;
+}
+
+.bsp-art svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.bsp h4 {
+  margin: 2px 0 0;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bsp p {
+  margin: 0;
+  max-width: 340px;
+  font-size: 12.5px;
+}
+
+.bsp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bsp .browser-panel-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.bsp-spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  animation: bsp-spin 0.9s linear infinite;
+}
+
+@keyframes bsp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bsp-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+}
+
+.bsp-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ansi-yellow);
+  animation: bsp-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes bsp-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.bsp-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bsp-tile {
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-hover);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bsp-tile:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.bsp-tile small {
+  display: block;
+  margin-top: 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.bsp-more {
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bsp-more:hover {
+  color: var(--fg);
+  background: var(--sidebar-hover);
+}
+
+/* Details dialog, over the page (the native view is hidden while this page shows). */
+.bsp-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.bsp-dlg {
+  width: 440px;
+  max-width: calc(100% - 24px);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--menu-surface, var(--bg-elevated));
+  box-shadow: var(--drop-shadow, 0 20px 50px rgba(0, 0, 0, 0.5));
+  color: var(--fg);
+  text-align: left;
+}
+
+.bsp-dlg header {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bsp-x {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.bsp-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font: 11.5px var(--mono, ui-monospace, Consolas, monospace);
+  color: var(--fg-muted);
+  min-width: 0;
+}
+
+.bsp-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.bsp-bar span::before {
+  content: "· ";
+}
+
+.bsp-bar b.is-bad {
+  color: var(--ansi-red);
+}
+
+.bsp-bar b.is-wait {
+  color: var(--ansi-yellow);
+}
+
+.bsp-bar b.is-ok {
+  color: var(--accent);
+}
+
+.bsp-rows {
+  margin: 0;
+  padding: 2px 14px 10px;
+  font: 12px/1.6 var(--mono, ui-monospace, Consolas, monospace);
+}
+
+.bsp-rows div {
+  display: flex;
+  gap: 12px;
+}
+
+.bsp-rows dt {
+  flex: 0 0 84px;
+  color: var(--fg);
+}
+
+.bsp-rows dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg-muted);
+}
+
+.bsp-dlg footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.bsp-agent-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.bsp-agent-btn {
+  color: var(--accent);
+}
+
+.bsp-agent-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 8;
+  width: 300px;
+  padding: 6px;
+  transform: translateX(-50%);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--menu-surface, var(--bg-elevated));
+  box-shadow: var(--drop-shadow, 0 14px 40px rgba(0, 0, 0, 0.5));
+  text-align: left;
+}
+
+.bsp-agent-head {
+  padding: 4px 8px 6px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.bsp-agent-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bsp-agent-row:hover:not(:disabled),
+.bsp-agent-row.is-selected {
+  background: var(--sidebar-hover);
+}
+
+.bsp-agent-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bsp-agent-row small {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.bsp-agent-ico {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.bsp-agent-ico svg {
+  width: 16px;
+  height: 16px;
+}
+
+.bsp-agent-note {
+  margin-top: 4px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.bsp-agent-prompt {
+  margin: 0 4px 4px;
+  padding: 8px;
+  max-height: 64px;
+  overflow: auto;
+  border-radius: 7px;
+  background: var(--bg);
+  font: 10.5px/1.5 var(--mono, ui-monospace, Consolas, monospace);
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+/* Doodle motion (errorArt.tsx). */
+.bp-zz {
+  animation: bp-zz 2.6s ease-in-out infinite;
+}
+.bp-zz.bp-d2 {
+  animation-delay: 0.8s;
+}
+.bp-zz.bp-d3 {
+  animation-delay: 1.6s;
+}
+@keyframes bp-zz {
+  0% {
+    opacity: 0;
+    transform: translate(0, 6px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(10px, -16px);
+  }
+}
+
+.bp-wave {
+  animation: bp-wave 5s ease-in-out infinite;
+}
+@keyframes bp-wave {
+  50% {
+    transform: translateX(-8px);
+  }
+}
+
+.bp-sink {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: bp-sink 4s ease-in-out infinite;
+}
+@keyframes bp-sink {
+  0%,
+  100% {
+    transform: translateY(0) rotate(14deg);
+  }
+  50% {
+    transform: translateY(4px) rotate(18deg);
+  }
+}
+
+.bp-bub {
+  animation: bp-bub 2.2s ease-in infinite;
+}
+.bp-bub.bp-d2 {
+  animation-delay: 0.7s;
+}
+.bp-bub.bp-d3 {
+  animation-delay: 1.4s;
+}
+@keyframes bp-bub {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-26px);
+  }
+}
+
+.bp-fall {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bp-fall 3.2s ease-in infinite;
+}
+.bp-fall.bp-d2 {
+  animation-delay: 1.1s;
+}
+@keyframes bp-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+  80% {
+    opacity: 0;
+    transform: translateY(34px) rotate(40deg);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.bp-crawl {
+  animation: bp-crawl 9s linear infinite;
+}
+@keyframes bp-crawl {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(120px);
+  }
+}
+
+.bp-hand {
+  transform-box: fill-box;
+  transform-origin: 0 100%;
+  animation: bp-hand 3s linear infinite;
+}
+@keyframes bp-hand {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bp-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bp-blink 4s infinite;
+}
+@keyframes bp-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-zz,
+  .bp-wave,
+  .bp-sink,
+  .bp-bub,
+  .bp-fall,
+  .bp-crawl,
+  .bp-hand,
+  .bp-blink,
+  .bsp-live i,
+  .bsp-spin {
+    animation: none;
+  }
+  .bp-zz,
+  .bp-bub,
+  .bp-fall.bp-d2 {
+    opacity: 0.6;
+  }
+}

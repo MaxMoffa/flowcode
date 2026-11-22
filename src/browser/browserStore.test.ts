@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCalls, resetCalls } from "../calls/callStore";
 import {
   activatePage,
   addDetectedServer,
   askFromAway,
+  clearPageError,
   closePage,
   convertPageToPdf,
+  dismissBlockedPage,
   extractLocalServers,
   getBrowser,
   goBack,
@@ -18,6 +20,9 @@ import {
   browserTabsSnapshot,
   openFileFromRemote,
   openUrlFromRemote,
+  pageLoadFinished,
+  pageLoadStarted,
+  setPageError,
   normalizeLocalUrl,
   normalizeTypedUrl,
   openFileInPreview,
@@ -411,5 +416,106 @@ describe("page in front per tab", () => {
     closePage(first);
     switchBrowserTab("tab-b", "tab-a");
     expect(getBrowser().activeId).toBe(second);
+  });
+});
+
+describe("load errors", () => {
+  const urlPage = () => {
+    const page = getBrowser().pages[0];
+    if (page?.kind !== "url") throw new Error("no url page");
+    return page;
+  };
+  const refused = { kind: "refused" as const, code: "CONNECTION_REFUSED", url: "http://localhost:5173/" };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    openUrlInPreview("http://localhost:5173/");
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps an error until a load finishes with no new error", () => {
+    const id = urlPage().id;
+    setPageError(id, refused);
+    expect(urlPage().error?.code).toBe("CONNECTION_REFUSED");
+    pageLoadFinished(id);
+    vi.advanceTimersByTime(299);
+    expect(urlPage().error).toBeDefined();
+    vi.advanceTimersByTime(2);
+    expect(urlPage().error).toBeUndefined();
+  });
+
+  it("an error arriving right after finished wins", () => {
+    const id = urlPage().id;
+    pageLoadFinished(id);
+    vi.advanceTimersByTime(50);
+    setPageError(id, refused);
+    vi.advanceTimersByTime(1000);
+    expect(urlPage().error?.kind).toBe("refused");
+    expect(urlPage().retrying).toBe(false);
+  });
+
+  it("a started load keeps the error and marks it retrying, the next error stops that", () => {
+    const id = urlPage().id;
+    setPageError(id, refused);
+    pageLoadStarted(id);
+    expect(urlPage().error).toBeDefined();
+    expect(urlPage().retrying).toBe(true);
+    pageLoadFinished(id);
+    setPageError(id, { ...refused, kind: "timeout", code: "TIMEOUT" });
+    vi.advanceTimersByTime(1000);
+    expect(urlPage().error?.kind).toBe("timeout");
+    expect(urlPage().retrying).toBe(false);
+  });
+
+  it("a started load on a page without error changes nothing", () => {
+    const before = urlPage();
+    pageLoadStarted(before.id);
+    expect(urlPage()).toBe(before);
+  });
+
+  it("a later finished replaces the pending one", () => {
+    const id = urlPage().id;
+    setPageError(id, refused);
+    pageLoadFinished(id);
+    vi.advanceTimersByTime(200);
+    pageLoadFinished(id);
+    vi.advanceTimersByTime(200);
+    expect(urlPage().error).toBeDefined();
+    vi.advanceTimersByTime(101);
+    expect(urlPage().error).toBeUndefined();
+  });
+
+  it("clearPageError drops both the error and the retry mark", () => {
+    const id = urlPage().id;
+    setPageError(id, refused);
+    pageLoadStarted(id);
+    clearPageError(id);
+    expect(urlPage().error).toBeUndefined();
+    expect(urlPage().retrying).toBeUndefined();
+  });
+
+  it("back from a blocked address closes the page that opened on it, else returns to where it is", () => {
+    const id = urlPage().id;
+    setPageError(id, { kind: "blocked", code: "BLOCKED_LOCAL_ORIGIN", url: "http://localhost:5173/" });
+    dismissBlockedPage(id);
+    expect(getBrowser().pages).toHaveLength(0);
+
+    openUrlInPreview("http://example.com/");
+    const second = urlPage().id;
+    navigatePage(second, "http://127.0.0.1:1420/");
+    setPageError(second, { kind: "blocked", code: "BLOCKED_LOCAL_ORIGIN", url: "http://127.0.0.1:1420/" });
+    dismissBlockedPage(second);
+    expect(urlPage().error).toBeUndefined();
+    expect(urlPage().requestedUrl).toBe("http://example.com/");
+  });
+});
+
+describe("pages opened for a tab", () => {
+  it("remember the tab, for the folder of a diagnosis", () => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    openUrlInPreview("http://localhost:7001/", "tab-z");
+    const page = getBrowser().pages[0];
+    expect(page?.kind === "url" && page.fromTabId).toBe("tab-z");
   });
 });

@@ -23,6 +23,7 @@ import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
 import { PairHostDialog } from "./remoteHosts/PairHostDialog";
 import { CrashReportDialog } from "./crash/CrashReportDialog";
 import { useDiagnosisTabEvents, type ChatDiagnosis } from "./crash/diagnosis";
+import { useBrowserDiagnosisEvents } from "./browser/browserDiagnosis";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
@@ -587,6 +588,21 @@ function Shell() {
     close: (reportId) => {
       const tab = latestRef.current.tabs.find((t) => t.kind === "chat" && t.diagnosis?.reportId === reportId);
       if (tab) void closeTab(tab.id);
+    },
+  });
+
+  // The browser's failed-page diagnosis (a chat with the message sent, in the folder of the page's project) and its terminal.
+  useBrowserDiagnosisEvents({
+    openChat: (d) => {
+      const { cwd, shell } = browserHintFolder(d.hintTabId);
+      void openChatTab(d.agent, cwd, { shell, label: d.label, firstPrompt: d.prompt, background: true, onCreated: d.onOpened });
+    },
+    focusTab: (tabId) => {
+      if (latestRef.current.tabs.some((t) => t.id === tabId)) selectTab(tabId);
+    },
+    openTerminal: (d) => {
+      const { cwd, shell } = browserHintFolder(d.hintTabId);
+      addTab(cwd, shell);
     },
   });
 
@@ -2113,21 +2129,36 @@ function Shell() {
   async function openChatTab(
     cli: AgentCli,
     cwd: string,
-    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string; label?: string; diagnosis?: ChatDiagnosis } = {},
+    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string; label?: string; diagnosis?: ChatDiagnosis; firstPrompt?: string; background?: boolean; onCreated?: (tabId: string) => void } = {},
   ): Promise<boolean> {
-    const { profileId, viewId, resume, replaceTabId, at, shell, label, diagnosis } = opts;
+    const { profileId, viewId, resume, replaceTabId, at, shell, label, diagnosis, firstPrompt, background, onCreated } = opts;
     const inWsl = !!wslDistroOfPath(cwd) || wslDistroOfShell(shell) !== undefined;
     if (!inWsl && !(await ensureCliReady(cli, profileId))) return false;
     if (!inWsl && cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt, diagnosis };
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt, diagnosis, firstPrompt };
     setTabs((prev) => {
       const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
       return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;
     });
-    setActiveTabId(id);
+    // `background`: the tab opens behind the one in front (the browser's toast offers the way to it).
+    if (!background) setActiveTabId(id);
     if (replaceTabId) dropTerminal(replaceTabId);
+    onCreated?.(id);
     return true;
+  }
+
+  /** The folder (and shell) a chat or terminal opened for the browser starts in: the tab the page belongs to (the
+   * terminal that printed its dev server, or the one it was opened for), else the tab in front, else the home. */
+  function browserHintFolder(hintTabId?: string): { cwd: string; shell?: string } {
+    const { tabs: all, activeTabId: front } = latestRef.current;
+    const pick = (id: string | undefined) => {
+      const tab = all.find((x) => x.id === id);
+      if (tab?.kind === "terminal" && tab.cwd && !tab.newTab) return { cwd: tab.cwd, shell: tabShell(tab) };
+      if (tab?.kind === "chat" && tab.cwd) return { cwd: tab.cwd, shell: tab.shell };
+      return null;
+    };
+    return pick(hintTabId) ?? pick(front) ?? { cwd: homeDir };
   }
 
   /** Bookkeeping after a terminal tab left the strip: its handles, and the
@@ -3080,6 +3111,8 @@ function Shell() {
                             onOpenDelegate={(delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro)}
                             viewId={pane.viewId}
                             diagnosis={pane.shown ? tab.diagnosis : undefined}
+                            firstPrompt={pane.shown ? tab.firstPrompt : undefined}
+                            onFirstPromptSent={() => patchChatTab(tab.id, { firstPrompt: undefined })}
                             hidden={tab.id !== activeTabId || !pane.shown}
                             title={pane.label}
                             onSessionId={(sessionId) => {

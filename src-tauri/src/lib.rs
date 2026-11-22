@@ -178,6 +178,7 @@ pub fn run() {
             browser_view::browser_view_clear_data,
             browser_view::browser_view_snapshot,
             browser_view::browser_favicon,
+            browser_view::browser_probe_local,
             set_ui_language,
             crash::crash_pending,
             crash::crash_dismiss,
