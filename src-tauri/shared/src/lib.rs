@@ -382,7 +382,7 @@ unsafe extern "system" fn nc_calc_size_subclass(
 /// neighboring snapped window nicks a visible notch out of it rather than
 /// just going unnoticed the way it does on a floating window.
 #[cfg(target_os = "windows")]
-pub fn set_window_corner_rounding(window: &tauri::WebviewWindow, round: bool) {
+pub fn set_window_corner_rounding(window: &tauri::Window, round: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Graphics::Dwm::{
         DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
@@ -404,7 +404,7 @@ pub fn set_window_corner_rounding(window: &tauri::WebviewWindow, round: bool) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
+pub fn apply_window_chrome(window: &tauri::Window) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
     use windows_sys::Win32::UI::Shell::SetWindowSubclass;
@@ -441,7 +441,7 @@ pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
 /// radius matches `.app-shell`'s border-radius. AppKit wants this on the main
 /// thread, and `window_open` calls in from an async command.
 #[cfg(target_os = "macos")]
-pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
+pub fn apply_window_chrome(window: &tauri::Window) {
     let target = window.clone();
     let _ = window.run_on_main_thread(move || {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};

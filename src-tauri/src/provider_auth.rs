@@ -575,7 +575,7 @@ fn normalize_input(cli: &str, input: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn provider_auth(app: AppHandle, window: tauri::WebviewWindow, request: AuthRequest) -> Result<AuthState, String> {
+pub async fn provider_auth(app: AppHandle, window: tauri::Window, request: AuthRequest) -> Result<AuthState, String> {
     let owner = format!("desktop:{}", window.label());
     crate::blocking(move || handle(&app, &owner, request)).await
 }

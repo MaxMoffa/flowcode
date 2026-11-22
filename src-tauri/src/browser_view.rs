@@ -32,6 +32,16 @@
 //!   http(s) is accepted.
 //! * `window.open` is denied (`on_new_window`) and forwarded to the frontend.
 //!
+//! # A window with a child is no longer a `WebviewWindow`
+//!
+//! Tauri counts a window as a `WebviewWindow` only while every webview in it
+//! carries the window's own label (`Window::is_webview_window`). Once a
+//! `fcb-*` child exists, commands taking a `tauri::WebviewWindow` argument
+//! fail with "current webview is not a WebviewWindow", and
+//! `get_webview_window` / `webview_windows` stop returning that window. So
+//! commands take `tauri::Window` and liveness checks use `get_window` /
+//! `windows` - never the `WebviewWindow` variants.
+//!
 //! # Profile
 //!
 //! Children use `data_directory(<app local data>/browser-profile)`, a separate

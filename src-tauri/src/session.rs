@@ -47,7 +47,7 @@ impl SessionStore {
     /// A window was destroyed: its part goes, unless it was the last one open
     /// (the app is quitting with it) or the app is exiting for an update.
     pub fn forget_window(&self, app: &AppHandle, label: &str) {
-        let others_open = app.webview_windows().keys().any(|l| l != label);
+        let others_open = app.windows().keys().any(|l| l != label);
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.forget_live_window(label);
         if self.quitting.load(Ordering::SeqCst) || !others_open {
@@ -178,7 +178,7 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
 #[tauri::command(async)]
 pub fn session_put(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
     store: State<'_, SessionStore>,
     snapshot: Option<Value>,
     flush_gen: Option<u64>,
@@ -188,7 +188,7 @@ pub fn session_put(
     let mut inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
     // A queued IPC request must not reinsert a window after Destroyed has
     // removed it from the saved session and live editor bookkeeping.
-    if app.get_webview_window(&label).is_none() {
+    if app.get_window(&label).is_none() {
         return Err("window_closed".into());
     }
     put_snapshot(&mut inner, &label, snapshot, flush_gen, dirty_editors, |windows, last_written| write(&app, windows, last_written))
@@ -209,7 +209,7 @@ pub async fn flush_all(app: &AppHandle) -> Result<(), String> {
         while Instant::now() < deadline {
             // New windows must answer too; a window closed during the flush
             // no longer needs an acknowledgement.
-            let live: Vec<String> = app.webview_windows().keys().cloned().collect();
+            let live: Vec<String> = app.windows().keys().cloned().collect();
             let status = {
                 let inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
                 flush_status(&inner, &live, generation)

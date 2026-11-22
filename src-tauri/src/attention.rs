@@ -12,7 +12,7 @@ use tauri::{AppHandle, Manager};
 /// clears it.
 #[tauri::command]
 pub fn attention_set(app: AppHandle, label: String, waiting: u32, done: bool, flash: bool) {
-    let Some(window) = app.get_webview_window(&label) else {
+    let Some(window) = app.get_window(&label) else {
         return;
     };
 

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 /// How a window's folder is being followed. Dropping it stops the watching.
 enum Watch {
@@ -124,15 +124,15 @@ fn start(app: AppHandle, label: String, path: &str) -> Result<Watch, String> {
 // `async`: runs off the event-loop thread, since a UNC / WSL path makes the
 // metadata check inside `start` a slow network round-trip.
 #[tauri::command(async)]
-pub fn watch_dir(app: AppHandle, window: WebviewWindow, state: State<'_, DirWatchers>, path: String) -> Result<(), String> {
+pub fn watch_dir(app: AppHandle, window: Window, state: State<'_, DirWatchers>, path: String) -> Result<(), String> {
     let label = window.label().to_string();
     state.forget(&label);
     let watcher = start(app.clone(), label.clone(), &path)?;
-    state.adopt(label.clone(), watcher, || app.get_webview_window(&label).is_some())
+    state.adopt(label.clone(), watcher, || app.get_window(&label).is_some())
 }
 
 #[tauri::command]
-pub fn unwatch_dir(window: WebviewWindow, state: State<'_, DirWatchers>) {
+pub fn unwatch_dir(window: Window, state: State<'_, DirWatchers>) {
     state.forget(window.label());
 }
 

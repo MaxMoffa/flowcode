@@ -9,7 +9,7 @@ use flowcode_shared::i18n::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::util::lock;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder, Window};
 
 /// What each new window starts with, keyed by its label - taken once by the
 /// window itself when its frontend boots (`window_take_init`): the tab
@@ -56,7 +56,7 @@ fn on_some_monitor(app: &AppHandle, x: i32, y: i32) -> bool {
 #[tauri::command]
 pub async fn window_open(
     app: AppHandle,
-    window: WebviewWindow,
+    window: Window,
     inits: State<'_, WindowInits>,
     init: Value,
     placement: Placement,
@@ -100,7 +100,7 @@ pub async fn window_open(
         }
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    flowcode_shared::apply_window_chrome(&new);
+    flowcode_shared::apply_window_chrome(&new.as_ref().window());
     let _ = new.show();
     let _ = new.set_focus();
     Ok(label)
@@ -108,14 +108,14 @@ pub async fn window_open(
 
 /// The calling window's starting content, if it was opened by `window_open`.
 #[tauri::command]
-pub fn window_take_init(window: WebviewWindow, inits: State<'_, WindowInits>) -> Option<Value> {
+pub fn window_take_init(window: Window, inits: State<'_, WindowInits>) -> Option<Value> {
     lock(&inits.0).remove(window.label())
 }
 
 /// Moves the calling window under the cursor - dragging a window's only tab
 /// out of it just carries the whole window along.
 #[tauri::command]
-pub fn window_move_to_cursor(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+pub fn window_move_to_cursor(app: AppHandle, window: Window) -> Result<(), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let pos = under_cursor(&app, scale).ok_or(tr("posizione del cursore non disponibile", "cursor position unavailable"))?;
     window.set_position(pos).map_err(|e| e.to_string())
@@ -134,7 +134,7 @@ pub struct CursorTarget {
 #[tauri::command]
 pub fn window_at_cursor(app: AppHandle) -> Result<CursorTarget, String> {
     let cursor = app.cursor_position().map_err(|e| e.to_string())?;
-    let windows = app.webview_windows();
+    let windows = app.windows();
     let hit = topmost_at(&windows, cursor);
     let Some(window) = hit else {
         return Ok(CursorTarget { label: None, x: 0.0, y: 0.0 });
@@ -151,7 +151,7 @@ pub fn window_at_cursor(app: AppHandle) -> Result<CursorTarget, String> {
 /// Windows: asks the OS which top-level window is really under the point,
 /// so overlapping Flowcode windows resolve to the one actually on top.
 #[cfg(target_os = "windows")]
-fn topmost_at(windows: &HashMap<String, WebviewWindow>, cursor: PhysicalPosition<f64>) -> Option<&WebviewWindow> {
+fn topmost_at(windows: &HashMap<String, Window>, cursor: PhysicalPosition<f64>) -> Option<&Window> {
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
 
@@ -172,8 +172,8 @@ fn topmost_at(windows: &HashMap<String, WebviewWindow>, cursor: PhysicalPosition
 /// Elsewhere: the visible, non-minimized window whose bounds contain the
 /// point - the focused one first when several overlap.
 #[cfg(not(target_os = "windows"))]
-fn topmost_at<'a>(windows: &'a HashMap<String, WebviewWindow>, cursor: PhysicalPosition<f64>) -> Option<&'a WebviewWindow> {
-    let contains = |w: &WebviewWindow| {
+fn topmost_at<'a>(windows: &'a HashMap<String, Window>, cursor: PhysicalPosition<f64>) -> Option<&'a Window> {
+    let contains = |w: &Window| {
         if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
             return false;
         }
@@ -183,7 +183,7 @@ fn topmost_at<'a>(windows: &'a HashMap<String, WebviewWindow>, cursor: PhysicalP
             && cursor.x < (p.x + s.width as i32) as f64
             && cursor.y < (p.y + s.height as i32) as f64
     };
-    let mut hits: Vec<&WebviewWindow> = windows.values().filter(|w| contains(w)).collect();
+    let mut hits: Vec<&Window> = windows.values().filter(|w| contains(w)).collect();
     hits.sort_by_key(|w| !w.is_focused().unwrap_or(false));
     hits.into_iter().next()
 }
@@ -277,7 +277,7 @@ impl WindowTabs {
 
 #[tauri::command]
 pub fn window_report_tabs(
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, WindowTabs>,
     remote: State<'_, crate::remote::RemoteState>,
     tabs: Vec<TabInfo>,
@@ -294,7 +294,7 @@ pub fn window_report_tabs(
 #[tauri::command]
 pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result<(), String> {
     use tauri::Emitter;
-    let window = app.get_webview_window(&label).ok_or(tr("finestra non trovata", "window not found"))?;
+    let window = app.get_window(&label).ok_or(tr("finestra non trovata", "window not found"))?;
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
@@ -331,7 +331,7 @@ pub fn sync_webview_visibility(window: &tauri::Window) {
     if !changed {
         return;
     }
-    let Some(webview) = window.app_handle().get_webview_window(&label) else { return };
+    let Some(webview) = window.app_handle().get_webview(&label) else { return };
     let _ = webview.with_webview(move |platform| unsafe {
         let _ = platform.controller().SetIsVisible(!minimized);
     });

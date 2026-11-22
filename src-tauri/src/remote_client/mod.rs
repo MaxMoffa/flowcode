@@ -681,7 +681,7 @@ pub fn remote_host_send(window: Window, clients: State<'_, Arc<RemoteClients>>, 
     // of the last one.
     let pending = {
         let mut conns = clients.lock();
-        if window.app_handle().get_webview_window(window.label()).is_none() {
+        if window.app_handle().get_window(window.label()).is_none() {
             return Err("window closed".into());
         }
         let conn = conns.get_mut(&id).ok_or_else(|| "not connected".to_string())?;

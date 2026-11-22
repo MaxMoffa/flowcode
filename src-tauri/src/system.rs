@@ -209,7 +209,7 @@ pub fn system_info() -> SystemInfo {
 /// comment for why that matters). A no-op everywhere but Windows, since
 /// that's the only platform this DWM attribute applies to.
 #[tauri::command]
-pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
+pub fn set_window_square_corners(window: tauri::Window, square: bool) {
     #[cfg(target_os = "windows")]
     flowcode_shared::set_window_corner_rounding(&window, !square);
     #[cfg(not(target_os = "windows"))]

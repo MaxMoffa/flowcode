@@ -192,7 +192,7 @@ pub fn run() {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 use tauri::Manager;
-                if let Some(window) = _app.get_webview_window("main") {
+                if let Some(window) = _app.get_window("main") {
                     flowcode_shared::apply_window_chrome(&window);
                 }
             }

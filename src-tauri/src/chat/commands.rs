@@ -12,7 +12,7 @@ pub fn chat_adapter_ready(app: AppHandle, agent: String) -> bool {
 #[tauri::command]
 pub async fn chat_start(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
     state: State<'_, ChatState>,
     agent: String,
     cwd: String,

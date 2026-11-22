@@ -333,7 +333,7 @@ impl ChatState {
     pub(super) fn adopt(&self, app: &AppHandle, chat: Arc<Chat>) -> Result<(), String> {
         let (chat_id, owner) = (chat.id.clone(), chat.owner.clone());
         lock(&self.sessions).insert(chat_id.clone(), ChatSession { chat });
-        if app.get_webview_window(&owner).is_none() {
+        if app.get_window(&owner).is_none() {
             // `None` if `kill_owned_by` got it first; either way it dies.
             let orphan = lock(&self.sessions).remove(&chat_id);
             self.changed();

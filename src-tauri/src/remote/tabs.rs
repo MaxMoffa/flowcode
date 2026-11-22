@@ -151,10 +151,10 @@ impl Shared {
 
     /// The window an action without a specific tab runs in.
     pub(super) fn default_window(&self) -> Option<String> {
-        if self.app.get_webview_window("main").is_some() {
+        if self.app.get_window("main").is_some() {
             return Some("main".to_string());
         }
-        let mut labels: Vec<String> = self.app.webview_windows().into_keys().collect();
+        let mut labels: Vec<String> = self.app.windows().into_keys().collect();
         labels.sort();
         labels.into_iter().next()
     }

@@ -105,7 +105,7 @@ pub fn run() {
                 std::thread::spawn(pty::warmup_conpty);
             }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 flowcode_shared::apply_window_chrome(&window);
             }
             // Pictures of past chats; replayed history stores the ones it needs again.

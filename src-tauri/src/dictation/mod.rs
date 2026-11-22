@@ -39,7 +39,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use whisper_rs::{WhisperContext, WhisperState};
 
 /// A session with no speech at all for this long ends by itself.
@@ -226,7 +226,7 @@ pub async fn dictation_delete_model(
 /// and the model loaded, or with why it couldn't.
 #[tauri::command]
 pub async fn dictation_start(
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, DictationState>,
     language: Option<String>,
     session: Option<String>,
@@ -272,7 +272,7 @@ pub async fn dictation_start(
     let thread_id = thread.thread().id();
     *state.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label: label.clone(), signals, thread });
     // Insert before checking the window map so neither this path nor Destroyed can miss the session.
-    if app.get_webview_window(&label).is_none() {
+    if app.get_window(&label).is_none() {
         state.stop_thread(thread_id);
         return Err("window_closed".into());
     }
@@ -282,7 +282,7 @@ pub async fn dictation_start(
         if let Some(dead) = state.take_thread(thread_id) {
             let _ = dead.thread.join();
         }
-    } else if app.get_webview_window(&label).is_none() {
+    } else if app.get_window(&label).is_none() {
         state.stop_thread(thread_id);
         return Err("window_closed".into());
     }
@@ -314,7 +314,7 @@ enum Source {
 /// Where the events of a session go.
 enum Sink {
     /// The window that started it, each event tagged with its `session` token.
-    Window { window: WebviewWindow, token: String },
+    Window { window: Window, token: String },
     /// A phone's session: the same events, reduced to what the phone is told.
     Remote(tokio::sync::mpsc::UnboundedSender<remote::Event>),
 }

@@ -190,7 +190,7 @@ pub async fn search_dir(
     dirs_only: Option<bool>,
     max_depth: Option<u32>,
     channel: Option<String>,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<Vec<FsEntry>, String> {
     let label = format!("{}|{}", window.label(), channel.unwrap_or_default());
     {

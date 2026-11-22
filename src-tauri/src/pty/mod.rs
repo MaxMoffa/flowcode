@@ -442,7 +442,7 @@ const CLAUDE_SESSION_PREFIXES: &[&str] = &["CLAUDE_CODE_SESSION_", "CLAUDE_CODE_
 #[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
     state: State<'_, PtyState>,
     cwd: Option<String>,
     cols: u16,
@@ -684,7 +684,7 @@ pub fn pty_spawn(
     // handler has any session to remove. Insert first, then check Tauri's
     // window map, as chat_start does: either this check or kill_owned_by
     // catches a closed owner. No I/O threads have started yet on this path.
-    if app.get_webview_window(window.label()).is_none() {
+    if app.get_window(window.label()).is_none() {
         let orphan = lock(&state.0).remove(&id);
         let _ = child.kill();
         drop(reader);
@@ -863,7 +863,7 @@ pub fn pty_detach(state: State<'_, PtyState>, id: String) -> Result<u64, String>
 /// over its output, starting with whatever was held since `pty_detach`.
 #[tauri::command(async)]
 pub fn pty_attach(
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
     state: State<'_, PtyState>,
     id: String,
     on_event: Channel<PtyEvent>,

@@ -283,7 +283,7 @@ impl Shared {
     }
 
     pub(super) fn focus_window(&self, label: &str) {
-        if let Some(window) = self.app.get_webview_window(label) {
+        if let Some(window) = self.app.get_window(label) {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
