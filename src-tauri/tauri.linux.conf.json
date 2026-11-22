@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Flowcode",
+        "width": 1100,
+        "height": 700,
+        "minWidth": 380,
+        "minHeight": 480,
+        "transparent": false,
+        "decorations": false,
+        "shadow": false,
+        "dragDropEnabled": false
+      }
+    ]
+  }
+}

@@ -193,7 +193,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // custom property, including the light/dark theme blocks and the
     // Windows/Linux opaque-fallback override - one place to set, no need to
     // know which of those is currently in effect.
-    document.documentElement.style.setProperty("--surface-alpha", String(glassOpacity));
+    // Linux: WebKitGTK never renders backdrop-filter and the window is opaque
+    // there (windows.rs, tauri.linux.conf.json), so panels are always solid.
+    const alpha = document.documentElement.dataset.platform === "linux" ? 1 : glassOpacity;
+    document.documentElement.style.setProperty("--surface-alpha", String(alpha));
   }, [glassOpacity]);
 
   const value = useMemo<ThemeContextValue>(
