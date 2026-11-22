@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Telefono: nuova chat, cosa mostrare mentre l'agente parte</title>
+<style>
+  :root {
+    --bg: #1a1511;
+    --surface: #221c16;
+    --border: rgba(231, 216, 197, 0.1);
+    --border-strong: rgba(231, 216, 197, 0.2);
+    --glass-strong: rgba(40, 33, 26, 0.78);
+    --fg: #e7d8c5;
+    --muted: #a08a6f;
+    --accent: #9db984;
+    --busy: #6f9bcf;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 60px; background: #0f0c0a; color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 18px; max-width: 900px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 26px; align-items: center; }
+  .controls span { color: var(--muted); margin-right: 4px; }
+  .controls button { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 14px; font: inherit; cursor: pointer; }
+  .controls button.on { border-color: var(--accent); color: var(--accent); }
+  .grid { display: flex; gap: 40px; flex-wrap: wrap; }
+  .col { width: 320px; }
+  .col h2 { font-size: 15px; margin: 0 0 4px; }
+  .col p { color: var(--muted); margin: 0 0 12px; font-size: 13px; min-height: 78px; }
+  .steps { margin: 12px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }
+  .steps li { padding: 4px 0 4px 18px; position: relative; }
+  .steps li::before { content: ""; position: absolute; left: 4px; top: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); }
+  .steps li.now { color: var(--fg); }
+  .steps li.now::before { background: var(--accent); }
+
+  .phone { position: relative; width: 320px; height: 620px; border-radius: 38px; background: var(--bg); border: 8px solid #2b2520; overflow: hidden; }
+  .status { height: 26px; display: flex; justify-content: space-between; padding: 6px 22px 0; font-size: 11px; color: var(--muted); }
+  .st-top { position: absolute; top: 26px; left: 0; right: 0; z-index: 20; height: 52px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 10px; align-items: center; padding: 0 10px; }
+  .st-btn, .st-capsule { background: var(--glass-strong); border: 1px solid var(--border-strong); box-shadow: 0 6px 18px rgba(0,0,0,.35); backdrop-filter: blur(14px); color: var(--fg); }
+  .st-btn { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; }
+  .st-btn.ghost { visibility: hidden; }
+  .st-capsule { position: relative; justify-self: center; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; height: 44px; padding: 0 14px; border-radius: 22px; font-size: 13px; }
+  .st-capsule b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.idle { background: var(--accent); }
+  .dot.busy { background: var(--busy); }
+  .cap-arc { position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; pointer-events: none; }
+  .cap-arc rect { fill: none; stroke: var(--busy); stroke-width: 2; stroke-dasharray: 18 82; animation: run 1.6s linear infinite; }
+
+  .thread { position: absolute; inset: 26px 0 0; padding: 70px 14px 90px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Ghost bubbles */
+  .sk { display: flex; flex-direction: column; gap: 14px; }
+  .sk-bub { position: relative; overflow: hidden; width: 72%; padding: 11px 13px; border-radius: 12px; background: color-mix(in srgb, var(--fg) 4%, transparent); display: flex; flex-direction: column; gap: 9px; }
+  .sk-bub.user { align-self: flex-end; width: 48%; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .sk-line { height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .sk-line.short { width: 60%; }
+  .sk-bub::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 7%, transparent) 45%, color-mix(in srgb, var(--accent) 7%, transparent) 55%, transparent); animation: sweep 1.4s ease-in-out infinite; }
+  @keyframes sweep { to { transform: translateX(100%); } }
+
+  /* Edge glow + green arc */
+  .load { position: absolute; inset: 0; z-index: 19; pointer-events: none; border-radius: 30px; transition: opacity .35s; }
+  .load::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 22px 4px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 0 2px 1px color-mix(in srgb, var(--accent) 50%, transparent); animation: breathe 1.8s ease-in-out infinite; }
+  .load svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .load rect { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 14 86; animation: run 2.4s linear infinite; filter: drop-shadow(0 0 4px var(--accent)); }
+  @keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  @keyframes run { to { stroke-dashoffset: -100; } }
+
+  /* Frog pond (ChatEmptyFrog, starting) */
+  .pond { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+  .pond-water { position: relative; width: 170px; height: 70px; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(111,155,207,.28), rgba(111,155,207,.06) 70%, transparent); }
+  .frog { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); animation: bob 2.2s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -5px); } }
+
+  /* Real chat */
+  .bub { max-width: 78%; padding: 10px 13px; border-radius: 12px; font-size: 13px; }
+  .bub.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .bub.queued { opacity: .6; border: 1px dashed var(--border-strong); }
+  .bub.agent { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+  .typing { display: flex; gap: 5px; padding: 4px 2px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+  .composer { position: absolute; left: 10px; right: 10px; bottom: 14px; height: 52px; border-radius: 26px; background: var(--glass-strong); border: 1px solid var(--border-strong); display: flex; align-items: center; padding: 0 16px; color: var(--muted); font-size: 13px; transition: opacity .35s; }
+  .composer.off { opacity: .35; }
+  .hidden { display: none !important; }
+  .fade { opacity: 0; }
+  .note { margin-top: 30px; max-width: 760px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .note b { color: var(--fg); }
+</style>
+</head>
+<body>
+<h1>Nuova chat dal telefono: ghost poi rana, o ghost fino in fondo?</h1>
+<p class="lead">Il segnaposto (ghost + bagliore) c'è già in tutte e due. La differenza è cosa succede quando il desktop ha creato la chat ma l'agente si sta ancora avviando (di solito qualche secondo). Le scene si ripetono da sole; puoi anche fermarle su un passo.</p>
+
+<div class="controls">
+  <span>Passo:</span>
+  <button data-step="auto" class="on">Automatico</button>
+  <button data-step="0">1 · Richiesta inviata</button>
+  <button data-step="1">2 · Chat creata, agente in avvio</button>
+  <button data-step="2">3 · Agente pronto</button>
+</div>
+
+<div class="grid">
+  <div class="col">
+    <h2>A · Ghost → rana (com'è adesso)</h2>
+    <p>Il ghost dura finché il desktop non crea la chat. Poi arriva la pagina vera: la rana galleggia nello stagno con «Avvio dell'agente…» finché l'agente è pronto. Due cambi di scena, ma la rana dice esplicitamente che l'agente si sta avviando.</p>
+    <div class="phone" data-variant="A"></div>
+    <ul class="steps"><li>Ghost + bagliore</li><li>Rana nello stagno</li><li>Chat, il primo messaggio parte</li></ul>
+  </div>
+  <div class="col">
+    <h2>B · Ghost fino a quando l'agente è pronto</h2>
+    <p>Ghost e bagliore restano anche dopo che il desktop ha creato la chat; nella capsula cambia solo il nome della cartella. Spariscono quando l'agente è pronto. Un solo cambio di scena; la rana non compare all'avvio (resta per /clear e fine sessione).</p>
+    <div class="phone" data-variant="B"></div>
+    <ul class="steps"><li>Ghost + bagliore</li><li>Ghost + bagliore (capsula col nome vero)</li><li>Chat, il primo messaggio parte</li></ul>
+  </div>
+</div>
+
+<p class="note"><b>Consiglio: B.</b> È quello che hai chiesto («direttamente la pagina della chat con il ghost loader»): una sola attesa, un solo stile, nessun salto ghost → rana → chat. In più il messaggio del launcher compare in coda (bolla tratteggiata) già nel passo 2, così si vede che è stato preso. Contro: senza la rana non c'è la scritta «avvio dell'agente», quindi se l'agente ci mette tanto si vede solo il bagliore che pulsa.</p>
+
+<template id="phone">
+  <div class="status"><span>9:41</span><span>●●● 82%</span></div>
+  <div class="load"><svg><rect x="0" y="0" width="100%" height="100%" rx="30" pathLength="100" /></svg></div>
+  <div class="st-top">
+    <div class="st-btn">‹</div>
+    <div class="st-capsule"><svg class="cap-arc"><rect x="0" y="0" width="100%" height="100%" rx="22" pathLength="100" /></svg><i class="dot"></i><b class="cap-name"></b></div>
+    <div class="st-btn dots">⋯</div>
+  </div>
+  <div class="thread">
+    <div class="sk">
+      <div class="sk-bub"><div class="sk-line"></div><div class="sk-line short"></div></div>
+      <div class="sk-bub user"><div class="sk-line"></div></div>
+      <div class="sk-bub"><div class="sk-line"></div><div class="sk-line short"></div></div>
+      <div class="sk-bub user"><div class="sk-line"></div></div>
+      <div class="sk-bub"><div class="sk-line"></div><div class="sk-line short"></div></div>
+    </div>
+    <div class="pond">
+      <div class="pond-water">
+        <svg class="frog" width="64" height="48" viewBox="0 0 64 48" aria-hidden="true">
+          <ellipse cx="32" cy="32" rx="24" ry="14" fill="#7fa564" />
+          <circle cx="20" cy="18" r="8" fill="#7fa564" /><circle cx="44" cy="18" r="8" fill="#7fa564" />
+          <circle cx="20" cy="18" r="3.5" fill="#1a1511" /><circle cx="44" cy="18" r="3.5" fill="#1a1511" />
+          <path d="M22 34 Q32 40 42 34" stroke="#1a1511" stroke-width="2" fill="none" stroke-linecap="round" />
+        </svg>
+      </div>
+      <span>Avvio dell'agente…</span>
+    </div>
+    <div class="queued bub user">Sistema il layout della pagina impostazioni</div>
+    <div class="sent bub user">Sistema il layout della pagina impostazioni</div>
+    <div class="reply bub agent"><div class="typing"><i></i><i></i><i></i></div></div>
+  </div>
+  <div class="composer">Scrivi un messaggio…</div>
+</template>
+
+<script>
+  const tpl = document.getElementById("phone");
+  const phones = [...document.querySelectorAll(".phone")];
+  phones.forEach((p) => p.appendChild(tpl.content.cloneNode(true)));
+
+  function render(step) {
+    phones.forEach((p) => {
+      const v = p.dataset.variant;
+      const q = (s) => p.querySelector(s);
+      const ghost = step === 0 || (v === "B" && step === 1);
+      q(".load").classList.toggle("fade", !ghost);
+      q(".sk").classList.toggle("hidden", !ghost);
+      q(".pond").classList.toggle("hidden", !(v === "A" && step === 1));
+      q(".queued").classList.toggle("hidden", !(v === "B" && step === 1));
+      q(".sent").classList.toggle("hidden", step !== 2);
+      q(".reply").classList.toggle("hidden", step !== 2);
+      q(".dots").classList.toggle("ghost", step === 0);
+      q(".composer").classList.toggle("hidden", step === 0);
+      q(".composer").classList.toggle("off", step === 1);
+      q(".cap-name").textContent = step === 0 ? "Claude Code · flowcode" : "flowcode";
+      q(".dot").className = "dot" + (step === 2 ? " busy" : "");
+      q(".cap-arc").classList.toggle("hidden", step !== 2);
+      p.parentElement.querySelectorAll(".steps li").forEach((li, i) => li.classList.toggle("now", i === step));
+    });
+  }
+
+  let step = 0, timer = null;
+  const DUR = [2200, 2800, 3000];
+  function auto() {
+    render(step);
+    timer = setTimeout(() => { step = (step + 1) % 3; auto(); }, DUR[step]);
+  }
+  document.querySelectorAll(".controls button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".controls button").forEach((x) => x.classList.toggle("on", x === b));
+    clearTimeout(timer);
+    if (b.dataset.step === "auto") { step = 0; auto(); } else render(+b.dataset.step);
+  }));
+  auto();
+</script>
+</body>
+</html>

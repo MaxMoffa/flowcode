@@ -186,10 +186,10 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const terminals = useMemo(() => new Map(backgroundTerminals(model.items, info?.agent ?? "").map((term) => [term.id, exited ? { ...term, running: false } : term])), [model.items, info?.agent, exited]);
   const runningSubs = useMemo(() => sub || exited ? [] : nestSubagents(model.items).flatMap((item) =>
     item.type === "subagent" && subagentState(item).running ? [item] : []), [model.items, sub, exited]);
-  // The agent is starting: the frog floats in its pond.
   const starting = status === "starting";
-  // The first page of the conversation has not arrived yet.
-  const firstLoad = model.items.length === 0 && !session.loaded && !starting && !cleared;
+  // The first page of the conversation has not arrived yet, or the agent of an empty chat is still starting: ghost bubbles and the glowing edge
+  // (a new chat keeps the look of the phone's ChatOpening placeholder until the agent can take its first prompt).
+  const firstLoad = model.items.length === 0 && !cleared && (!session.loaded || starting);
   const working = status === "busy" || status === "waiting";
   // An agent that is gone can't take an answer: no request is offered once the chat has exited.
   const pending = exited ? [] : pendingPermissions(model);
@@ -649,7 +649,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 )}
               </div>
             </div>
-            {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting || cleared) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
+            {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && ((session.loaded && !starting) || cleared) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
             {!sub && <TerminalJump terminals={terminals} scrollRef={scrollRef} lifted={!atBottom} onOpenSubagent={openSubagent} />}
             {!atBottom && (
               <button
