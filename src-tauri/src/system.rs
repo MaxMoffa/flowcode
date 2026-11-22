@@ -294,8 +294,25 @@ const SAFE_OPEN_EXT: &str = "txt md markdown json jsonc toml yaml yml ini cfg co
 /// by extension (case-insensitive) everywhere, plus the exec bit on Unix. A
 /// name ending in `.`/space (Windows trims it: `run.exe.` opens `run.exe`) or
 /// naming an alternate data stream (`a.txt:x.exe`) counts as executable.
-fn is_executable_file(p: &std::path::Path) -> bool {
+pub(crate) fn is_executable_file(p: &std::path::Path) -> bool {
     if p.is_dir() { return false; }
+    is_executable_name_inner(p) || {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        }
+        #[cfg(not(unix))]
+        { false }
+    }
+}
+
+/// `is_executable_file` judged on a file name alone (no file on disk needed).
+pub(crate) fn is_executable_name(name: &str) -> bool {
+    is_executable_name_inner(std::path::Path::new(name))
+}
+
+fn is_executable_name_inner(p: &std::path::Path) -> bool {
     let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
     if name.ends_with('.') || name.ends_with(' ') || name.contains(':') {
         return true;
@@ -305,13 +322,6 @@ fn is_executable_file(p: &std::path::Path) -> bool {
     }
     if p.extension().is_some_and(|e| !SAFE_OPEN_EXT.split(' ').any(|safe| e.eq_ignore_ascii_case(safe))) {
         return true;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
-            return true;
-        }
     }
     false
 }
@@ -343,12 +353,33 @@ fn is_uuid_like(value: &str) -> bool {
 /// side alive (it isn't in the Windows process tree), so tabs and chats tag
 /// their processes with an env var (carried over by WSLENV) and are swept by
 /// it. Arguments are positional, never interpolated into the script.
+///
+/// With `$3 = 1` (terminal tabs) the sweep is limited to the tab's session:
+/// the session of the oldest (lowest pid) tagged process - the tab's shell -
+/// and only tagged processes in that session are killed. Daemons that detached with `setsid` (tmux server, ssh-agent) carry
+/// the tag too but live in their own session, so they survive the tab. The
+/// session id is field 4 after the `)` closing the name in `/proc/<pid>/stat`.
 #[cfg(target_os = "windows")]
-const WSL_KILL_TAGGED: &str = r#"for d in /proc/[0-9]*; do
+const WSL_KILL_TAGGED: &str = r#"var=$1; val=$2; scoped=$3
+tagged=""
+for d in /proc/[0-9]*; do
   p=${d#/proc/}
   [ "$p" = "$$" ] && continue
   [ -r "$d/environ" ] || continue
-  tr '\0' '\n' < "$d/environ" 2>/dev/null | grep -qxF "$1=$2" && kill -9 "$p" 2>/dev/null
+  tr '\0' '\n' < "$d/environ" 2>/dev/null | grep -qxF "$var=$val" && tagged="$tagged $p"
+done
+sid_of() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f4; }
+tab=""
+if [ "$scoped" = 1 ]; then
+  low=""
+  for p in $tagged; do
+    if [ -z "$low" ] || [ "$p" -lt "$low" ]; then low=$p; fi
+  done
+  [ -n "$low" ] && tab=$(sid_of "$low")
+fi
+for p in $tagged; do
+  if [ -n "$tab" ] && [ "$(sid_of "$p")" != "$tab" ]; then continue; fi
+  kill -9 "$p" 2>/dev/null
 done; exit 0"#;
 
 /// Kills the Linux processes of `distro` (`None` = default) tagged `var=value`
@@ -361,11 +392,16 @@ pub(crate) fn kill_wsl_tagged(distro: Option<&str>, var: &str, value: &str) {
         if !var_ok || !is_uuid_like(value) {
             return;
         }
+        // Nothing to sweep (and nothing to boot) when WSL isn't running.
+        if !crate::util::wsl_running() {
+            return;
+        }
+        let scoped = if var == crate::pty::PTY_ID_ENV { "1" } else { "0" };
         let mut cmd = std::process::Command::new("wsl.exe");
         if let Some(distro) = distro {
             cmd.args(["-d", distro]);
         }
-        cmd.args(["--exec", "sh", "-c", WSL_KILL_TAGGED, "sh", var, value]);
+        cmd.args(["--exec", "sh", "-c", WSL_KILL_TAGGED, "sh", var, value, scoped]);
         let _ = run_wsl(cmd);
     }
     #[cfg(not(target_os = "windows"))]

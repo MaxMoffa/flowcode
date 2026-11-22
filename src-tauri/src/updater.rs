@@ -235,7 +235,7 @@ pub async fn release_cover(version: String) -> Option<String> {
     .await
     .ok()
     .flatten();
-    crate::util::lock(cache).insert(key, found.clone());
+    crate::util::insert_bounded(&mut crate::util::lock(cache), key, found.clone());
     found
 }
 

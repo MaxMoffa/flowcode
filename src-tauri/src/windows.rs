@@ -313,6 +313,10 @@ pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result
 #[cfg(target_os = "windows")]
 static MINIMIZED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 
+/// Browser child webviews hidden by `sync_webview_visibility` on minimize.
+#[cfg(target_os = "windows")]
+static HIDDEN_CHILDREN: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
 /// Drops a closed window's entry from the minimized set.
 #[cfg(target_os = "windows")]
 pub fn forget_minimized(label: &str) {
@@ -334,8 +338,28 @@ pub fn sync_webview_visibility(window: &tauri::Window) {
     if !changed {
         return;
     }
-    let Some(webview) = window.app_handle().get_webview(&label) else { return };
-    let _ = webview.with_webview(move |platform| unsafe {
-        let _ = platform.controller().SetIsVisible(!minimized);
-    });
+    // The main webview, plus the native browser children (`fcb-*`) of the
+    // window. A child is only shown again if it was visible when we hid it:
+    // inactive browser tabs are hidden on purpose.
+    if let Some(main) = window.app_handle().get_webview(&label) {
+        let _ = main.with_webview(move |platform| unsafe {
+            let _ = platform.controller().SetIsVisible(!minimized);
+        });
+    }
+    for child in window.webviews().into_iter().filter(|w| w.label().starts_with("fcb-")) {
+        let child_label = child.label().to_string();
+        let _ = child.with_webview(move |platform| unsafe {
+            let controller = platform.controller();
+            let mut hidden = lock(&HIDDEN_CHILDREN);
+            let hidden = hidden.get_or_insert_with(std::collections::HashSet::new);
+            if minimized {
+                let mut visible = Default::default();
+                if controller.IsVisible(&mut visible).is_ok() && visible.as_bool() && hidden.insert(child_label) {
+                    let _ = controller.SetIsVisible(false);
+                }
+            } else if hidden.remove(&child_label) {
+                let _ = controller.SetIsVisible(true);
+            }
+        });
+    }
 }

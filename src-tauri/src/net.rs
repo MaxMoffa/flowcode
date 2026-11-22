@@ -21,7 +21,29 @@ fn proxy_target() -> Option<String> {
     Some(if hostport.contains(':') && !hostport.ends_with(']') { hostport.to_string() } else { format!("{hostport}:8080") })
 }
 
+/// Per target: the last answer, and whether a probe is still running. DNS
+/// resolution has no timeout, so while one is stuck (offline) new probes for
+/// the same target return the last answer instead of piling up threads.
+static PROBES: std::sync::Mutex<Option<std::collections::HashMap<String, (bool, bool)>>> = std::sync::Mutex::new(None);
+
 fn reachable(target: &str) -> bool {
+    {
+        let mut guard = crate::util::lock(&PROBES);
+        let map = guard.get_or_insert_with(Default::default);
+        let entry = map.entry(target.to_string()).or_insert((false, false));
+        if entry.0 {
+            return entry.1;
+        }
+        entry.0 = true;
+    }
+    let result = probe(target);
+    if let Some(entry) = crate::util::lock(&PROBES).get_or_insert_with(Default::default).get_mut(target) {
+        *entry = (false, result);
+    }
+    result
+}
+
+fn probe(target: &str) -> bool {
     let addr: Option<SocketAddr> = target.to_socket_addrs().ok().and_then(|mut a| a.next());
     addr.map(|a| TcpStream::connect_timeout(&a, CONNECT_TIMEOUT).is_ok()).unwrap_or(false)
 }

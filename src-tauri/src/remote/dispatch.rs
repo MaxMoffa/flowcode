@@ -2,6 +2,27 @@
 
 use super::*;
 
+/// Chats with a `ChatOlder` page request in flight; held for the task's life.
+static OLDER_INFLIGHT: std::sync::Mutex<Option<std::collections::HashSet<String>>> = std::sync::Mutex::new(None);
+
+struct OlderSlot(String);
+
+impl OlderSlot {
+    /// `None` when the chat already has a request running.
+    fn take(chat_id: &str) -> Option<Self> {
+        let mut set = OLDER_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        set.get_or_insert_with(Default::default).insert(chat_id.to_string()).then(|| Self(chat_id.to_string()))
+    }
+}
+
+impl Drop for OlderSlot {
+    fn drop(&mut self) {
+        if let Some(set) = OLDER_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            set.remove(&self.0);
+        }
+    }
+}
+
 /// Runs one Git panel request through the same functions the desktop panel invokes.
 pub(super) async fn run_git(request: proto::GitRequest) -> Result<serde_json::Value, String> {
     use crate::git;
@@ -182,10 +203,17 @@ impl Conn {
                 self.open_chat(chat_id, after_seq, paged);
             }
             ClientMsg::ChatOlder { chat_id, before_seq } => {
-                if chat_id.len() > MAX_ID_BYTES || !self.chat_subs.contains_key(&chat_id) {
+                if chat_id.len() > MAX_ID_BYTES || before_seq == 0 || !self.chat_subs.contains_key(&chat_id) {
                     return;
                 }
-                let task = tokio::spawn(super::chat::send_older(Arc::clone(&self.shared), chat_id, before_seq, self.out_tx.clone()));
+                // One page request per chat at a time: a flood of them is dropped.
+                let Some(slot) = OlderSlot::take(&chat_id) else { return };
+                let shared = Arc::clone(&self.shared);
+                let out = self.out_tx.clone();
+                let task = tokio::spawn(async move {
+                    let _slot = slot;
+                    super::chat::send_older(shared, chat_id, before_seq, out).await;
+                });
                 drop(task);
             }
             ClientMsg::ChatClose { chat_id } => {

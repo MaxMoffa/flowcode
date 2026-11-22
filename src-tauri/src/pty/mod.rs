@@ -301,18 +301,25 @@ impl PtyState {
         let sessions = std::mem::take(&mut *lock(&self.0));
         // WSL sweeps in parallel: each is a `wsl.exe` round trip, and the
         // app is quitting.
-        let mut sweeps = Vec::new();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let mut sweeps = 0;
         for mut session in sessions.into_values() {
             if let Some(w) = session.wsl.take() {
-                sweeps.push(std::thread::spawn(move || {
-                    crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag)
-                }));
+                let done = done_tx.clone();
+                sweeps += 1;
+                std::thread::spawn(move || {
+                    crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag);
+                    let _ = done.send(());
+                });
             }
             if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
             let _ = session.killer.kill();
         }
-        for sweep in sweeps {
-            let _ = sweep.join();
+        // The app is quitting: wait for the sweeps for ~1.5 s in total at most.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        for _ in 0..sweeps {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if done_rx.recv_timeout(left).is_err() { break; }
         }
     }
     /// Queues a write to a session's pty - what `pty_write` and remote

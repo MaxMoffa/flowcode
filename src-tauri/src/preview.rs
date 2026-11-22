@@ -157,6 +157,18 @@ fn has_pdf_extension(path: &str) -> bool {
     path.len() >= 4 && path.as_bytes()[path.len() - 4..].eq_ignore_ascii_case(b".pdf")
 }
 
+/// Resolver choice for one hop: `Ok(true)` = must use the public-only resolver.
+/// Once a hop has been public, a later local target is refused outright (a
+/// public host must not be able to bounce us to loopback).
+fn hop_needs_public(went_public: &mut bool, local: bool) -> Result<bool, String> {
+    if local {
+        if *went_public { return Err("redirect from a public host to a local address".into()); }
+        return Ok(false);
+    }
+    *went_public = true;
+    Ok(true)
+}
+
 fn fetch_pdf(url: &str) -> Result<Vec<u8>, String> {
     // Redirects are followed by hand so that every hop is classified again:
     // a loopback page may redirect to another loopback URL, but a redirect
@@ -165,9 +177,10 @@ fn fetch_pdf(url: &str) -> Result<Vec<u8>, String> {
     let deadline = std::time::Instant::now() + PDF_TIMEOUT;
     let mut current = tauri::Url::parse(url).map_err(|e| e.to_string())?;
     let mut hops = 0;
+    let mut went_public = false;
     let response = loop {
         let builder = ureq::AgentBuilder::new().redirects(0).user_agent(FRAME_CHECK_USER_AGENT);
-        let agent = if local_frame_target(current.as_str()) { builder } else { builder.resolver(crate::link_preview::PublicOnly) }.build();
+        let agent = if hop_needs_public(&mut went_public, local_frame_target(current.as_str()))? { builder.resolver(crate::link_preview::PublicOnly) } else { builder }.build();
         let left = deadline.checked_duration_since(std::time::Instant::now()).filter(|d| !d.is_zero()).ok_or("timed out")?;
         let response = agent.get(current.as_str()).timeout(left).call().map_err(|e| e.to_string())?;
         if !(300..400).contains(&response.status()) { break response; }
@@ -329,6 +342,15 @@ fn resolve_preview_file(app: &AppHandle, decoded_path: &str) -> Option<(String, 
     (file.starts_with(&root) && file.is_file()).then_some((rel, file))
 }
 
+/// Largest file served whole; bigger ones get a 413 instead of filling memory.
+const PREVIEW_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// `Ok(None)` when the file is over the cap.
+fn read_capped(file: &std::path::Path) -> std::io::Result<Option<Vec<u8>>> {
+    if std::fs::metadata(file)?.len() > PREVIEW_MAX_BYTES { return Ok(None); }
+    std::fs::read(file).map(Some)
+}
+
 /// Handler of the `flowcode-preview` URI scheme. The frontend builds URLs with
 /// `convertFileSrc("host", "flowcode-preview")`, which is
 /// `http://flowcode-preview.localhost/host` on Windows and
@@ -345,13 +367,14 @@ pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         "host/artifact.html" => host_response("text/html; charset=utf-8", HOST_HTML, ARTIFACT_HOST_CSP),
         "host/host.js" => host_response("text/javascript; charset=utf-8", HOST_JS, HOST_CSP),
         _ => match resolve_preview_file(app, &path) {
-            Some((rel, file)) => match std::fs::read(file) {
-                Ok(body) => {
+            Some((rel, file)) => match read_capped(&file) {
+                Ok(Some(body)) => {
                     let kind = content_type(&rel);
                     let body = if kind.starts_with("text/html") { inject_scrollbar_style(body) } else { body };
                     let token = path.strip_prefix("f/").and_then(|p| p.split('/').next()).unwrap_or_default();
                     file_response(kind, body, token)
                 }
+                Ok(None) => status_response(StatusCode::PAYLOAD_TOO_LARGE),
                 Err(_) => status_response(StatusCode::NOT_FOUND),
             },
             None => status_response(StatusCode::NOT_FOUND),
@@ -362,6 +385,15 @@ pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redirect_hops_never_go_back_to_local_after_a_public_one() {
+        let mut public = false;
+        assert_eq!(hop_needs_public(&mut public, true), Ok(false));
+        assert_eq!(hop_needs_public(&mut public, false), Ok(true));
+        assert!(hop_needs_public(&mut public, true).is_err());
+        assert_eq!(hop_needs_public(&mut public, false), Ok(true));
+    }
 
     #[test]
     fn frame_options_block_deny_and_sameorigin() {

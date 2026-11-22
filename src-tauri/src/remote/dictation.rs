@@ -82,8 +82,17 @@ pub(super) fn start(app: &AppHandle, conn_id: u64, out: mpsc::Sender<ServerMsg>,
     }
     let app = app.clone();
     tokio::spawn(async move {
+        // Removes the entry even if `run_session` panics (else: "busy" forever).
+        struct Remove(Option<(u64, String)>);
+        impl Drop for Remove {
+            fn drop(&mut self) {
+                if let Some(key) = self.0.take() {
+                    sessions().remove(&key);
+                }
+            }
+        }
+        let _entry = Remove(Some((conn_id, session.clone())));
         run_session(&app, &out, &session, hint, audio_rx, ctl_rx).await;
-        sessions().remove(&(conn_id, session));
     });
 }
 

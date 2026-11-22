@@ -139,9 +139,29 @@ fn describe(samples: &[Sample], with_cmd: bool) -> String {
     })
 }
 
+/// Masks `Bearer <token>` and `://user:pass@` inside one argument.
+#[cfg(any(windows, test))]
+fn mask_inline(a: &str) -> String {
+    let mut s = a.to_string();
+    let lower = s.to_ascii_lowercase();
+    if let Some(i) = lower.find("bearer ") {
+        let start = i + "bearer ".len();
+        let end = s[start..].find(char::is_whitespace).map_or(s.len(), |n| start + n);
+        s.replace_range(start..end, "***");
+    }
+    if let Some(i) = s.find("://") {
+        let auth_start = i + 3;
+        let auth_end = s[auth_start..].find(['/', '?', '#']).map_or(s.len(), |n| auth_start + n);
+        if let Some(at) = s[auth_start..auth_end].rfind('@') {
+            s.replace_range(auth_start..auth_start + at, "***");
+        }
+    }
+    s
+}
+
 /// Joins arguments, hiding values that look like secrets and capping the
 /// length: the log travels in crash reports.
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn redact(args: &[String]) -> String {
     const MAX: usize = 160;
     let secretish = |s: &str| {
@@ -154,11 +174,18 @@ fn redact(args: &[String]) -> String {
         if hide_next {
             out.push("***".into());
             hide_next = false;
+        } else if matches!(a.as_str(), "-H" | "--header" | "-u" | "--user" | "--proxy-user") {
+            // The whole next argument (`Authorization: Bearer x`, `user:pass`).
+            hide_next = true;
+            out.push(a.clone());
+        } else if a.eq_ignore_ascii_case("bearer") {
+            hide_next = true;
+            out.push(a.clone());
         } else if let Some((k, _)) = a.split_once('=').filter(|(k, _)| secretish(k)) {
             out.push(format!("{k}=***"));
         } else {
             hide_next = a.starts_with('-') && secretish(a);
-            out.push(a.clone());
+            out.push(mask_inline(a));
         }
     }
     let joined = out.join(" ");
@@ -238,7 +265,7 @@ fn log_line(path: &std::path::Path, text: &str) {
     crate::remote::connlog::append_capped(path, &line, LOG_CAP_BYTES);
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::redact;
 
@@ -247,5 +274,15 @@ mod tests {
         let args: Vec<String> =
             ["--api-key", "sk-123", "OPENAI_API_KEY=abc", "run", "build"].iter().map(|s| s.to_string()).collect();
         assert_eq!(redact(&args), "--api-key *** OPENAI_API_KEY=*** run build");
+    }
+
+    #[test]
+    fn headers_users_bearer_and_url_credentials_are_hidden() {
+        let v = |a: &[&str]| redact(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(v(&["-H", "Authorization: Bearer x", "http://h/"]), "-H *** http://h/");
+        assert_eq!(v(&["--header", "X-Foo: bar", "-u", "me:pw"]), "--header *** -u ***");
+        assert_eq!(v(&["curl", "Bearer", "abc123"]), "curl Bearer ***");
+        assert_eq!(v(&["https://user:pass@host/path"]), "https://***@host/path");
+        assert_eq!(v(&["https://host/a@b"]), "https://host/a@b");
     }
 }
