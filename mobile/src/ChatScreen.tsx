@@ -12,6 +12,7 @@ import { SubagentTray } from "../../shared/SubagentTray";
 import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { TerminalJump, TerminalsContext } from "./ChatTerminals";
 import { BusyArc } from "./Terminals";
+import { ChatSkeleton } from "./ChatOpening";
 import { backgroundTerminals } from "../../src/chat/backgroundTerminals";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
@@ -539,16 +540,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                         <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                       ) : (
                         <>
-                          {firstLoad && (
-                            <div className="chat-skeleton" role="status" aria-label={t("loading")}>
-                              {[false, true, false, true, false].map((user, i) => (
-                                <div key={i} className={"chat-sk-bub" + (user ? " is-user" : "")} aria-hidden="true">
-                                  <div className="chat-sk-line" />
-                                  {!user && <div className="chat-sk-line is-short" />}
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          {firstLoad && <ChatSkeleton />}
                           <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} onOpenChat={onOpenChat} older={older} loadingOlder={session.older.loading} scrollRef={scrollRef} />
                         </>
                       )}

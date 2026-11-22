@@ -67,7 +67,8 @@ export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void):
 
 /** The row at the top of the list while the desktop opens a requested terminal or chat; a muted notice if it never answers. */
 export function PendingRow({ pending }: { pending: Pending | null }) {
-  if (!pending) return null;
+  // A chat on its way shows as its own chat page (App's ChatOpening); only its "didn't answer" notice lands here.
+  if (!pending || (pending.asChat && !pending.failed)) return null;
   return (
     <section className="tr-group">
       <div className="card tr-list">

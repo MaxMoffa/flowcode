@@ -30,6 +30,7 @@ import { ProviderAuthHost } from "./ProviderAuth";
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
 const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.ChatScreen })));
+const ChatOpening = lazy(() => import("./ChatOpening").then((m) => ({ default: m.ChatOpening })));
 
 type Page = "agents" | "files" | "settings";
 
@@ -237,6 +238,11 @@ function AppContent() {
       setOpenChat(null);
     }
   }, [openChat, chats, chat, clearing, awaitingClear]);
+  // A new chat asked of the desktop opens straight away as its chat page (ghost loader) until the real chat replaces it; back hides it, the chat still opens when ready.
+  const pending = usePending();
+  const [openingHidden, setOpeningHidden] = useState(0);
+  const opening = !wide && pending?.kind === "open" && pending.asChat && !pending.failed && pending.since !== openingHidden ? pending : null;
+  useBackHandler(!!opening, () => opening && setOpeningHidden(opening.since));
   // Back from a terminal or a chat returns to the list; on the root it is left alone (the app exits).
   useBackHandler((!!tab || !!chat || awaitingClear) && !wide, () => {
     consumeClear();
@@ -295,6 +301,12 @@ function AppContent() {
       <div className="screen">
         <ChatClearing />
       </div>
+    );
+  } else if (opening) {
+    content = (
+      <Suspense fallback={<div className="screen" />}>
+        <ChatOpening label={opening.label} onBack={() => setOpeningHidden(opening.since)} />
+      </Suspense>
     );
   } else if (chat) {
     content = (
