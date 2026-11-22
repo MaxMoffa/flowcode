@@ -228,12 +228,57 @@ pub fn open_with_default_app(path: String) -> Result<(), String> {
     tauri_plugin_opener::open_path(target, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// "Open in the system browser" for a page of the built-in browser: a web
+/// address, or a local file (an artifact `.html`/`.svg` included, which
+/// `open_with_default_app` refuses). Pages a browser renders are opened as
+/// `file://` URLs so they land in the default browser, not in an editor.
+#[tauri::command(async)]
+pub fn open_in_system_browser(target: String) -> Result<(), String> {
+    let t = target.trim();
+    if t.len() >= 7 && (t[..7].eq_ignore_ascii_case("http://") || t.len() >= 8 && t[..8].eq_ignore_ascii_case("https://")) {
+        if t.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err("Invalid address.".into());
+        }
+        let url = tauri::Url::parse(t).map_err(|e| e.to_string())?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err("Invalid address.".into());
+        }
+        return tauri_plugin_opener::open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string());
+    }
+    let real = openable_path_for(t, true)?;
+    if is_browser_viewable(&real) {
+        let url = tauri::Url::from_file_path(&real).map_err(|_| "Invalid file path.".to_string())?;
+        return tauri_plugin_opener::open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string());
+    }
+    tauri_plugin_opener::open_path(real, None::<&str>).map_err(|e| e.to_string())
+}
+
 /// The real on-disk path `path` names, fit to hand to the default app - or
 /// why not. Judged on the canonical name too, not just the one asked for: a
 /// link `notes.txt` -> `run.bat`, or `run.exe.` (Windows drops the trailing
 /// dot), would otherwise slip a program past the extension check.
 fn openable_path(path: &str) -> Result<std::path::PathBuf, String> {
+    openable_path_for(path, false)
+}
+
+/// Pages a browser renders: not "executable" when the target is the system
+/// browser (a default-app open would run them in whatever handles `.html`).
+const BROWSER_VIEWABLE_EXT: &str = "html htm xhtml svg";
+
+fn is_browser_viewable(p: &std::path::Path) -> bool {
+    let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    if name.ends_with('.') || name.ends_with(' ') || name.contains(':') {
+        return false;
+    }
+    p.extension().is_some_and(|e| BROWSER_VIEWABLE_EXT.split(' ').any(|v| e.eq_ignore_ascii_case(v)))
+}
+
+/// `openable_path`, optionally also accepting the pages a browser renders.
+fn openable_path_for(path: &str, browser: bool) -> Result<std::path::PathBuf, String> {
     use flowcode_shared::i18n::tr;
+    let is_executable_file = |p: &std::path::Path| {
+        is_executable_file(p) && !(browser && is_browser_viewable(p))
+    };
     let not_local = || {
         tr("Flowcode apre solo file locali o di WSL.", "Flowcode only opens local or WSL files.").to_string()
     };
@@ -573,6 +618,25 @@ mod tests {
         assert_eq!(strip_verbatim(PathBuf::from(r"\\server\share\a")), PathBuf::from(r"\\server\share\a"));
         assert_eq!(strip_verbatim(PathBuf::from(r"\?\C:\a")), PathBuf::from(r"\?\C:\a"));
         assert_eq!(strip_verbatim(PathBuf::from("/home/a")), PathBuf::from("/home/a"));
+    }
+
+    #[test]
+    fn browser_open_allows_pages_but_not_programs() {
+        let dir = std::env::temp_dir().join(format!("flowcode-open-browser-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["a.html", "b.SVG", "c.pdf", "run.bat"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        let p = |f: &str| dir.join(f).to_string_lossy().to_string();
+        assert!(openable_path(&p("a.html")).is_err());
+        assert!(openable_path_for(&p("a.html"), true).is_ok());
+        assert!(openable_path_for(&p("b.SVG"), true).is_ok());
+        assert!(openable_path_for(&p("c.pdf"), true).is_ok());
+        assert!(openable_path_for(&p("run.bat"), true).is_err());
+        #[cfg(windows)]
+        assert!(openable_path_for(r"\\attacker.invalid\share\a.html", true).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

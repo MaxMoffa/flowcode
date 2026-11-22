@@ -19,12 +19,17 @@ const POLL_MS = 150;
 const TASK_NOTES =
   "The delegated agent is a separate chat that sees ONLY the prompt you give it: no conversation, no files you read, no context. Make the prompt self-contained.";
 
+const INSTRUCTIONS =
+  "To show the user any web page, local dev server or file, call open_in_browser exactly once for it. " +
+  "Never also run a shell command to open it (start, Start-Process, explorer, cmd /c start, open, xdg-open, python -m webbrowser): that opens it a second time. " +
+  "Do not pass --open or server.open to dev servers: Flowcode routes BROWSER itself.";
+
 const TOOLS = [
   {
     name: "open_in_browser",
     timeoutMs: 15_000,
     description:
-      "Show a web page or a file to the user in Flowcode's own browser panel. Always use this instead of shell commands like start, open, xdg-open or Start-Process, which would open the page a second time in the system browser. PDFs (a .pdf URL or file) open in Flowcode's built-in PDF viewer.",
+      "Show a web page or a file to the user in Flowcode's own browser panel. Always use this instead of shell commands like start, open, xdg-open or Start-Process, which would open the page a second time in the system browser. Call it once per page; it never needs to be combined with a shell command. PDFs (a .pdf URL or file) open in Flowcode's built-in PDF viewer.",
     inputSchema: {
       type: "object",
       properties: {
@@ -184,6 +189,7 @@ function answer(method, params) {
       protocolVersion: params?.protocolVersion ?? "2025-06-18",
       capabilities: { tools: {} },
       serverInfo: { name: "flowcode", version: "2.0.0" },
+      instructions: INSTRUCTIONS,
     };
   }
   if (method === "ping") return {};

@@ -395,6 +395,7 @@ export const en: Record<MessageKey, string> = {
   "browser.forward": "Forward",
   "browser.reload": "Reload",
   "browser.openExternal": "Open in the system browser",
+  "browser.openExternalFailed": "Couldn't open in the system browser: {error}",
   "browser.close": "Close the browser",
   "browser.closePage": "Close page",
   "browser.tabs": "Open pages",

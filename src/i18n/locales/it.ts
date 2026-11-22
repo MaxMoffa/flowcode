@@ -394,6 +394,7 @@ export const it = {
   "browser.forward": "Avanti",
   "browser.reload": "Ricarica",
   "browser.openExternal": "Apri nel browser di sistema",
+  "browser.openExternalFailed": "Impossibile aprire nel browser di sistema: {error}",
   "browser.close": "Chiudi il browser",
   "browser.closePage": "Chiudi pagina",
   "browser.tabs": "Schede aperte",

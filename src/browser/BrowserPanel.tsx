@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import { cliName, type AgentCli } from "../agents/cliInfo";
 import { basename, parentPath } from "../lib/path";
@@ -295,6 +294,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const [toast, setToast] = useState<{ sourceId: string; host: string } | null>(null);
   // An agent was asked to look into a failed page: the notice with the way to its chat.
   const [diagToast, setDiagToast] = useState<{ agent: AgentCli; host: string; tabId: string } | null>(null);
+  // "Open in the system browser" failed: the notice with the reason.
+  const [openError, setOpenError] = useState<string | null>(null);
   // Pages whose address passed the PDF check (a web page is shown only after it).
   const [checked, setChecked] = useState<string[]>([]);
   const [suspended, setSuspended] = useState(false);
@@ -314,6 +315,11 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     const timer = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (!openError) return;
+    const timer = setTimeout(() => setOpenError(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [openError]);
   useEffect(() => {
     if (!diagToast) return;
     const timer = setTimeout(() => setDiagToast(null), TOAST_MS);
@@ -493,9 +499,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   const openExternal = () => {
     if (!page) return;
-    if (page.kind === "url") void openUrl(page.url);
-    else if (page.kind === "pdf" && /^https?:\/\//i.test(page.src)) void openUrl(page.src);
-    else void invoke("open_with_default_app", { path: page.kind === "pdf" ? page.src : page.path });
+    const target = page.kind === "url" ? page.url : page.kind === "pdf" ? page.src : page.path;
+    invoke("open_in_system_browser", { target }).catch((e) => setOpenError(String(e)));
   };
 
   const info = page ? describePage(page) : null;
@@ -572,7 +577,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
   const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
-  const insetBottom = (toast || diagToast) && urlPage ? TOAST_INSET : 0;
+  const insetBottom = (toast || diagToast || openError) && urlPage ? TOAST_INSET : 0;
 
   useNativeThemeBackground();
   useNativeBrowserView({
@@ -781,7 +786,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             </div>
           </div>
         )}
-        {diagToast && (
+        {openError && (
+          <div className="browser-panel-toast" data-cover-ignore role="alert">
+            <span>{t("browser.openExternalFailed", { error: openError })}</span>
+          </div>
+        )}
+        {diagToast && !openError && (
           <div className="browser-panel-toast" data-cover-ignore role="status">
             <PopupIcon />
             <span>{t("browser.toast.diagnosing", { agent: cliName(diagToast.agent), host: diagToast.host })}</span>
@@ -797,7 +807,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             </button>
           </div>
         )}
-        {toast && !diagToast && (
+        {toast && !diagToast && !openError && (
           <div className="browser-panel-toast" data-cover-ignore role="status">
             <PopupIcon />
             <span>{t("browser.toast.newTab", { host: toast.host })}</span>
