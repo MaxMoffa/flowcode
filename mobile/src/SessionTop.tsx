@@ -4,6 +4,7 @@ import { useBackHandler, useEscape } from "./back";
 import { viewChoices, type ViewChoice } from "./ChatMenu";
 import { t } from "./i18n";
 import { BackIcon, ChevronDownIcon, DotsIcon } from "./icons";
+import { BusyArc } from "./Terminals";
 
 /** A menu entry: without `run` it shows greyed out. */
 export interface MenuRow {
@@ -25,7 +26,8 @@ export function SessionTop(props: { name: string; state: string; stateText: stri
       {center ? (
         <div className="st-capsule">{center}</div>
       ) : (
-        <button type="button" className="st-capsule" aria-haspopup="dialog" onClick={props.onSession}>
+        <button type="button" className={"st-capsule" + (state === "busy" ? " is-busy" : "")} aria-haspopup="dialog" onClick={props.onSession}>
+          {state === "busy" && <BusyArc rx={21.25} className="tr-sweep st-sweep" />}
           <i className={"st-dot is-" + state} role="img" aria-label={stateText} title={stateText} />
           <b>{name}</b>
           <ChevronDownIcon />

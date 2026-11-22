@@ -11,6 +11,7 @@ import { FrogThinking } from "../../shared/FrogThinking";
 import { SubagentTray } from "../../shared/SubagentTray";
 import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { TerminalJump, TerminalsContext } from "./ChatTerminals";
+import { BusyArc } from "./Terminals";
 import { backgroundTerminals } from "../../src/chat/backgroundTerminals";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
@@ -447,6 +448,11 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
 
   return (
     <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "") + (compact ? " is-compact-chat" : "") + (!embedded && floating ? " has-floating-top" : "")} ref={screenRef}>
+      {firstLoad && (
+        <div className={"chat-screen-load" + (embedded ? " is-embedded" : "")} role="progressbar" aria-busy="true" aria-label={t("loading")}>
+          <BusyArc rx={embedded ? 0 : 26.75} className="chat-screen-load-arc" />
+        </div>
+      )}
       {embedded ? (
         <header className="term-head chat-head">
           {back}
@@ -513,7 +519,6 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
       {shown === CHAT_VIEW || !pkg ? (
         <>
           <div className="chat-thread-wrap">
-            {firstLoad && <div className="chat-loadbar" role="progressbar" aria-busy="true" />}
             {!sub && session.older.loading && (
               <div className="chat-older-pill" role="status">
                 <span>{t("chatOlderLoading")}</span>

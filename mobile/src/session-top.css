@@ -63,6 +63,24 @@
   font: inherit;
 }
 
+/* An agent at work: the desktop tab's arc runs round the capsule (.tr-sweep in ui.css). Same geometry as .term-tab-sweep: the 1.5px stroke covers the
+   1px border and 0.5px inside, centre line 0.25px outside the padding box, radius 22 - 0.75. */
+.st-capsule {
+  position: relative;
+}
+
+.st-capsule.is-busy {
+  border-color: color-mix(in srgb, var(--busy) 25%, transparent);
+}
+
+.st-capsule .st-sweep {
+  inset: auto;
+  top: -0.25px;
+  left: -0.25px;
+  width: calc(100% + 0.5px);
+  height: calc(100% + 0.5px);
+}
+
 .st-btn:active,
 button.st-capsule:active {
   background: var(--surface-2);

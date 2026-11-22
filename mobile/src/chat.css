@@ -4045,35 +4045,56 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   }
 }
 
-/* Indeterminate 2px accent bar over the thread while the first page loads. */
-.chat-loadbar {
+/* First load of a chat: a soft accent glow breathing round the screen's edge, with the busy arc of the desktop tabs running along it (green here; the
+   capsule's own arc is blue while the agent works). Under the session top (z 20), over the thread. rx 28 - 1.25 follows a phone's rounded corners; an
+   embedded pane (tablet) is square. No prefers-reduced-motion rule, as on the tabs. */
+.chat-screen-load {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  overflow: hidden;
-  z-index: 3;
+  inset: 0;
+  z-index: 19;
   pointer-events: none;
+  border-radius: 28px;
 }
 
-.chat-loadbar::before {
+.chat-screen-load.is-embedded {
+  border-radius: 0;
+}
+
+.chat-screen-load::before {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 35%;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: chat-loadbar-run 1.1s ease-in-out infinite;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 22px 4px color-mix(in srgb, var(--accent) 55%, transparent),
+    inset 0 0 2px 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  animation: chat-screen-breathe 1.8s ease-in-out infinite;
 }
 
-@keyframes chat-loadbar-run {
-  from {
-    left: -35%;
+@keyframes chat-screen-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
   }
-  to {
-    left: 100%;
+  50% {
+    opacity: 1;
   }
+}
+
+.chat-screen-load-arc {
+  position: absolute;
+  top: 1.25px;
+  left: 1.25px;
+  width: calc(100% - 2.5px);
+  height: calc(100% - 2.5px);
+  overflow: visible;
+}
+
+.chat-screen-load-arc rect {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  animation: tr-sweep 1.6s linear infinite;
 }
 
 /* Older messages being fetched: a pill at the top of the thread, under the floating buttons. */
@@ -4137,11 +4158,5 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   .chat-sk-bub::after,
   .chat-dots i {
     animation: none;
-  }
-  .chat-loadbar::before {
-    animation: none;
-    left: 0;
-    width: 100%;
-    opacity: 0.5;
   }
 }
