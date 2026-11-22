@@ -4045,9 +4045,8 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   }
 }
 
-/* First load of a chat: a soft accent glow breathing round the screen's edge, with the busy arc of the desktop tabs running along it (green here; the
-   capsule's own arc is blue while the agent works). Under the session top (z 20), over the thread. rx 28 - 1.25 follows a phone's rounded corners; an
-   embedded pane (tablet) is square. No prefers-reduced-motion rule, as on the tabs. */
+/* First load of a chat: a soft accent glow breathing round the screen's edge, nothing travelling along it (the capsule's blue arc stays for busy).
+   Under the session top (z 20), over the thread. Radius follows a phone's rounded corners; an embedded pane (tablet) is square. */
 .chat-screen-load {
   position: absolute;
   inset: 0;
@@ -4079,22 +4078,6 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   50% {
     opacity: 1;
   }
-}
-
-.chat-screen-load-arc {
-  position: absolute;
-  top: 1.25px;
-  left: 1.25px;
-  width: calc(100% - 2.5px);
-  height: calc(100% - 2.5px);
-  overflow: visible;
-}
-
-.chat-screen-load-arc rect {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  animation: tr-sweep 1.6s linear infinite;
 }
 
 /* Older messages being fetched: a pill at the top of the thread, under the floating buttons. */

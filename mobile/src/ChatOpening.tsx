@@ -3,7 +3,6 @@ import "./chat.css";
 import "./session-top.css";
 import { t } from "./i18n";
 import { BackIcon } from "./icons";
-import { BusyArc } from "./Terminals";
 
 /** Shimmering ghost bubbles shown before a chat has anything to show. */
 export function ChatSkeleton() {
@@ -24,9 +23,7 @@ export function ChatOpening({ label, onBack }: { label: string; onBack: () => vo
   const text = t("opening", { name: label });
   return (
     <div className="screen term-screen chat-screen has-floating-top">
-      <div className="chat-screen-load" role="progressbar" aria-busy="true" aria-label={text}>
-        <BusyArc rx={26.75} className="chat-screen-load-arc" />
-      </div>
+      <div className="chat-screen-load" role="progressbar" aria-busy="true" aria-label={text} />
       <header className="st-top is-floating">
         <button type="button" className="st-btn" aria-label={t("back")} onClick={onBack}>
           <BackIcon />
