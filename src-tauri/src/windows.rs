@@ -68,9 +68,7 @@ pub async fn window_open(
         .inner_size(1100.0, 700.0)
         // Same floor as tauri.conf.json: the narrow layout is designed for it.
         .min_inner_size(380.0, 480.0)
-        // Linux: no blur behind WebKitGTK and transparent windows glitch on
-        // Wayland compositors (Hyprland), so the window is opaque there.
-        .transparent(!cfg!(target_os = "linux"))
+        .transparent(true)
         .decorations(false)
         .shadow(false)
         // The `devtools` cargo feature (browser_view.rs) would otherwise turn

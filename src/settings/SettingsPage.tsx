@@ -390,23 +390,21 @@ export function SettingsPage({
                   </button>
                 </div>
               </SettingRow>
-              {document.documentElement.dataset.platform !== "linux" && (
-                <SettingRow id="transparency" label={t("settings.transparency.label")} desc={t("settings.transparency.fieldDesc")}>
-                  <div className="settings-zoom-row">
-                    <input
-                      type="range"
-                      min={0.3}
-                      max={1}
-                      step={0.01}
-                      value={glassOpacity}
-                      onChange={(e) => setGlassOpacity(Number(e.target.value))}
-                      className="settings-opacity-slider"
-                      aria-label={t("settings.transparency.label")}
-                    />
-                    <span className="settings-zoom-value">{Math.round(glassOpacity * 100)}%</span>
-                  </div>
-                </SettingRow>
-              )}
+              <SettingRow id="transparency" label={t("settings.transparency.label")} desc={t("settings.transparency.fieldDesc")}>
+                <div className="settings-zoom-row">
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={1}
+                    step={0.01}
+                    value={glassOpacity}
+                    onChange={(e) => setGlassOpacity(Number(e.target.value))}
+                    className="settings-opacity-slider"
+                    aria-label={t("settings.transparency.label")}
+                  />
+                  <span className="settings-zoom-value">{Math.round(glassOpacity * 100)}%</span>
+                </div>
+              </SettingRow>
             </SettingsGroup>
 
             <SettingsGroup title={t("settings.group.header")}>

@@ -18,8 +18,15 @@ use std::path::PathBuf;
 /// identifier in tauri.conf.json) - computed by hand because startup needs it
 /// before any `AppHandle` exists.
 fn settings_path() -> Option<PathBuf> {
-    let appdata = std::env::var_os("APPDATA")?;
-    Some(PathBuf::from(appdata).join("com.maxmoffa.flowcode").join("gpu.json"))
+    // Linux: Tauri's app_config_dir() is $XDG_CONFIG_HOME (or ~/.config) + identifier.
+    #[cfg(target_os = "linux")]
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    #[cfg(not(target_os = "linux"))]
+    let base = PathBuf::from(std::env::var_os("APPDATA")?);
+    Some(base.join("com.maxmoffa.flowcode").join("gpu.json"))
 }
 
 fn read_enabled() -> bool {
@@ -44,6 +51,8 @@ pub fn apply_at_startup() {
         // Runs before Tauri or any other thread reads the environment.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
+    #[cfg(target_os = "linux")]
+    linux_env();
     if !cfg!(target_os = "windows") || read_enabled() {
         return;
     }
@@ -60,6 +69,24 @@ pub fn apply_at_startup() {
     std::env::set_var(VAR, format!("{base} {FLAG}"));
 }
 
+/// NVIDIA on Wayland: the driver's explicit sync (555+) makes WebKitGTK's
+/// transparent windows flicker and show garbage frames (seen on Omarchy /
+/// Hyprland). The "Hardware acceleration" switch turned off drops WebKit's
+/// accelerated compositing, the last resort for drivers that still glitch.
+/// Values the user already set are kept.
+#[cfg(target_os = "linux")]
+fn linux_env() {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
+    let nvidia = std::path::Path::new("/proc/driver/nvidia/version").exists();
+    if wayland && nvidia && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    }
+    if !read_enabled() && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
+}
+
 #[tauri::command]
 pub fn get_hardware_acceleration() -> bool {
     read_enabled()
@@ -67,7 +94,7 @@ pub fn get_hardware_acceleration() -> bool {
 
 #[tauri::command]
 pub fn set_hardware_acceleration(enabled: bool) -> Result<(), String> {
-    let path = settings_path().ok_or(flowcode_shared::i18n::tr("APPDATA non disponibile", "APPDATA unavailable"))?;
+    let path = settings_path().ok_or(flowcode_shared::i18n::tr("Cartella di configurazione non disponibile", "Config folder unavailable"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
