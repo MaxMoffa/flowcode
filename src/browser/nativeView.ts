@@ -12,11 +12,21 @@ export interface NativeViewRect {
   height: number;
 }
 
+// Show / bounds / hide run one after the other: Tauri runs async commands in
+// parallel, so a hide sent before a show could otherwise land after it and
+// leave the view hidden (or an old rect could land after a newer one).
+let placeChain: Promise<unknown> = Promise.resolve();
+function placed<T>(run: () => Promise<T>): Promise<T> {
+  const next = placeChain.then(run, run);
+  placeChain = next.catch(() => {});
+  return next;
+}
+
 export const nativeView = {
-  show: (pageId: string, url: string, r: NativeViewRect) => invoke<void>("browser_view_show", { pageId, url, ...r }),
-  bounds: (pageId: string, r: NativeViewRect) => invoke<void>("browser_view_bounds", { pageId, ...r }),
+  show: (pageId: string, url: string, r: NativeViewRect) => placed(() => invoke<void>("browser_view_show", { pageId, url, ...r })),
+  bounds: (pageId: string, r: NativeViewRect) => placed(() => invoke<void>("browser_view_bounds", { pageId, ...r })),
   /** One page, or every child of this window when `pageId` is omitted. */
-  hide: (pageId?: string) => invoke<void>("browser_view_hide", { pageId: pageId ?? null }),
+  hide: (pageId?: string) => placed(() => invoke<void>("browser_view_hide", { pageId: pageId ?? null })),
   navigate: (pageId: string, url: string) => invoke<void>("browser_view_navigate", { pageId, url }),
   back: (pageId: string) => invoke<void>("browser_view_back", { pageId }),
   forward: (pageId: string) => invoke<void>("browser_view_forward", { pageId }),
@@ -87,6 +97,9 @@ function readRect(el: HTMLElement, insetBottom: number): NativeViewRect | null {
   return { x: b.left, y: b.top, width: b.width, height };
 }
 
+/** Same size, far outside the window: the view keeps its painted page while out of sight. */
+const parkedRect = (r: NativeViewRect): NativeViewRect => ({ ...r, x: -20000 - r.width, y: -20000 - r.height });
+
 const same = (a: NativeViewRect | null, b: NativeViewRect) =>
   !!a && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
@@ -116,12 +129,16 @@ export interface UseNativeBrowserViewOptions {
 
 /**
  * Keeps the native view of `pageId` over `viewportRef`: shown while
- * active && !suspended && url, hidden otherwise and on unmount (the view stays
- * alive in the backend, which destroys the least recently shown past 4).
+ * active && url, hidden otherwise and on unmount (the view stays alive in the
+ * backend, which destroys the least recently shown past 4). While `suspended`
+ * (an overlay over it) the view is parked off screen instead of hidden: a
+ * hidden WebView2 drops what it drew and comes back white for a few frames,
+ * a parked one comes back with the page already painted.
  */
 export function useNativeBrowserView({ viewportRef, pageId, url, active, suspended, currentUrl, insetBottom = 0, onShown, onRejected }: UseNativeBrowserViewOptions): void {
   const shownUrl = useRef<string | null>(null);
-  const live = active && !suspended && !!url;
+  const wanted = active && !!url;
+  const live = wanted && !suspended;
   const insetRef = useRef(insetBottom);
   insetRef.current = insetBottom;
   const currentRef = useRef(currentUrl);
@@ -130,12 +147,16 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
   shownCb.current = onShown;
   const rejectedCb = useRef(onRejected);
   rejectedCb.current = onRejected;
+  const parkedRef = useRef(suspended);
+  parkedRef.current = suspended;
   const kickRef = useRef<(() => void) | null>(null);
+  /** Set while the view is shown: moves it on/off screen for `suspended`. */
+  const parkRef = useRef<((parked: boolean) => void) | null>(null);
 
   // Show / hide.
   useEffect(() => {
     const el = viewportRef.current;
-    if (!live || !el || !url) {
+    if (!wanted || !el || !url) {
       void nativeView.hide(pageId).catch(() => {});
       return;
     }
@@ -148,7 +169,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
 
     const tick = () => {
       raf = 0;
-      if (cancelled) return;
+      if (cancelled || parkedRef.current) return;
       const r = readRect(el, insetRef.current);
       if (r && shown && !same(last, r)) {
         const now = performance.now();
@@ -164,21 +185,49 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
       if (settle > 0 || (r && shown && !same(last, r))) raf = requestAnimationFrame(tick);
     };
     const kick = () => {
+      if (parkedRef.current) return;
       settle = SETTLE_FRAMES;
       if (!raf) raf = requestAnimationFrame(tick);
     };
-
-    kickRef.current = kick;
-    const r0 = readRect(el, insetRef.current);
-    if (r0) {
-      last = r0;
+    const park = (parked: boolean) => {
+      if (!shown) return;
+      if (parked) {
+        const r = last ?? readRect(el, insetRef.current);
+        if (r) void nativeView.bounds(pageId, parkedRect(r)).catch(() => {});
+        last = null;
+        return;
+      }
+      const r = readRect(el, insetRef.current);
+      if (!r) return;
+      last = r;
       void nativeView
-        .show(pageId, url, r0)
+        .bounds(pageId, r)
         .then(() => {
-          shown = true;
-          shownUrl.current = url;
+          if (cancelled || parkedRef.current) return;
           kick();
           shownCb.current?.();
+        })
+        .catch(() => {});
+    };
+
+    kickRef.current = kick;
+    parkRef.current = park;
+    const r0 = readRect(el, insetRef.current);
+    if (r0) {
+      const parkedAtStart = parkedRef.current;
+      last = parkedAtStart ? null : r0;
+      void nativeView
+        .show(pageId, url, parkedAtStart ? parkedRect(r0) : r0)
+        .then(() => {
+          if (cancelled) return;
+          shown = true;
+          shownUrl.current = url;
+          // The overlay came or went while the show was on its way.
+          if (parkedRef.current !== parkedAtStart) park(parkedRef.current);
+          else if (!parkedAtStart) {
+            kick();
+            shownCb.current?.();
+          }
           // A request made while the view was hidden: re-showing never navigates.
           if (currentRef.current && currentRef.current !== url) void nativeView.navigate(pageId, url).catch((e) => rejectedCb.current?.(String(e)));
         })
@@ -193,6 +242,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     return () => {
       cancelled = true;
       kickRef.current = null;
+      parkRef.current = null;
       if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", kick);
@@ -200,9 +250,14 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
       void nativeView.hide(pageId).catch(() => {});
     };
     // `url` is deliberately not a dependency: a URL change navigates (below)
-    // instead of re-showing.
+    // instead of re-showing; `suspended` parks (below) instead of hiding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, pageId, viewportRef]);
+  }, [wanted, pageId, viewportRef]);
+
+  // An overlay came or went: park the view off screen / bring it back.
+  useEffect(() => {
+    parkRef.current?.(suspended);
+  }, [suspended]);
 
   // The inset changed (toast in / out).
   useEffect(() => {
