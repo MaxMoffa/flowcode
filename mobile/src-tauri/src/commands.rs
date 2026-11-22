@@ -215,8 +215,9 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
     let name = percent_decode(&header("x-name").unwrap_or_default());
     let mime = header("x-mime").unwrap_or_default();
     let bytes = invoke_bytes(request.body())?;
-    if bytes.len() as u64 > UPLOAD_MAX_BYTES {
-        return Err("File exceeds 32 MiB".into());
+    let max = upload_cap();
+    if bytes.len() as u64 > max {
+        return Err(format!("File exceeds {} MiB", max / (1024 * 1024)));
     }
     let conn = remote.lock().conn.clone().ok_or_else(|| "not connected".to_string())?;
     let meta = serde_json::to_string(&UploadMeta { name, mime, size: bytes.len() as u64 }).map_err(|e| e.to_string())?;
@@ -259,14 +260,28 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
 /// The bytes of an upload invoke: the raw body, or `{"data": "<base64>"}` where
 /// the webview can't send a raw body (Android's IPC goes through postMessage,
 /// which turns everything into JSON).
-fn invoke_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
+fn invoke_bytes(body: &tauri::ipc::InvokeBody) -> Result<std::borrow::Cow<'_, [u8]>, String> {
     use base64::Engine;
     match body {
-        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(std::borrow::Cow::Borrowed(bytes.as_slice())),
         tauri::ipc::InvokeBody::Json(value) => {
             let data = value.get("data").and_then(serde_json::Value::as_str).ok_or("expected the file's bytes")?;
-            base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| format!("bad file data: {e}"))
+            // Refuse before decoding: base64 is 4 chars per 3 bytes.
+            if (data.len() as u64 / 4) * 3 > upload_cap() + 3 {
+                return Err(format!("File exceeds {} MiB", upload_cap() / (1024 * 1024)));
+            }
+            base64::engine::general_purpose::STANDARD.decode(data).map(std::borrow::Cow::Owned).map_err(|e| format!("bad file data: {e}"))
         }
+    }
+}
+
+/// Largest upload this phone takes. Android always goes through the base64 JSON
+/// path (the whole file is held several times over), so it gets a lower cap.
+fn upload_cap() -> u64 {
+    if cfg!(target_os = "android") {
+        UPLOAD_MAX_BYTES.min(16 * 1024 * 1024)
+    } else {
+        UPLOAD_MAX_BYTES
     }
 }
 

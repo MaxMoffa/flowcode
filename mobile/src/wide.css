@@ -763,13 +763,6 @@
   letter-spacing: 0.06em;
 }
 
-.w-right .usage-row,
-.ws-agent .usage-row {
-  margin: 0 -6px;
-  padding: 0 6px;
-  scroll-padding-inline: 6px;
-}
-
 .w-right .card,
 .ws-agent .card {
   border-radius: 10px;

@@ -5,7 +5,7 @@ import { prepareAttachment, toBase64 } from "../../shared/attachPrepare";
 import type { ChatAttachmentRef } from "../../shared/remote-types";
 
 export const MAX_ATTACHMENTS = 10;
-export const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
+export const MAX_ATTACH_BYTES = 16 * 1024 * 1024;
 
 /** Uploads one file to the desktop for `chatId`; rejects with an error string. */
 export async function uploadAttachment(chatId: string, file: File): Promise<ChatAttachmentRef> {

@@ -225,7 +225,9 @@ function AppContent() {
     if (openPty && tabs && !tab) setOpenPty(null);
   }, [openPty, tabs, tab]);
   // The open chat left the desktop (closed, or turned into a terminal): back to the list.
-  const chat = openChat ? chats?.find((c) => c.chatId === openChat) : undefined;
+  // An open request not yet consumed counts too: the pending screen must hand over to the chat with no empty render between.
+  const shownChat = openChat ?? openRequest;
+  const chat = shownChat ? chats?.find((c) => c.chatId === shownChat) : undefined;
   // A chat cleared with /clear comes back in the same tab under a new id: wait for it and follow it.
   const clearing = useClearing();
   const awaitingClear = !!clearing && clearing.chatId === openChat;

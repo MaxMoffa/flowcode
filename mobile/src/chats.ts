@@ -476,11 +476,12 @@ export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string
     const fresh = pickNewChat(chats, p.known, p.expect);
     if (fresh) {
       pendingNew = null;
-      endPending();
       // Queued before opening: the queue holds it until the agent leaves "starting".
       if (p.firstPrompt) sendChatPrompt(fresh.chatId, p.firstPrompt);
       if (p.dictate) autoDictationChat = fresh.chatId;
+      // Open first, then end the pending screen: no render shows neither.
       onOpen(fresh.chatId);
+      endPending();
     }
   }, [chats, onOpen]);
 

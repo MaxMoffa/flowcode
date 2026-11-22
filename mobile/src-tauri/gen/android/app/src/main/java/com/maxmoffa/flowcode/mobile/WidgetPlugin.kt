@@ -37,9 +37,16 @@ class WidgetPlugin(private val activity: Activity) : Plugin(activity) {
         if (intent?.action != WidgetRender.ACTION) return
         val action = intent.getStringExtra(EXTRA_ACTION) ?: return
         val agent = intent.getStringExtra(EXTRA_AGENT)
+        val token = intent.getStringExtra(WidgetRender.EXTRA_TOKEN)
         // Consumed: a recreated activity gets the same intent back.
         intent.removeExtra(EXTRA_ACTION)
         intent.removeExtra(EXTRA_AGENT)
+        intent.removeExtra(WidgetRender.EXTRA_TOKEN)
+        // Forged by another app (MainActivity is exported): ignore.
+        if (!WidgetRender.tokenMatches(activity, token)) {
+            Log.w(TAG, "ignored a widget intent with a bad token")
+            return
+        }
         pending = action to agent
     }
 

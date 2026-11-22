@@ -26,6 +26,8 @@ const val EXTRA_TEXT = "text"
 const val EXTRA_CAP_MINUTES = "capMinutes"
 /** The ongoing notification's "turn off for now" button. */
 private const val ACTION_PAUSE = "com.maxmoffa.flowcode.mobile.PAUSE_BACKGROUND"
+/** Sent by `BackgroundPlugin` when the app comes back to the foreground. */
+const val ACTION_STOP = "com.maxmoffa.flowcode.mobile.STOP_BACKGROUND"
 
 /** Creates the notification channels (idempotent; they only exist on API 26+). */
 fun ensureChannels(context: Context) {
@@ -61,10 +63,7 @@ class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_PAUSE) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        val stopping = intent?.action == ACTION_PAUSE || intent?.action == ACTION_STOP
         ensureChannels(this)
         val pause = PendingIntent.getService(
             this,
@@ -93,6 +92,12 @@ class ConnectionService : Service() {
             return START_NOT_STICKY
         }
         handler.removeCallbacksAndMessages(null)
+        if (stopping) {
+            // startForeground already ran, so a stop sent through startForegroundService is never late.
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val capMinutes = intent?.getIntExtra(EXTRA_CAP_MINUTES, 0) ?: 0
         if (capMinutes > 0) {
             handler.postDelayed({ stopSelf() }, capMinutes * 60_000L)

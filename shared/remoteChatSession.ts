@@ -66,7 +66,11 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
   if (model.items.length > MAX_ITEMS) model = { ...model, items: model.items.slice(-MAX_ITEMS) };
   // A busy chat replayed whole has no turn start in the events we kept: counting from now is an approximation.
   if (opts.replay) model = opts.busy ? (model.status === "starting" ? { ...model, status: "busy", turnActive: true, turn: model.turn ?? { startedAt: Date.now(), outChars: 0 } } : model) : settleChat(model);
-  const events = fresh.length === 0 ? session.events : [...session.events, ...fresh].slice(-MAX_RAW_EVENTS);
+  // One copy per batch (concat), a second only when over the cap. The identity must change: ChatScreen memoises on it, so in-place push is not an option.
+  const events = fresh.length === 0 ? session.events : (() => {
+    const all = session.events.concat(fresh);
+    return all.length > MAX_RAW_EVENTS ? all.slice(-MAX_RAW_EVENTS) : all;
+  })();
   // The sent message's own `user` event (or the agent's end) settles it: nothing left to put back.
   const landed = session.sentRequestId === null && session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.text === session.sentText && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
   // The replay of a paged open says whether older events exist (a delta replay says nothing: what is known stays).

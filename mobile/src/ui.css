@@ -139,7 +139,6 @@ h1 {
   gap: 12px;
 }
 
-
 .group {
   margin: 8px 4px 8px;
   font-size: 12px;
@@ -221,7 +220,6 @@ button.card:active {
   color: var(--muted);
 }
 
-
 /* ---- toast ---------------------------------------- */
 
 @keyframes pulse {
@@ -259,31 +257,6 @@ button.card:active {
 }
 
 /* ---- agents ------------------------------------------------------------- */
-
-.usage {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 12px 14px;
-  min-width: 0;
-  border-radius: 18px;
-}
-
-.usage-title {
-  font-size: 13px;
-  color: var(--fg);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.usage-gauge {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
 .usage-head {
   display: flex;
@@ -605,99 +578,6 @@ button.card:active {
 
 .dot.busy {
   background: var(--busy);
-}
-
-.agent-meta {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.usage-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.usage-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Horizontal carousel: bleeds to both screen edges (cancels the page's 16px
-   gutter) so cards slide off-screen instead of being cut at the gutter; the
-   padding and scroll-padding keep the resting card aligned with the page. */
-.usage-row {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  margin: 0 -16px;
-  padding: 0 16px;
-  scroll-padding-inline: 16px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  touch-action: pan-x pan-y;
-}
-
-.usage-row::-webkit-scrollbar {
-  display: none;
-}
-
-.usage-row > .usage {
-  flex: 0 0 82%;
-  box-sizing: border-box;
-  scroll-snap-align: start;
-}
-
-.usage-row.single > .usage {
-  flex-basis: 100%;
-}
-
-.usage-pager {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 2px;
-}
-
-/* 24px hit area around a 6px dot. */
-.usage-dot {
-  position: relative;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.usage-dot::after {
-  content: "";
-  position: absolute;
-  top: 9px;
-  left: 9px;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--border);
-  transition: width 0.2s ease, left 0.2s ease, background 0.2s ease;
-}
-
-.usage-dot.on::after {
-  left: 4px;
-  width: 16px;
-  background: var(--accent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .usage-dot::after {
-    transition: none;
-  }
 }
 
 /* Section label shared by the Agents and Terminals pages. */

@@ -208,6 +208,7 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
                 Log.w(TAG, "could not reject a pending permission request: ${e.message}")
             }
         }
-        end()
+        // The join waits for the flush: keep that off the main thread.
+        Thread { end() }.start()
     }
 }

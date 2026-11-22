@@ -248,13 +248,14 @@ async function wire(): Promise<void> {
   unlisteners.push(await listen<StateEvent>("remote://state", (e) => {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
-    if (status === "unpaired") saveSettings(null);
+    if (status === "unpaired") { saveSettings(null); pending.clear(); }
     set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, browserTabs: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
   }));
   // Another desktop became the active one: what is shown belongs to the old one.
   unlisteners.push(await listen("remote://computer", () => {
     saveSettings(null);
     pending.clear();
+    shownChatTabs.clear();
     set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, browserTabs: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null });
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.

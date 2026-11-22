@@ -56,6 +56,25 @@ private val AGENT_ICON = mapOf(
 internal object WidgetRender {
     const val ACTION = "com.maxmoffa.flowcode.mobile.WIDGET"
 
+    const val EXTRA_TOKEN = "widgetToken"
+
+    /** Per-install secret carried by our own widget intents: MainActivity is exported, so other apps could forge them. */
+    @Synchronized
+    fun widgetToken(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.getString("intent_token", null)?.let { return it }
+        val bytes = ByteArray(24)
+        java.security.SecureRandom().nextBytes(bytes)
+        val token = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE)
+        prefs.edit().putString("intent_token", token).apply()
+        return token
+    }
+
+    fun tokenMatches(ctx: Context, given: String?): Boolean {
+        if (given == null) return false
+        return java.security.MessageDigest.isEqual(given.toByteArray(Charsets.UTF_8), widgetToken(ctx).toByteArray(Charsets.UTF_8))
+    }
+
     // ---- data ----
     fun saveSnapshot(ctx: Context, json: String) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_SNAPSHOT, json).apply()
@@ -165,6 +184,7 @@ internal object WidgetRender {
         val intent = Intent(ctx, MainActivity::class.java)
             .setAction(ACTION)
             .putExtra("widgetAction", action)
+            .putExtra(EXTRA_TOKEN, widgetToken(ctx))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (agent != null) intent.putExtra("widgetAgent", agent)
         // Distinct request code per button: extras are not part of PendingIntent identity.
