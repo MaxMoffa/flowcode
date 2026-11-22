@@ -31,7 +31,7 @@ let lastRefresh = 0;
 let refreshing = false;
 
 /** Pushes fresh numbers to the widgets: at most every 5 minutes unless `force`. */
-export async function refreshWidgets(force = false): Promise<void> {
+async function refreshWidgets(force = false): Promise<void> {
   const now = Date.now();
   if (refreshing || !hostSupports("stats") || (!force && now - lastRefresh < THROTTLE_MS)) return;
   refreshing = true;

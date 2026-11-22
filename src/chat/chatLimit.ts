@@ -2,7 +2,7 @@ import { detectLimit } from "../agents/limitText";
 import type { ChatItem } from "./chatModel";
 
 /** Longest agent text still read as a limit notice (the CLIs' own are well under it). */
-export const MAX_NOTICE_CHARS = 300;
+const MAX_NOTICE_CHARS = 300;
 
 /** The usage-limit notice in the current turn (after the last user message), if any: the item that carries it and the reset time it names (null when it doesn't say). */
 export function limitOf(items: ChatItem[], now = new Date()): { id: string; at: number | null } | null {

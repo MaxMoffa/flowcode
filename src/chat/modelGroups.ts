@@ -4,7 +4,7 @@ import { splitModelVersions } from "./modelVersions";
 /** Fewer models than this: no grouping, no search. */
 export const GROUP_MIN = 8;
 
-export interface ModelGroup {
+interface ModelGroup {
   key: string;
   label: string;
   latest: ChatModelOption[];

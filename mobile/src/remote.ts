@@ -353,7 +353,7 @@ export const useBrowserTabs = (): BrowserTabsSnapshot | null => store.useSelecto
 export const sendBrowserOp = (op: BrowserOp) => send({ t: "browserop", op });
 
 /** Keeps only well-formed pages and servers of a `browsertabs` snapshot; null for anything else. */
-export function normalizeBrowserTabs(raw: unknown): BrowserTabsSnapshot | null {
+function normalizeBrowserTabs(raw: unknown): BrowserTabsSnapshot | null {
   if (typeof raw !== "object" || raw === null) return null;
   const r = raw as Record<string, unknown>;
   if (!Array.isArray(r.pages)) return null;

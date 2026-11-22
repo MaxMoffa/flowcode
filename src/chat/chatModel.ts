@@ -876,7 +876,7 @@ const QUIET_STOPS = new Set(["end_turn", "cancelled"]);
 export type StopKind = "maxTokens" | "maxTurnRequests" | "refusal" | "skipped" | "other";
 
 /** The `stop` reason of the notice the backend's `_flowcode/warning` (an agent message it had to skip) becomes. */
-export const SKIPPED_MESSAGE_REASON = "message_skipped";
+const SKIPPED_MESSAGE_REASON = "message_skipped";
 
 export function stopKind(reason: string): StopKind {
   switch (reason) {

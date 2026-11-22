@@ -23,7 +23,7 @@ type SetTabs = Dispatch<SetStateAction<AppTab[]>>;
  * would strand the explorer on the host path until the user happened to
  * run another command - which is what "the explorer disconnects the moment
  * I enter WSL" looked like. */
-export async function applyWslTitle(setTabs: SetTabs, tabId: string, distro: string | undefined, user: string | undefined, path: string) {
+async function applyWslTitle(setTabs: SetTabs, tabId: string, distro: string | undefined, user: string | undefined, path: string) {
   const resolvedDistro = distro || (await defaultWslDistro());
   if (!resolvedDistro) return;
   let posixPath = path;

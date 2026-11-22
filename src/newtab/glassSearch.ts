@@ -6,7 +6,7 @@ export const KIND_ORDER: readonly ResultKind[] = ["agent", "recent", "favorite",
 
 /** The pills under the search field; Tab cycles them. */
 export type SearchFilter = "all" | "folders" | "agents" | "recents";
-export const SEARCH_FILTERS: readonly SearchFilter[] = ["all", "folders", "agents", "recents"];
+const SEARCH_FILTERS: readonly SearchFilter[] = ["all", "folders", "agents", "recents"];
 
 export function nextFilter(current: SearchFilter, step: 1 | -1): SearchFilter {
   const at = SEARCH_FILTERS.indexOf(current);

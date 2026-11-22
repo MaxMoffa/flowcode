@@ -7,7 +7,7 @@ import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "
 import type { ChatAttachmentRef, ChatInfo } from "./remote-types";
 
 /** A message waiting to be sent: its text and the files already uploaded for it. */
-export type QueuedPrompt = { text: string; files: ChatAttachmentRef[] };
+type QueuedPrompt = { text: string; files: ChatAttachmentRef[] };
 
 /** Raw events kept per chat for plugin views to replay; the oldest go first. */
 export const MAX_RAW_EVENTS = 4000;

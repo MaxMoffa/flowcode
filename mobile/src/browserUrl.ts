@@ -66,7 +66,7 @@ export function localLinkPage(url: string): Page | null {
 }
 
 /** Encodes one path segment of an address the user typed or a link carried: valid `%XX` escapes stay as they are (no double encoding), everything else unsafe is encoded (`100%` becomes `100%25`). */
-export function encodeTypedSegment(seg: string): string {
+function encodeTypedSegment(seg: string): string {
   return seg
     .split(/(%[0-9a-fA-F]{2})/)
     .map((part, i) => {
