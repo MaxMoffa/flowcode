@@ -143,6 +143,54 @@ const COVERS = {
     for (const [x, y] of [[20, 40], [70, 34], [140, 45]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.39.0 "The browser learns new tricks": a browser window on a big pad, framed by
+   * the amber ring of agent control, a pixel cursor clicking its button, a download
+   * arrow dropping into the pond; the frog on a side pad holds a compass. */
+  "v0.39.0"() {
+    const c = nightPond(39);
+    wordmark(c, "0.39");
+    reeds(c, 4, 85, 15, 1); reeds(c, 150, 86, 13, -1);
+    lilyPad(c, 88, 82, 30, 6);
+    lilyPad(c, 30, 76, 14, 4);
+    lilyPad(c, 138, 70, 8, 3);
+    // the browser window (x 62..115, y 36..77), amber agent ring around it
+    const L = 62, T = 36, R = 115, B = 77;
+    c.rect(L - 2, T - 2, R - L + 5, B - T + 5, C.amber);
+    c.rect(L - 1, T - 1, R - L + 3, B - T + 3, C.shadow);
+    c.rect(L, T, R - L + 1, B - T + 1, C.screenEdge);
+    c.rect(L, T, R - L + 1, 6, C.screenEdgeDark);
+    for (const [k, col] of [[0, "#e07a6a"], [1, C.amber], [2, C.moss]]) c.rect(L + 2 + k * 3, T + 2, 2, 2, col);
+    c.rect(L + 13, T + 1, R - L - 15, 4, C.screen); // address bar
+    c.hline(L + 15, L + 30, T + 3, C.inkDim);
+    // page: heading, text lines, an input and a button
+    c.rect(L + 1, T + 7, R - L - 1, B - T - 9, "#e9e2d4");
+    c.rect(L + 5, T + 10, 24, 3, "#9a8f7e");
+    for (const [y, w] of [[T + 16, 40], [T + 19, 33], [T + 22, 37]]) c.hline(L + 5, L + 5 + w, y, "#c9bfae");
+    c.rect(L + 5, T + 26, 30, 5, "#ffffff"); c.hline(L + 5, L + 34, T + 31, "#b5ab9a");
+    c.rect(L + 5, T + 33, 14, 5, "#3b6ea8"); // the button the agent clicks
+    // agent highlight on the button + click ripple
+    c.hline(L + 4, L + 19, T + 32, C.amber); c.hline(L + 4, L + 19, T + 38, C.amber);
+    for (let y = T + 32; y <= T + 38; y++) { c.set(L + 4, y, C.amber); c.set(L + 19, y, C.amber); }
+    for (const [dx, dy] of [[-3, 0], [3, 0], [0, -3], [0, 3], [-2, -2], [2, 2], [2, -2], [-2, 2]]) c.set(L + 14 + dx, T + 36 + dy, C.ink);
+    // pixel cursor (arrow) on the button
+    const cx = L + 14, cy = T + 36;
+    const arrow = ["X", "XX", "XoX", "XooX", "XoooX", "XooooX", "XoooXX", "XXoX", "X XoX", "   XX"];
+    arrow.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === "X") c.set(cx + i, cy + j, C.shadow); else if (ch === "o") c.set(cx + i, cy + j, C.amber); }));
+    // downloads: an arrow dropping from the window into the pond, with a ripple
+    const dx = R + 9;
+    c.dots(curve(R - 2, T + 12, R + 12, T + 14, dx, T + 26), 2, C.moss);
+    for (let y = T + 27; y < T + 36; y++) c.rect(dx - 1, y, 3, 1, C.moss);
+    for (let k = 0; k < 4; k++) c.hline(dx - 4 + k, dx + 4 - k, T + 36 + k, C.moss);
+    c.hline(dx - 6, dx + 6, T + 44, C.rippleHi); c.hline(dx - 9, dx + 9, T + 46, C.ripple);
+    // the frog on the side pad, a compass at its feet
+    frog(c, 18, 52, { cols: 22, rows: 18 });
+    c.ellipse(46, 71, 5, 3, C.screenEdgeDark);
+    c.ellipse(46, 70, 5, 3, (x, y, ddx, ddy) => (ddx * ddx + ddy * ddy > 0.55 ? C.amber : C.ink));
+    c.set(46, 68, "#e07a6a"); c.set(46, 69, "#e07a6a"); c.set(46, 71, C.inkDim); c.set(46, 72, C.inkDim); c.set(46, 70, C.shadow);
+    for (const [x, y] of [[22, 38], [130, 44], [143, 56], [52, 30]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
