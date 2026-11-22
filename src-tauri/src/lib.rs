@@ -93,6 +93,15 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
+                // The `unstable` tauri feature (needed for the native browser
+                // child webviews) builds every window's own webview as a
+                // "child" one, and Tauri then skips attaching the invisible
+                // resize borders undecorated windows need on Windows: the
+                // window could not be resized from its edges. Re-setting
+                // `resizable` attaches them.
+                for w in app.webview_windows().values() {
+                    let _ = w.set_resizable(true);
+                }
                 // On its own thread: `setup()` runs on the main/event-loop
                 // thread, and this app's window is already shown by the
                 // time `setup()` runs (see tauri.conf.json - not created

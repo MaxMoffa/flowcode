@@ -80,6 +80,9 @@ pub async fn window_open(
             inits.forget(&label);
             e.to_string()
         })?;
+    // Resize borders for the undecorated window (see the note in lib.rs setup).
+    #[cfg(target_os = "windows")]
+    let _ = new.set_resizable(true);
     match placement {
         Placement::AtCursor => {
             if let Ok(size) = window.outer_size() {
