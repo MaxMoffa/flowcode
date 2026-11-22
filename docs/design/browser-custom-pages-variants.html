@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>In-app browser: custom error and empty pages</title>
+<style>
+  :root {
+    --bg: #15120f;
+    --bg-elevated: #1d1915;
+    --surface: #25201b;
+    --hover: #2e2822;
+    --border: rgba(231, 216, 197, 0.1);
+    --border-strong: rgba(231, 216, 197, 0.2);
+    --fg: #e7d8c5;
+    --muted: #a08a6f;
+    --accent: #9db984;
+    --wait: #d1a752;
+    --busy: #6f9bcf;
+    --danger: #d9786a;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 26px 24px 60px; background: #0e0b09; color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 18px; max-width: 980px; }
+  .lead b, .feas b { color: var(--fg); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .row > span { color: var(--muted); width: 70px; }
+  .row button { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer; }
+  .row button.on { border-color: var(--accent); color: var(--accent); }
+  .vdesc { color: var(--muted); margin: 6px 0 18px; max-width: 980px; min-height: 20px; }
+
+  /* Browser panel mockup */
+  .panel { width: 980px; max-width: 100%; height: 560px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--bg-elevated); display: flex; flex-direction: column; }
+  .chrome { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .chrome .nav { color: var(--muted); font-size: 15px; width: 22px; text-align: center; }
+  .chrome .tab { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 8px; background: var(--hover); font-size: 12.5px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chrome .tab i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .url { flex: 1; height: 28px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; padding: 0 10px; font: 12.5px var(--mono); color: var(--muted); gap: 6px; }
+  .url .lock { font-size: 11px; }
+  .view { position: relative; flex: 1; overflow: hidden; }
+
+  /* Common bits */
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--hover); color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; }
+  .btn.primary { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); }
+  .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  code, .mono { font-family: var(--mono); font-size: 12px; }
+  .spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .live { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--wait); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* Variant A: same language as .browser-panel-state */
+  .A { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 30px; text-align: center; color: var(--muted); }
+  .A .ico { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--hover); border: 1px solid var(--border); color: var(--fg); font-size: 20px; }
+  .A .ico.t-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+  .A .ico.t-wait { color: var(--wait); border-color: color-mix(in srgb, var(--wait) 35%, transparent); }
+  .A h4 { margin: 4px 0 0; color: var(--fg); font-size: 14px; font-weight: 600; }
+  .A p { margin: 0; max-width: 420px; font-size: 13px; }
+  .A .btns { margin-top: 8px; }
+  .A .detail { margin-top: 6px; font-size: 11.5px; color: var(--muted); opacity: .8; }
+  .A .recent, .D .recent { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 150px); gap: 8px; }
+  .A .recent div, .D .recent div { text-align: left; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--fg); }
+  .A .recent small, .D .recent small { display: block; color: var(--muted); font: 11px var(--mono); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Variant B: dev card, terminal-ish, left aligned */
+  .B { position: absolute; inset: 0; display: grid; place-items: center; padding: 30px; }
+  .B .card { width: 560px; max-width: 100%; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg); overflow: hidden; }
+  .B .bar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--border); font: 12px var(--mono); color: var(--muted); }
+  .B .bar b { color: var(--danger); font-weight: 600; }
+  .B .bar b.t-wait { color: var(--wait); }
+  .B .bar b.t-ok { color: var(--accent); }
+  .B .body { padding: 16px 16px 14px; }
+  .B h4 { margin: 0 0 6px; font-size: 15px; }
+  .B p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .B pre { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: var(--surface); font: 12px/1.6 var(--mono); color: var(--muted); white-space: pre-wrap; }
+  .B pre .k { color: var(--fg); }
+  .B pre .e { color: var(--danger); }
+  .B pre .ok { color: var(--accent); }
+  .B .btns { justify-content: flex-start; }
+
+  /* Variant C: the pond frog */
+  .C { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 30px; text-align: center; overflow: hidden; }
+  .C::after { content: ""; position: absolute; left: -10%; right: -10%; bottom: -70px; height: 170px; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(111,155,207,.16), rgba(111,155,207,.03) 60%, transparent 70%); }
+  .C svg.frog { width: 96px; height: 80px; image-rendering: pixelated; animation: hop 2.4s ease-in-out infinite; position: relative; z-index: 1; }
+  .C.still svg.frog { animation: none; }
+  @keyframes hop { 0%, 70%, 100% { transform: translateY(0); } 80% { transform: translateY(-10px); } }
+  .C h4 { margin: 6px 0 0; font-size: 16px; position: relative; z-index: 1; }
+  .C p { margin: 0; color: var(--muted); max-width: 420px; font-size: 13px; position: relative; z-index: 1; }
+  .C .btns { margin-top: 10px; position: relative; z-index: 1; }
+  .C .bubble { position: relative; z-index: 1; font: 11.5px var(--mono); color: var(--muted); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
+
+  /* Variant D: A's restraint + a doodle per page + technical details on demand */
+  .D { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 26px; text-align: center; color: var(--muted); overflow: auto; }
+  .D .art { display: block; margin-bottom: 6px; }
+  .D h4 { margin: 2px 0 0; color: var(--fg); font-size: 15px; font-weight: 600; }
+  .D p { margin: 0; max-width: 430px; font-size: 13px; }
+  .D .btns { margin-top: 8px; }
+  .D .more { margin-top: 2px; background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 6px; }
+  .D .more:hover { color: var(--fg); background: var(--hover); }
+  .D .more .chev { display: inline-block; transition: transform .2s; }
+  .D .more.open .chev { transform: rotate(180deg); }
+  .D .tech { width: 520px; max-width: 100%; text-align: left; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); overflow: hidden; display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease, opacity .2s; opacity: 0; }
+  .D .tech.open { grid-template-rows: 1fr; opacity: 1; }
+  .D .tech > div { overflow: hidden; }
+  .tech-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font: 11.5px var(--mono); color: var(--muted); }
+  .tech-bar b { color: var(--danger); } .tech-bar b.t-wait { color: var(--wait); } .tech-bar b.t-ok { color: var(--accent); }
+  .tech-bar button { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; font: 11px system-ui; padding: 2px 8px; cursor: pointer; }
+  .tech pre, .dlg pre { margin: 0; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--muted); white-space: pre-wrap; }
+  .tech pre .k, .dlg pre .k { color: var(--fg); } .tech pre .e, .dlg pre .e { color: var(--danger); } .tech pre .ok, .dlg pre .ok { color: var(--accent); }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 5; animation: fade .15s; }
+  @keyframes fade { from { opacity: 0; } }
+  .dlg { width: 480px; max-width: calc(100% - 40px); border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg-elevated); box-shadow: 0 20px 50px rgba(0,0,0,.5); text-align: left; overflow: hidden; }
+  .dlg header { display: flex; align-items: center; padding: 12px 14px 4px; font-weight: 600; font-size: 13.5px; }
+  .dlg header button { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
+  .dlg .tech-bar button { display: none; }
+  .tech-bar span { opacity: .7; }
+  .tech-bar span::before { content: "· "; }
+  .dlg .tech-bar { border-top: 1px solid var(--border); margin-top: 8px; }
+  .dlg footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px 12px; border-top: 1px solid var(--border); }
+
+  /* Doodle motion */
+  .zz { animation: zz 2.6s ease-in-out infinite; }
+  .zz.d2 { animation-delay: .8s; } .zz.d3 { animation-delay: 1.6s; }
+  @keyframes zz { 0% { opacity: 0; transform: translate(0, 6px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -16px); } }
+  .bob { animation: bob 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes bob { 50% { transform: translateY(3px) rotate(-3deg); } }
+  .sink { animation: sink 4s ease-in-out infinite; transform-box: fill-box; transform-origin: center bottom; }
+  @keyframes sink { 0%, 100% { transform: translateY(0) rotate(14deg); } 50% { transform: translateY(4px) rotate(18deg); } }
+  .bub { animation: bub 2.2s ease-in infinite; } .bub.d2 { animation-delay: .7s; } .bub.d3 { animation-delay: 1.4s; }
+  @keyframes bub { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: .9; } 100% { opacity: 0; transform: translateY(-26px); } }
+  .fall { animation: fall 3.2s ease-in infinite; transform-box: fill-box; transform-origin: center; } .fall.d2 { animation-delay: 1.1s; }
+  @keyframes fall { 0% { opacity: 1; transform: translateY(0) rotate(0); } 80% { opacity: 0; transform: translateY(34px) rotate(40deg); } 100% { opacity: 0; } }
+  .crawl { animation: crawl 9s linear infinite; }
+  @keyframes crawl { from { transform: translateX(0); } to { transform: translateX(120px); } }
+  .tick { animation: tick 4s steps(12) infinite; transform-box: view-box; }
+  .blink { animation: blink 4s infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+  .wave { animation: wave 5s ease-in-out infinite; }
+  @keyframes wave { 50% { transform: translateX(-8px); } }
+  .feas { margin-top: 28px; max-width: 980px; color: var(--muted); font-size: 13px; }
+  .feas h2 { color: var(--fg); font-size: 15px; margin: 18px 0 6px; }
+  .feas table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+  .feas td, .feas th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .feas th { color: var(--fg); font-weight: 600; }
+  .y { color: var(--accent); } .m { color: var(--wait); } .n { color: var(--danger); }
+</style>
+</head>
+<body>
+<h1>Browser interno: pagine nostre al posto di quelle della webview</h1>
+<p class="lead">Oggi, se un sito non si apre, vedi la pagina d'errore di WebView2/WebKit (in inglese, grafica Edge/Safari) oppure un bianco. L'idea: quando il caricamento fallisce, Flowcode <b>nasconde la webview nativa</b> (come già fa per il fermo immagine) e mostra al suo posto una pagina React nostra, nel tema dell'app. Scegli pagina e stile qui sotto.</p>
+
+<div class="row" id="pages"><span>Pagina</span></div>
+<div class="row" id="vars"><span>Stile</span></div>
+<div class="row" id="dmode"><span>Dettagli</span></div>
+<p class="vdesc" id="vdesc"></p>
+
+<div class="panel">
+  <div class="chrome">
+    <span class="nav">‹</span><span class="nav">›</span><span class="nav" id="reload">↻</span>
+    <div class="tab"><i id="tabdot"></i><span id="tabtitle"></span></div>
+    <div class="url"><span class="lock" id="lock"></span><span id="urltext"></span></div>
+    <span class="nav">⋯</span>
+  </div>
+  <div class="view" id="view"></div>
+</div>
+
+<div class="feas">
+  <h2>È fattibile? Sì, con differenze per sistema</h2>
+  <table>
+    <tr><th>Cosa</th><th>Windows (WebView2)</th><th>macOS (WKWebView)</th><th>Linux (WebKitGTK)</th></tr>
+    <tr><td>Sapere che il caricamento è fallito e perché</td><td class="y">Sì: <code>NavigationCompleted</code> con <code>IsSuccess</code> + <code>WebErrorStatus</code> (rifiutata, DNS, timeout, certificato, offline…), via <code>with_webview</code> come già facciamo per lo snapshot</td><td class="m">Parziale: il delegate di navigazione lo tiene wry, non possiamo agganciarci senza toccarlo. Ripiego: dopo un caricamento lento, sonda l'indirizzo da Rust (<code>ureq</code>, come per le favicon) e capisce rifiutata/DNS/timeout/certificato</td><td class="y">Sì: segnale <code>load-failed</code> (+ <code>load-failed-with-tls-errors</code>) del WebView GTK</td></tr>
+    <tr><td>Pagina andata in crash</td><td class="y"><code>ProcessFailed</code></td><td class="m">Rilevabile solo dal ripiego (la pagina smette di rispondere)</td><td class="y"><code>web-process-terminated</code></td></tr>
+    <tr><td>Nuova scheda vuota</td><td class="y" colspan="3">Sì ovunque: è solo React, la webview non serve finché non c'è un indirizzo (oggi c'è già un vuoto semplice per il pannello senza pagine)</td></tr>
+    <tr><td>Indirizzo bloccato (origine locale vietata)</td><td class="y" colspan="3">Sì ovunque: lo decide già <code>on_navigation</code>/<code>validate_url</code> in Rust, oggi in silenzio; basta emettere un evento</td></tr>
+    <tr><td>Errori HTTP (404, 500…)</td><td class="m" colspan="3">Possibile su Windows (<code>HttpStatusCode</code>), ma i server hanno di solito la loro pagina: la proposta è di <b>non</b> sostituirle, al massimo solo quando il corpo è vuoto</td></tr>
+  </table>
+  <h2>Come funzionerebbe</h2>
+  <p>Rust emette <code>browser-view-error { pageId, kind, code, url }</code> → lo store segna la pagina in errore → il pannello nasconde la webview nativa e mostra la pagina scelta. "Riprova" naviga di nuovo e la rimostra al primo caricamento riuscito. Per il server locale spento, una sonda leggera ogni 2 s ricarica da sola quando la porta risponde. Il certificato non valido non offre "procedi comunque": solo browser di sistema. Lavoro stimato: Windows + Linux + nuova scheda/bloccato subito; macOS con il ripiego in una seconda fase.</p>
+</div>
+
+<script>
+const frog = (eyes = "open") => `
+<svg class="frog" viewBox="0 0 24 20" shape-rendering="crispEdges" aria-hidden="true">
+  <g fill="#7fa05f">
+    <rect x="4" y="3" width="5" height="4"/><rect x="15" y="3" width="5" height="4"/>
+    <rect x="3" y="6" width="18" height="9"/><rect x="2" y="9" width="20" height="5"/>
+    <rect x="1" y="15" width="6" height="3"/><rect x="17" y="15" width="6" height="3"/>
+  </g>
+  <g fill="#9db984"><rect x="6" y="11" width="12" height="4"/></g>
+  ${eyes === "x"
+    ? `<g fill="#1d1915"><rect x="5" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="7" y="6" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="18" y="4" width="1" height="1"/><rect x="17" y="5" width="1" height="1"/><rect x="16" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/></g>`
+    : eyes === "sleep"
+    ? `<g fill="#1d1915"><rect x="5" y="5" width="3" height="1"/><rect x="16" y="5" width="3" height="1"/></g>`
+    : `<g fill="#f1e6d6"><rect x="5" y="4" width="3" height="2"/><rect x="16" y="4" width="3" height="2"/></g><g fill="#1d1915"><rect x="6" y="4" width="1" height="2"/><rect x="17" y="4" width="1" height="2"/></g>`}
+  <g fill="#1d1915"><rect x="9" y="12" width="6" height="1"/></g>
+</svg>`;
+
+const PAGES = [
+  { id: "newtab", name: "Nuova scheda", url: "", title: "Nuova scheda", tone: "ok",
+    A: { ico: "◎", t: "", h: "Dove andiamo?", p: "Scrivi un indirizzo o un server locale qui sopra. Gli agenti possono aprire pagine qui da soli.",
+      btns: [], extra: `<div class="recent"><div>Vite dev<small>localhost:5173</small></div><div>Storybook<small>localhost:6006</small></div><div>Docs Tauri<small>v2.tauri.app</small></div></div>` },
+    B: { code: "about:blank", h: "Scheda vuota", p: "Porte locali in ascolto adesso:", pre: `<span class="ok">●</span> <span class="k">:5173</span>  vite        flowcode/mobile\n<span class="ok">●</span> <span class="k">:1420</span>  tauri dev   flowcode\n<span class="ok">●</span> <span class="k">:6006</span>  storybook   flowcode`, btns: [["Apri :5173", 1]] },
+    C: { eyes: "open", h: "Stagno tranquillo", p: "Scrivi un indirizzo qui sopra, o lascia che un agente apra qualcosa.", bubble: "nessuna pagina", btns: [] } },
+
+  { id: "local", name: "Server locale spento", url: "http://localhost:5173/", title: "localhost:5173", tone: "wait",
+    A: { ico: "⏻", t: "t-wait", h: "Il server su :5173 non risponde", p: "Nessun programma è in ascolto su questa porta. Avvia il dev server e la pagina si ricarica da sola.",
+      btns: [["Riprova", 1], ["Apri un terminale qui", 0]], extra: `<div class="live"><i></i>In attesa che la porta torni su…</div>`, detail: "ERR_CONNECTION_REFUSED" },
+    B: { code: "ERR_CONNECTION_REFUSED", tone: "wait", h: "Niente in ascolto su localhost:5173", p: "Probabilmente il dev server è fermo o su un'altra porta.",
+      pre: `<span class="k">$</span> sonda localhost:5173  <span class="e">rifiutata</span>\n<span class="k">$</span> porte vive: <span class="ok">:1420</span> <span class="ok">:6006</span>\n<span class="spin"></span> riprovo ogni 2 s…`, btns: [["Riprova", 1], ["Vai a :1420", 0], ["Apri terminale", 0]] },
+    C: { eyes: "sleep", h: "Il server dorme", p: "Niente risponde su :5173. Appena lo avvii, la rana sveglia la pagina da sola.", bubble: "zzz… in attesa di :5173", btns: [["Riprova", 1], ["Apri terminale", 0]] } },
+
+  { id: "offline", name: "Senza rete / DNS", url: "https://docs.example.dev/", title: "docs.example.dev", tone: "danger",
+    A: { ico: "⌁", t: "t-danger", h: "Non riesco a raggiungere docs.example.dev", p: "Controlla la connessione o l'indirizzo. Se sei offline, riprovo appena torna la rete.",
+      btns: [["Riprova", 1], ["Apri nel browser di sistema", 0]], detail: "ERR_NAME_NOT_RESOLVED" },
+    B: { code: "ERR_NAME_NOT_RESOLVED", h: "Indirizzo sconosciuto", p: "Il nome non si risolve in nessun server.",
+      pre: `<span class="k">host</span>   docs.example.dev\n<span class="k">dns</span>    <span class="e">nessuna risposta</span>\n<span class="k">rete</span>   <span class="ok">online</span>`, btns: [["Riprova", 1], ["Copia indirizzo", 0]] },
+    C: { eyes: "open", still: true, h: "Questo stagno non esiste", p: "Non trovo docs.example.dev. Forse c'è un errore nell'indirizzo, o manca la rete.", bubble: "dns: nessuna risposta", btns: [["Riprova", 1], ["Browser di sistema", 0]] } },
+
+  { id: "timeout", name: "Troppo lento", url: "https://api.slow-site.io/dashboard", title: "slow-site.io", tone: "wait",
+    A: { ico: "◷", t: "t-wait", h: "slow-site.io ci mette troppo", p: "Il server non ha risposto in 30 secondi.",
+      btns: [["Riprova", 1], ["Apri nel browser di sistema", 0]], detail: "ERR_TIMED_OUT" },
+    B: { code: "ERR_TIMED_OUT", tone: "wait", h: "Nessuna risposta in 30 s", p: "La connessione si è aperta ma il server non ha mandato niente.",
+      pre: `<span class="k">connessione</span>  <span class="ok">ok</span>  42 ms\n<span class="k">risposta</span>     <span class="e">scaduta</span>  30 000 ms`, btns: [["Riprova", 1], ["Browser di sistema", 0]] },
+    C: { eyes: "sleep", h: "Ci sta mettendo un'eternità", p: "slow-site.io non risponde da 30 secondi.", bubble: "attesa scaduta", btns: [["Riprova", 1]] } },
+
+  { id: "cert", name: "Certificato non valido", url: "https://intranet.local-co.it/", title: "intranet.local-co.it", tone: "danger", lock: "⚠",
+    A: { ico: "⚠", t: "t-danger", h: "Connessione non sicura", p: "Il certificato di intranet.local-co.it non è valido (scaduto o non firmato da un'autorità nota). Qui non lo apriamo.",
+      btns: [["Apri nel browser di sistema", 0], ["Indietro", 0]], detail: "CERTIFICATE_IS_INVALID" },
+    B: { code: "CERT_INVALID", h: "Certificato rifiutato", p: "Per sicurezza non c'è \"procedi comunque\". Se ti fidi, aprilo nel browser di sistema.",
+      pre: `<span class="k">soggetto</span>   intranet.local-co.it\n<span class="k">emesso da</span>  local-co CA (<span class="e">sconosciuta</span>)\n<span class="k">scade</span>      <span class="e">2026-09-30, scaduto</span>`, btns: [["Browser di sistema", 0], ["Indietro", 0]] },
+    C: { eyes: "x", still: true, h: "Acqua torbida", p: "Il certificato di questo sito non è valido, meglio non tuffarsi qui.", bubble: "certificato non valido", btns: [["Browser di sistema", 0], ["Indietro", 0]] } },
+
+  { id: "blocked", name: "Indirizzo bloccato", url: "http://127.0.0.1:1420/", title: "Bloccato", tone: "danger",
+    A: { ico: "⊘", t: "t-danger", h: "Questo indirizzo è riservato a Flowcode", p: "Le pagine non possono aprire l'interfaccia dell'app o le sue porte interne, per sicurezza.",
+      btns: [["Indietro", 1]], detail: "127.0.0.1:1420 · origine interna" },
+    B: { code: "BLOCKED", h: "Navigazione bloccata", p: "Una pagina ha provato ad aprire un'origine interna dell'app.",
+      pre: `<span class="k">da</span>     https://evil.example/\n<span class="k">verso</span>  <span class="e">http://127.0.0.1:1420/</span>  (interfaccia Flowcode)\n<span class="k">regola</span> validate_url → origine locale vietata`, btns: [["Indietro", 1]] },
+    C: { eyes: "open", still: true, h: "Di qui non si passa", p: "Quell'indirizzo è la casa di Flowcode: le pagine web non possono entrarci.", bubble: "origine interna", btns: [["Indietro", 1]] } },
+
+  { id: "crash", name: "Pagina in crash", url: "https://heavy-app.dev/editor", title: "heavy-app.dev", tone: "danger",
+    A: { ico: "✕", t: "t-danger", h: "La pagina si è bloccata", p: "Il processo della pagina si è chiuso (memoria esaurita o errore interno). Le altre schede non sono toccate.",
+      btns: [["Ricarica", 1], ["Strumenti sviluppatore", 0]], detail: "RENDER_PROCESS_EXITED" },
+    B: { code: "RENDERER_CRASHED", h: "Processo della pagina terminato", p: "Spesso è memoria: la pagina usava troppa RAM.",
+      pre: `<span class="k">motivo</span>   <span class="e">memoria esaurita</span>\n<span class="k">ultima</span>   https://heavy-app.dev/editor\n<span class="k">uptime</span>   14 min`, btns: [["Ricarica", 1], ["Strumenti sviluppatore", 0]] },
+    C: { eyes: "x", h: "Splash! La pagina è affondata", p: "Si è chiusa da sola, forse troppa memoria. Le altre schede stanno bene.", bubble: "processo terminato", btns: [["Ricarica", 1]] } },
+];
+
+// ---- Variant D doodles: one per page, each with its own shape ----
+const INK = "#e7d8c5", MUT = "#a08a6f", WATER = "#6f9bcf", G1 = "#7fa05f", G2 = "#9db984", DARK = "#1d1915", WAIT = "#d1a752", DANGER = "#d9786a", SURF = "#25201b";
+function frogV(x, y, s = 1, eyes = "open") {
+  const e = eyes === "sleep"
+    ? `<path d="M-11 -10 q3 2.5 6 0 M5 -10 q3 2.5 6 0" stroke="${DARK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`
+    : eyes === "x"
+    ? `<path d="M-10 -12 l4 4 m0 -4 l-4 4 M6 -12 l4 4 m0 -4 l-4 4" stroke="${DARK}" stroke-width="1.5" stroke-linecap="round"/>`
+    : `<circle cx="-8" cy="-10" r="3.2" fill="#f1e6d6"/><circle cx="8" cy="-10" r="3.2" fill="#f1e6d6"/><g class="blink"><circle cx="-7.5" cy="-10" r="1.6" fill="${DARK}"/><circle cx="8.5" cy="-10" r="1.6" fill="${DARK}"/></g>`;
+  return `<g transform="translate(${x} ${y}) scale(${s})"><ellipse cx="0" cy="0" rx="16" ry="11" fill="${G1}"/><ellipse cx="0" cy="3" rx="10" ry="6" fill="${G2}"/><circle cx="-8" cy="-10" r="5.5" fill="${G1}"/><circle cx="8" cy="-10" r="5.5" fill="${G1}"/>${e}<path d="M-5 1 Q0 4 5 1" stroke="${DARK}" stroke-width="1.4" fill="none" stroke-linecap="round"/></g>`;
+}
+const ART = {
+  // wide: a quiet pond, a frog on a lily pad and a blank signpost
+  newtab: `<svg width="320" height="130" viewBox="0 0 320 130" aria-hidden="true">
+    <circle cx="262" cy="30" r="14" fill="${WAIT}" opacity=".18"/>
+    <ellipse cx="160" cy="106" rx="150" ry="18" fill="${WATER}" opacity=".14"/>
+    <g class="wave"><path d="M40 104 q10 -4 20 0 t20 0 M190 112 q10 -4 20 0 t20 0" stroke="${WATER}" stroke-width="1.5" fill="none" opacity=".45"/></g>
+    <path d="M70 102 a22 7 0 1 0 44 0 a22 7 0 1 0 -44 0 Z" fill="${G1}" opacity=".45"/>
+    <path d="M200 104 a28 8 0 1 0 56 0 l-28 0 Z" fill="${G1}" opacity=".6"/>
+    ${frogV(228, 92, 1)}
+    <rect x="132" y="40" width="4" height="62" rx="2" fill="${MUT}"/>
+    <path d="M136 46 h40 l8 8 l-8 8 h-40 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <path d="M132 68 h-36 l-8 8 l8 8 h36 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <text x="156" y="58" font-family="monospace" font-size="10" fill="${MUT}" text-anchor="middle">?</text>
+    <text x="112" y="80" font-family="monospace" font-size="10" fill="${MUT}" text-anchor="middle">?</text>
+  </svg>`,
+  // tall: a sleeping server, unplugged
+  local: `<svg width="230" height="160" viewBox="0 0 230 160" aria-hidden="true">
+    <ellipse cx="110" cy="146" rx="90" ry="7" fill="#000" opacity=".25"/>
+    <rect x="62" y="34" width="86" height="106" rx="10" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <path d="M76 98 h58 M76 110 h58 M76 122 h40" stroke="${MUT}" stroke-width="1.5" stroke-linecap="round" opacity=".6"/>
+    <circle cx="130" cy="122" r="3" fill="${MUT}" opacity=".5"/>
+    <path d="M84 64 q6 5 12 0 M114 64 q6 5 12 0" stroke="${INK}" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M98 80 q7 3 14 0" stroke="${INK}" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".7"/>
+    <text class="zz" x="150" y="40" font-family="monospace" font-size="13" fill="${WAIT}">z</text>
+    <text class="zz d2" x="160" y="30" font-family="monospace" font-size="16" fill="${WAIT}">z</text>
+    <text class="zz d3" x="172" y="18" font-family="monospace" font-size="19" fill="${WAIT}">Z</text>
+    <path d="M105 140 C 105 150, 150 152, 170 146" stroke="${MUT}" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <rect x="168" y="139" width="14" height="12" rx="3" fill="${MUT}"/>
+    <path d="M182 142 h6 M182 148 h6" stroke="${MUT}" stroke-width="2" stroke-linecap="round"/>
+    <rect x="204" y="126" width="16" height="22" rx="4" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <path d="M209 134 v4 M215 134 v4" stroke="${MUT}" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>`,
+  // wide and low: a broken bridge between two banks, no signal
+  offline: `<svg width="340" height="125" viewBox="0 0 340 125" aria-hidden="true">
+    <rect x="0" y="100" width="340" height="25" fill="${WATER}" opacity=".12"/>
+    <g class="wave"><path d="M120 108 q8 -4 16 0 t16 0 t16 0 t16 0 t16 0" stroke="${WATER}" stroke-width="1.5" fill="none" opacity=".5"/></g>
+    <path d="M0 62 h96 l10 8 v55 h-106 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <path d="M340 62 h-96 l-10 8 v55 h106 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <path d="M100 60 L150 66 M240 60 L190 66" stroke="${MUT}" stroke-width="1.5"/>
+    ${[0,1,2,3].map(i => `<rect x="${104 + i * 11}" y="${60 + i * 1.5}" width="9" height="5" rx="1" fill="${MUT}"/>`).join("")}
+    ${[0,1,2,3].map(i => `<rect x="${227 - i * 11}" y="${60 + i * 1.5}" width="9" height="5" rx="1" fill="${MUT}"/>`).join("")}
+    <rect class="fall" x="160" y="68" width="9" height="5" rx="1" fill="${MUT}"/>
+    <rect class="fall d2" x="174" y="68" width="9" height="5" rx="1" fill="${MUT}"/>
+    ${frogV(56, 52, .8)}
+    <g transform="translate(170 26)">
+      <path d="M-26 8 a12 12 0 0 1 8 -18 a16 16 0 0 1 30 2 a10 10 0 0 1 14 16 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+      <path d="M-8 4 a12 12 0 0 1 16 0 M-4 8 a6 6 0 0 1 8 0" stroke="${MUT}" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      <path d="M-12 -6 L12 12" stroke="${DANGER}" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </svg>`,
+  // long strip: a snail carrying the response, and a clock
+  timeout: `<svg width="320" height="110" viewBox="0 0 320 110" aria-hidden="true">
+    <path d="M10 92 H310" stroke="${MUT}" stroke-width="1.5" stroke-dasharray="2 6" stroke-linecap="round"/>
+    <rect x="292" y="70" width="18" height="22" rx="3" fill="${SURF}" stroke="${MUT}" stroke-width="1.5"/>
+    <g transform="translate(262 34)">
+      <circle r="20" fill="${SURF}" stroke="${WAIT}" stroke-width="1.8"/>
+      <path d="M0 -14 V0" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M0 0 L0 -11" stroke="${WAIT}" stroke-width="1.6" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="3s" repeatCount="indefinite"/></path>
+      <circle r="2" fill="${INK}"/>
+    </g>
+    <g class="crawl"><g transform="translate(40 0)">
+      <path d="M0 92 q4 -12 20 -10 h26 q6 0 8 -6 l3 -8" stroke="${G2}" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M-4 92 H56 q6 0 4 -6" fill="${G1}"/>
+      <circle cx="56" cy="66" r="2" fill="${G2}"/><circle cx="62" cy="68" r="2" fill="${G2}"/>
+      <circle cx="24" cy="74" r="16" fill="${WAIT}" opacity=".85"/>
+      <path d="M24 74 m0 -10 a10 10 0 1 1 -9 6 a6 6 0 1 1 6 -2" stroke="${DARK}" stroke-width="1.6" fill="none" opacity=".55"/>
+      <rect x="14" y="48" width="18" height="12" rx="2" fill="${SURF}" stroke="${MUT}" stroke-width="1.3"/>
+      <path d="M14 54 h18" stroke="${MUT}" stroke-width="1"/>
+    </g></g>
+  </svg>`,
+  // round: a cracked shield in a badge
+  cert: `<svg width="170" height="170" viewBox="0 0 170 170" aria-hidden="true">
+    <circle cx="85" cy="85" r="76" fill="${DANGER}" opacity=".08"/>
+    <circle cx="85" cy="85" r="62" fill="none" stroke="${DANGER}" stroke-width="1.2" stroke-dasharray="3 6" opacity=".5"/>
+    <path d="M85 34 L124 48 V86 C124 112 106 128 85 136 C64 128 46 112 46 86 V48 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.8"/>
+    <path d="M88 40 L80 66 L94 78 L78 100 L90 112 L84 132" stroke="${DANGER}" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+    <rect x="62" y="80" width="22" height="18" rx="3" fill="${MUT}" opacity=".9"/>
+    <path d="M66 80 v-7 a7 7 0 0 1 14 0" stroke="${MUT}" stroke-width="2.4" fill="none" transform="rotate(-24 80 73)"/>
+  </svg>`,
+  // medium: Flowcode's house behind a gate, frog on guard
+  blocked: `<svg width="270" height="140" viewBox="0 0 270 140" aria-hidden="true">
+    <ellipse cx="135" cy="128" rx="120" ry="8" fill="#000" opacity=".25"/>
+    <path d="M150 64 L190 34 L230 64 V124 H150 Z" fill="${SURF}" stroke="${MUT}" stroke-width="1.6" stroke-linejoin="round"/>
+    <rect x="174" y="80" width="18" height="16" rx="2" fill="${WAIT}" opacity=".55"/>
+    <rect x="200" y="98" width="16" height="26" rx="2" fill="${MUT}" opacity=".5"/>
+    ${[0,1,2,3,4,5,6,7].map(i => `<path d="M${40 + i * 14} 124 V${92 - (i % 2) * 4} l4 -6 l4 6 V124" fill="${SURF}" stroke="${MUT}" stroke-width="1.3" stroke-linejoin="round"/>`).join("")}
+    <path d="M36 104 H156 M36 116 H156" stroke="${MUT}" stroke-width="1.5"/>
+    ${frogV(72, 118, .85)}
+    <rect x="96" y="70" width="3" height="48" rx="1.5" fill="${MUT}"/>
+    <circle cx="97.5" cy="66" r="13" fill="${DANGER}"/>
+    <rect x="89" y="64" width="17" height="4" rx="2" fill="#f1e6d6"/>
+  </svg>`,
+  // wide: a paper boat going under
+  crash: `<svg width="300" height="125" viewBox="0 0 300 125" aria-hidden="true">
+    <rect x="0" y="78" width="300" height="47" fill="${WATER}" opacity=".14"/>
+    <g class="sink"><path d="M112 70 L188 70 L176 92 L124 92 Z" fill="${INK}" opacity=".9"/><path d="M150 70 L150 34 L176 70 Z" fill="${INK}" opacity=".75"/><path d="M150 34 L128 70" stroke="${MUT}" stroke-width="1.2"/></g>
+    <rect x="0" y="82" width="300" height="43" fill="${WATER}" opacity=".18"/>
+    <g class="wave"><path d="M20 82 q12 -6 24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0" stroke="${WATER}" stroke-width="1.8" fill="none" opacity=".6"/></g>
+    <circle class="bub" cx="140" cy="100" r="3" fill="none" stroke="${WATER}" stroke-width="1.3"/>
+    <circle class="bub d2" cx="158" cy="104" r="2" fill="none" stroke="${WATER}" stroke-width="1.3"/>
+    <circle class="bub d3" cx="148" cy="108" r="4" fill="none" stroke="${WATER}" stroke-width="1.3"/>
+    ${frogV(238, 70, .75, "x")}
+    <path d="M222 76 a16 5 0 1 0 32 0" fill="${G1}" opacity=".5"/>
+  </svg>`,
+};
+const TECH_NEWTAB = { code: "about:blank", pre: `<span class="k">profilo</span>      browser-profile (condiviso)\n<span class="k">motore</span>       WebView2 131.0\n<span class="k">porte vive</span>   <span class="ok">:5173</span> vite · <span class="ok">:1420</span> tauri · <span class="ok">:6006</span> storybook` };
+
+const VARIANTS = {
+  D: "D · Pannello + doodle: la sobrietà di A, un'illustrazione per pagina (forme diverse: larga, alta, tonda) e i dati tecnici di B nascosti dietro \"Dettagli tecnici\", espansi sotto o in un dialog.",
+  A: "A · Pannello: stesso linguaggio del vuoto attuale (icona in riquadro, titolo, frase, pulsanti). Sobria, coerente, il codice errore piccolo in fondo.",
+  B: "B · Scheda da sviluppatore: carta stile terminale con codice d'errore, diagnosi (porte vive, DNS, certificato) e azioni. Più informativa, pensata per chi lavora con server locali.",
+  C: "C · Rana dello stagno: la mascotte pixel-art delle chat (dorme, salta, occhi a X) con frasi leggere. Più carattere, meno tecnica; il dettaglio resta nell'etichetta.",
+};
+
+let page = "local", variant = "D", detailMode = "expand", techOpen = false;
+const $ = (id) => document.getElementById(id);
+const btns = (list, cls = "") => `<div class="btns">${list.map(([l, p]) => `<button class="btn ${p ? "primary" : ""}">${l === "Riprova" || l === "Ricarica" ? "↻ " : ""}${l}</button>`).join("")}</div>`;
+
+function render() {
+  const pg = PAGES.find((p) => p.id === page);
+  const d = pg[variant];
+  $("urltext").textContent = pg.url || "Cerca o scrivi un indirizzo";
+  $("lock").textContent = pg.lock || (pg.url.startsWith("https") ? "🔒" : "");
+  $("tabtitle").textContent = pg.title;
+  $("tabdot").style.background = pg.tone === "danger" ? "var(--danger)" : pg.tone === "wait" ? "var(--wait)" : "var(--muted)";
+  $("vdesc").textContent = VARIANTS[variant];
+  let html = "";
+  if (variant === "A") {
+    html = `<div class="A"><div class="ico ${d.t}">${d.ico}</div><h4>${d.h}</h4><p>${d.p}</p>${d.btns.length ? btns(d.btns) : ""}${d.extra || ""}${d.detail ? `<div class="detail mono">${d.detail}</div>` : ""}</div>`;
+  } else if (variant === "B") {
+    const tone = d.tone === "wait" ? "t-wait" : pg.id === "newtab" ? "t-ok" : "";
+    html = `<div class="B"><div class="card"><div class="bar"><b class="${tone}">●</b>${d.code}<span style="margin-left:auto">${pg.url || "nuova scheda"}</span></div><div class="body"><h4>${d.h}</h4><p>${d.p}</p><pre>${d.pre}</pre>${btns(d.btns)}</div></div></div>`;
+  } else if (variant === "D") {
+    const a = pg.A, b = pg.id === "newtab" ? TECH_NEWTAB : pg.B;
+    const tone = pg.tone === "wait" ? "t-wait" : pg.tone === "ok" ? "t-ok" : "";
+    const bar = `<div class="tech-bar"><b class="${tone}">●</b>${b.code}<span>${pg.url || "nuova scheda"}</span><button>Copia</button></div>`;
+    html = `<div class="D"><div class="art">${ART[pg.id]}</div><h4>${a.h}</h4><p>${a.p}</p>${a.btns.length ? btns(a.btns) : ""}${a.extra || ""}
+      <button class="more ${techOpen && detailMode === "expand" ? "open" : ""}" id="more">Dettagli tecnici <span class="chev">▾</span></button>
+      ${detailMode === "expand" ? `<div class="tech ${techOpen ? "open" : ""}"><div>${bar}<pre>${b.pre}</pre></div></div>` : ""}
+    </div>
+    ${detailMode === "dialog" && techOpen ? `<div class="scrim" id="scrim"><div class="dlg" role="dialog"><header>Dettagli tecnici<button id="x">✕</button></header>${bar}<pre>${b.pre}</pre><footer><button class="btn">Copia</button><button class="btn primary" id="close">Chiudi</button></footer></div></div>` : ""}`;
+  } else {
+    html = `<div class="C ${d.still ? "still" : ""}">${frog(d.eyes)}<div class="bubble">${d.bubble}</div><h4>${d.h}</h4><p>${d.p}</p>${d.btns.length ? btns(d.btns) : ""}</div>`;
+  }
+  $("view").innerHTML = html;
+  $("dmode").style.display = variant === "D" ? "" : "none";
+  document.querySelectorAll("#dmode button").forEach((b) => b.classList.toggle("on", b.dataset.id === detailMode));
+  const more = $("more");
+  if (more) more.onclick = () => { techOpen = !techOpen; render(); };
+  const close = () => { techOpen = false; render(); };
+  if ($("scrim")) { $("x").onclick = close; $("close").onclick = close; $("scrim").onclick = (e) => { if (e.target.id === "scrim") close(); }; }
+  document.querySelectorAll("#pages button").forEach((b) => b.classList.toggle("on", b.dataset.id === page));
+  document.querySelectorAll("#vars button").forEach((b) => b.classList.toggle("on", b.dataset.id === variant));
+}
+
+for (const p of PAGES) { const b = document.createElement("button"); b.textContent = p.name; b.dataset.id = p.id; b.onclick = () => { page = p.id; render(); }; $("pages").append(b); }
+for (const v of ["D", "A", "B", "C"]) { const b = document.createElement("button"); b.textContent = { D: "D · Pannello + doodle ★", A: "A · Pannello", B: "B · Sviluppatore", C: "C · Rana" }[v]; b.dataset.id = v; b.onclick = () => { variant = v; techOpen = false; render(); }; $("vars").append(b); }
+for (const [id, label] of [["expand", "Testo espanso"], ["dialog", "Dialog"]]) { const b = document.createElement("button"); b.textContent = label; b.dataset.id = id; b.onclick = () => { detailMode = id; techOpen = true; render(); }; $("dmode").append(b); }
+render();
+</script>
+</body>
+</html>
