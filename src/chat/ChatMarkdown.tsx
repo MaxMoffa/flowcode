@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { useOpenLink } from "../terminal/useOpenLink";
+import { useLinkMenu, useOpenLink } from "../terminal/useOpenLink";
 import { markdownImageRef, splitLinks } from "./chatLinks";
 import { ChatImageView } from "./ChatImage";
 import { renderMarkdown } from "../../shared/Markdown";
@@ -12,6 +12,7 @@ type OpenLink = ReturnType<typeof useOpenLink>;
 
 /** A link in the text: opens through the app's own link path (the terminal's, with its "ask first" menu), never by navigating the window. */
 function ChatLink({ url, open, children }: { url: string; open: OpenLink; children: ReactNode }) {
+  const menu = useLinkMenu();
   return (
     <a
       className="chat-link"
@@ -20,6 +21,11 @@ function ChatLink({ url, open, children }: { url: string; open: OpenLink; childr
       onClick={(e) => {
         e.preventDefault();
         open(e, url);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        menu(e, url);
       }}
       onAuxClick={(e) => e.preventDefault()}
     >

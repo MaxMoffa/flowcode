@@ -39,15 +39,33 @@ export function useOpenLink(): (
         openSystem();
         return;
       }
-      const shown = uri.length > 60 ? `${uri.slice(0, 57)}…` : uri;
-      showMenu(event.clientX, event.clientY, [
-        { label: shown, icon: MenuIcons.globe, disabled: true },
-        { label: "link-separator", separator: true },
-        { label: t("link.openInPreview"), icon: MenuIcons.globe, onSelect: openApp },
-        { label: t("link.open"), icon: MenuIcons.openExternal, onSelect: openSystem },
-        { label: t("link.copy"), icon: MenuIcons.link, onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
-      ]);
+      showMenu(event.clientX, event.clientY, linkMenuItems(uri));
     },
     [settings.local, settings.external, showMenu],
+  );
+}
+
+/** The link menu: open in the app, open in the system browser, copy. */
+function linkMenuItems(uri: string) {
+  const local = isLocalUrl(uri);
+  const shown = uri.length > 60 ? `${uri.slice(0, 57)}…` : uri;
+  return [
+    { label: shown, icon: MenuIcons.globe, disabled: true },
+    { label: "link-separator", separator: true },
+    { label: t("link.openInPreview"), icon: MenuIcons.globe, onSelect: () => openUrlInPreview(local ? normalizeLocalUrl(uri) : uri) },
+    { label: t("link.open"), icon: MenuIcons.openExternal, onSelect: () => void openUrl(uri).catch(() => {}) },
+    { label: t("link.copy"), icon: MenuIcons.link, onSelect: () => void navigator.clipboard.writeText(uri).catch(() => {}) },
+  ];
+}
+
+/** The link menu at a right click, whatever the Browser settings say for a left click. */
+export function useLinkMenu(): (event: { clientX: number; clientY: number }, uri: string) => void {
+  const { show: showMenu } = useContextMenu();
+  return useCallback(
+    (event, uri) => {
+      if (!/^https?:\/\//i.test(uri)) return;
+      showMenu(event.clientX, event.clientY, linkMenuItems(uri));
+    },
+    [showMenu],
   );
 }

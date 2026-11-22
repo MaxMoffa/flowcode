@@ -139,6 +139,15 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
   if (isFile && actions && isPreviewableFile(target.path)) {
     items.push({ label: t("pathLink.openInPreview"), icon: MenuIcons.globe, onSelect: () => actions.openInPreview(target.path) });
   }
+  if (isFile && isPreviewableFile(target.path) && !isExecutablePath(target.path)) {
+    items.push({
+      label: t("pathLink.openInSystemBrowser"),
+      icon: MenuIcons.openExternal,
+      onSelect: () => {
+        invoke("open_in_system_browser", { target: target.path }).catch(() => {});
+      },
+    });
+  }
   if (isFile && target.text && actions) {
     items.push({ label: t("pathLink.openFile"), icon: PathIcons.edit, onSelect: () => actions.openInEditor(target.path, line) });
   }
@@ -194,7 +203,7 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
           return;
         }
         if (artifacts === "system" && !isExecutablePath(target.path)) {
-          invoke("open_with_default_app", { path: target.path }).catch(() => {});
+          invoke("open_in_system_browser", { target: target.path }).catch(() => {});
           return;
         }
         if (artifacts === "system") { actions.openInPreview(target.path); return; }
@@ -205,12 +214,20 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
   );
 }
 
+/** The path menu at a right click, whatever the Browser settings say for a left click. */
+function usePathMenu(): (event: { clientX: number; clientY: number }, target: PathTarget, line?: number) => void {
+  const { show } = useContextMenu();
+  const actions = useContext(FileLinkActionsContext);
+  return useCallback((event, target, line) => show(event.clientX, event.clientY, pathMenuItems(target, actions, line)), [actions, show]);
+}
+
 /** A path written in the chat, as a link once the disk says it exists - plain
  * text until then (and for good when it doesn't, or the chat is a remote PC's). */
 export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; children: ReactNode }) {
   const cwd = useContext(FileLinkCwdContext);
   const distro = useContext(FileLinkWslContext);
   const open = useOpenPath();
+  const menu = usePathMenu();
   // A WSL agent writes Linux paths (`/mnt/c/...`): map them to the Windows ones the disk check and the opener need.
   const path = distro && parsed.path.startsWith("/") ? toWindowsPath(distro, parsed.path) : parsed.path;
   const key = `${cwd ?? ""}\0${path}`;
@@ -248,6 +265,11 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
         e.preventDefault();
         e.stopPropagation();
         open(e, target, parsed.line);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        menu(e, target, parsed.line);
       }}
       onKeyDown={(e) => {
         if (e.key !== "Enter" && e.key !== " ") return;

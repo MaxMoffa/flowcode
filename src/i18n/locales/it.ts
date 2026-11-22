@@ -139,6 +139,7 @@ export const it = {
   "link.copy": "Copia link",
   "pathLink.openFile": "Apri file",
   "pathLink.openInPreview": "Apri nell'anteprima",
+  "pathLink.openInSystemBrowser": "Apri nel browser di sistema",
   "pathLink.openDefault": "Apri con l'app predefinita",
   "pathLink.openFolder": "Apri cartella",
   "pathLink.openInExplorer": "Apri nel pannello esplora file",

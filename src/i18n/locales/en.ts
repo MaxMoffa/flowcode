@@ -141,6 +141,7 @@ export const en: Record<MessageKey, string> = {
   "link.copy": "Copy link",
   "pathLink.openFile": "Open file",
   "pathLink.openInPreview": "Open in preview",
+  "pathLink.openInSystemBrowser": "Open in system browser",
   "pathLink.openDefault": "Open with default app",
   "pathLink.openFolder": "Open folder",
   "pathLink.openInExplorer": "Open in the explorer panel",
