@@ -18,6 +18,9 @@ use crate::chat::delegate::{call_params, ParentCtx, CALL_METHOD, OPEN_METHOD};
 use crate::chat_mcp::{self, CALL_USER, OPEN};
 use crate::pty::PtyState;
 
+#[path = "tab_agent_mode.rs"]
+mod tab_agent_mode;
+
 const SHELL_SH: &str = include_str!("wsl-shell/shell.sh");
 const BASHRC: &str = include_str!("wsl-shell/bashrc");
 const SHIM_SH: &str = include_str!("wsl-shell/shim.sh");
@@ -275,6 +278,12 @@ fn child_place(place: &Place, wsl_tab: bool) -> Result<(String, Option<String>),
     Ok((crate::chat_images::from_wsl_path(&place.base, distro)?, Some(format!("wsl:{distro}"))))
 }
 
+/// The mode a tab's children are held to: the agent's own, and read-only when it could not be read
+/// (a child never gets more freedom than a parent that might be restricted).
+fn parent_mode(mode: Option<String>) -> String {
+    mode.unwrap_or_else(|| "read-only".to_string())
+}
+
 /// Runs a tool call of a terminal tab; see `chat_mcp::dispatch`. The tab must be
 /// open and have been given the tool - the caller's word is not enough.
 pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>, deadline_ms: Option<u64>) -> Result<String, String> {
@@ -302,15 +311,22 @@ pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, repo
             let wsl_tab = wsl.is_some();
             let place = locate(wsl, cwd, reported_cwd);
             let (cwd, shell) = child_place(&place, wsl_tab)?;
+            // Only asked for a task that starts a child: the lookup scans processes and reads a transcript.
+            let (agent, mode) = if tool == chat_mcp::DELEGATE_TASK {
+                let tab = tab_agent_mode::of_tab(app, pty_id);
+                (tab.cli.or_else(|| agent.map(str::to_string)), Some(parent_mode(tab.mode)))
+            } else {
+                (agent.map(str::to_string), None)
+            };
             let ctx = ParentCtx {
                 owner: chat_mcp::Owner::Terminal(pty_id.to_string()),
                 window,
-                agent: agent.map(str::to_string),
+                agent,
                 cwd,
                 profile,
                 shell,
                 tools: cfg,
-                mode: None,
+                mode,
                 depth: 0,
             };
             crate::chat::delegate::terminal_delegation_call(app, ctx, tool, args, deadline_ms)
@@ -333,6 +349,13 @@ mod tests {
         assert_eq!(base_folder(Some("sub"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(Some("//host/share"), "C:/repo", &homes), "C:/repo");
         assert_eq!(base_folder(None, "C:/repo", &homes), "C:/repo");
+    }
+
+    #[test]
+    fn a_tab_whose_mode_is_unknown_is_restricted() {
+        assert_eq!(parent_mode(None), "read-only");
+        assert_eq!(parent_mode(Some("plan".into())), "plan");
+        assert_eq!(parent_mode(Some("auto".into())), "auto");
     }
 
     #[test]

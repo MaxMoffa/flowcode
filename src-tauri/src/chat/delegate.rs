@@ -61,6 +61,8 @@ pub(crate) struct ParentCtx {
     pub profile: Option<String>,
     pub shell: Option<String>,
     pub tools: ToolsConfig,
+    /// The parent's permission mode, in `inherited_mode`'s words. A terminal tab's is read from its
+    /// agent (`tab_agent_mode.rs`), read-only when unknown.
     pub mode: Option<String>,
     pub depth: u8,
 }
@@ -924,6 +926,10 @@ mod tests {
         assert!(inherited_mode(false, Some("plan"), Some(&unsafe_only)).is_err());
         assert!(inherited_mode(true, Some("read-only"), Some(&unsafe_only)).is_err());
         assert_eq!(inherited_mode(true, None, None).unwrap(), None);
+        // A terminal parent whose mode could not be read is passed as read-only: the child stays restricted.
+        assert_eq!(inherited_mode(false, Some("read-only"), Some(&modes)).unwrap().as_deref(), Some("plan"));
+        // An editing parent (Claude acceptEdits) is unrestricted: the child gets its normal editing mode.
+        assert_eq!(inherited_mode(false, Some("acceptEdits"), Some(&modes)).unwrap().as_deref(), Some("default"));
     }
 
     #[test]
