@@ -113,7 +113,7 @@
   .tech pre .k, .dlg pre .k { color: var(--fg); } .tech pre .e, .dlg pre .e { color: var(--danger); } .tech pre .ok, .dlg pre .ok { color: var(--accent); }
   .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 5; animation: fade .15s; }
   @keyframes fade { from { opacity: 0; } }
-  .dlg { width: 480px; max-width: calc(100% - 40px); border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg-elevated); box-shadow: 0 20px 50px rgba(0,0,0,.5); text-align: left; overflow: hidden; }
+  .dlg { width: 480px; max-width: calc(100% - 40px); border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg-elevated); box-shadow: 0 20px 50px rgba(0,0,0,.5); text-align: left; overflow: visible; }
   .dlg header { display: flex; align-items: center; padding: 12px 14px 4px; font-weight: 600; font-size: 13.5px; }
   .dlg header button { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
   .dlg .tech-bar button { display: none; }
@@ -141,6 +141,23 @@
   @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
   .wave { animation: wave 5s ease-in-out infinite; }
   @keyframes wave { 50% { transform: translateX(-8px); } }
+  /* Final D: links row, agent button + picker, toast */
+  .D .links { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
+  .D .links .sep { color: var(--muted); opacity: .5; }
+  .agent-link { color: color-mix(in srgb, var(--accent) 80%, var(--muted)) !important; }
+  .btn.agent { color: var(--accent); }
+  .ag-wrap { position: relative; display: inline-flex; }
+  .ag-pop { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 8; width: 300px; padding: 6px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg-elevated); box-shadow: 0 14px 40px rgba(0,0,0,.5); text-align: left; animation: fade .12s; }
+  .ag-pop.up { top: auto; bottom: calc(100% + 6px); }
+  .ag-head { padding: 4px 8px 6px; font-size: 11.5px; color: var(--muted); }
+  .ag-row { display: flex; width: 100%; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+  .ag-row:hover { background: var(--hover); }
+  .ag-row small { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .ag-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .ag-note { padding: 8px 8px 4px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
+  .ag-prompt { margin: 0 4px 4px; padding: 8px; max-height: 52px; overflow: auto; border-radius: 7px; background: var(--bg); font: 10.5px/1.5 var(--mono); color: var(--muted); white-space: pre-wrap; }
+  .ag-toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 9px; padding: 6px 6px 6px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12.5px; white-space: nowrap; animation: fade .15s; z-index: 9; }
+  .ag-toast .btn { height: 26px; }
   /* Variant E: 8-bit pixel art; viewBox is the pixel grid, so translate(1px) moves one art pixel */
   .px { display: block; }
   .px-bob { animation: pxbob 1.2s steps(1) infinite; }
@@ -176,6 +193,7 @@
 <div class="row" id="pages"><span>Pagina</span></div>
 <div class="row" id="vars"><span>Stile</span></div>
 <div class="row" id="dmode"><span>Dettagli</span></div>
+<div class="row" id="apos"><span>Agente</span></div>
 <p class="vdesc" id="vdesc"></p>
 
 <div class="panel">
@@ -497,14 +515,26 @@ const PIX = {
 };
 
 const VARIANTS = {
-  E: "E · Pannello + 8-bit: come D, ma le illustrazioni sono pixel art 8-bit (griglia di pixel, animazioni a scatti come un vecchio gioco). Stessi dettagli tecnici, espansi o in dialog.",
+  F: "D finale: doodle per pagina, \"Dettagli tecnici\" senza triangolino apre un dialog, \"✦ Chiedi a un agente\" sceglie l'agente e apre una chat con l'errore già descritto. Tre posizioni per il pulsante agente: provale con la riga \"Agente\". Sulla nuova scheda il pulsante agente non c'è (non c'è niente da diagnosticare).",
+  E:"E · Pannello + 8-bit: come D, ma le illustrazioni sono pixel art 8-bit (griglia di pixel, animazioni a scatti come un vecchio gioco). Stessi dettagli tecnici, espansi o in dialog.",
   D:"D · Pannello + doodle: la sobrietà di A, un'illustrazione per pagina (forme diverse: larga, alta, tonda) e i dati tecnici di B nascosti dietro \"Dettagli tecnici\", espansi sotto o in un dialog.",
   A: "A · Pannello: stesso linguaggio del vuoto attuale (icona in riquadro, titolo, frase, pulsanti). Sobria, coerente, il codice errore piccolo in fondo.",
   B: "B · Scheda da sviluppatore: carta stile terminale con codice d'errore, diagnosi (porte vive, DNS, certificato) e azioni. Più informativa, pensata per chi lavora con server locali.",
   C: "C · Rana dello stagno: la mascotte pixel-art delle chat (dorme, salta, occhi a X) con frasi leggere. Più carattere, meno tecnica; il dettaglio resta nell'etichetta.",
 };
 
-let page = "local", variant = "E", detailMode = "expand", techOpen = false;
+let page = "local", variant = "F", detailMode = "dialog", techOpen = false, agentPos = "link", agentMenu = null, toast = null;
+const AGENTS = [["Claude", "#d08a5c"], ["Codex", "#8fb0d9"], ["Gemini", "#a48be0"], ["OpenCode", "#9db984"]];
+const plain = (html) => html.replace(/<[^>]+>/g, "");
+function agentPop(pg, b, where) {
+  const prompt = `Il browser interno di Flowcode non riesce ad aprire ${pg.url}.\nErrore: ${b.code}\n${plain(b.pre)}\nTrova la causa e, se puoi, sistemala.`;
+  return `<div class="ag-pop up" role="menu">
+    <div class="ag-head">Diagnosi con…</div>
+    ${AGENTS.map(([n, c]) => `<button class="ag-row" data-pick="${n}" data-color="${c}"><span class="ag-dot" style="background:${c}"></span>${n}${n === "Claude" ? '<small>ultimo usato</small>' : ""}</button>`).join("")}
+    <div class="ag-note">Apre una chat nella cartella del progetto con questo messaggio già inviato:</div>
+    <pre class="ag-prompt">${prompt}</pre>
+  </div>`;
+}
 const $ = (id) => document.getElementById(id);
 const btns = (list, cls = "") => `<div class="btns">${list.map(([l, p]) => `<button class="btn ${p ? "primary" : ""}">${l === "Riprova" || l === "Ricarica" ? "↻ " : ""}${l}</button>`).join("")}</div>`;
 
@@ -531,12 +561,36 @@ function render() {
       ${detailMode === "expand" ? `<div class="tech ${techOpen ? "open" : ""}"><div>${bar}<pre>${b.pre}</pre></div></div>` : ""}
     </div>
     ${detailMode === "dialog" && techOpen ? `<div class="scrim" id="scrim"><div class="dlg" role="dialog"><header>Dettagli tecnici<button id="x">✕</button></header>${bar}<pre>${b.pre}</pre><footer><button class="btn">Copia</button><button class="btn primary" id="close">Chiudi</button></footer></div></div>` : ""}`;
+  } else if (variant === "F") {
+    const a = pg.A, b = pg.id === "newtab" ? TECH_NEWTAB : pg.B;
+    const tone = pg.tone === "wait" ? "t-wait" : pg.tone === "ok" ? "t-ok" : "";
+    const bar = `<div class="tech-bar"><b class="${tone}">●</b>${b.code}<span>${pg.url || "nuova scheda"}</span></div>`;
+    const isError = pg.id !== "newtab";
+    const agentBtn = (where, cls) => isError ? `<span class="ag-wrap ${where}"><button class="${cls}" data-agent="${where}">✦ Chiedi a un agente</button>${agentMenu === where ? agentPop(pg, b, where) : ""}</span>` : "";
+    const actions = [...a.btns];
+    const actionsHtml = actions.length || (agentPos === "actions" && isError)
+      ? `<div class="btns">${actions.map(([l, p]) => `<button class="btn ${p ? "primary" : ""}">${l === "Riprova" || l === "Ricarica" ? "↻ " : ""}${l}</button>`).join("")}${agentPos === "actions" ? agentBtn("actions", "btn agent") : ""}</div>` : "";
+    const links = `<div class="links"><button class="more" id="more">Dettagli tecnici</button>${agentPos === "link" && isError ? `<span class="sep">·</span>${agentBtn("link", "more agent-link")}` : ""}</div>`;
+    html = `<div class="D"><div class="art">${ART[pg.id]}</div><h4>${a.h}</h4><p>${a.p}</p>${actionsHtml}${a.extra || ""}${links}</div>
+    ${techOpen ? `<div class="scrim" id="scrim"><div class="dlg" role="dialog"><header>Dettagli tecnici<button id="x">✕</button></header>${bar}<pre>${b.pre}</pre><footer><button class="btn">Copia</button>${agentPos === "dialog" ? agentBtn("dialog", "btn agent") : ""}<button class="btn primary" id="close">Chiudi</button></footer></div></div>` : ""}
+    ${toast ? `<div class="ag-toast"><span class="ag-dot" style="background:${toast.color}"></span>${toast.text}<button class="btn ghost">Apri chat</button></div>` : ""}`;
   } else {
     html = `<div class="C ${d.still ? "still" : ""}">${frog(d.eyes)}<div class="bubble">${d.bubble}</div><h4>${d.h}</h4><p>${d.p}</p>${d.btns.length ? btns(d.btns) : ""}</div>`;
   }
   $("view").innerHTML = html;
   $("dmode").style.display = variant === "D" || variant === "E" ? "" : "none";
+  $("apos").style.display = variant === "F" ? "" : "none";
   document.querySelectorAll("#dmode button").forEach((b) => b.classList.toggle("on", b.dataset.id === detailMode));
+  document.querySelectorAll("#apos button").forEach((b) => b.classList.toggle("on", b.dataset.id === agentPos));
+  document.querySelectorAll("[data-agent]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); agentMenu = agentMenu === b.dataset.agent ? null : b.dataset.agent; render(); });
+  document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    const pg = PAGES.find((p) => p.id === page);
+    agentMenu = null; techOpen = false;
+    toast = { color: b.dataset.color, text: `${b.dataset.pick} sta diagnosticando ${pg.title}` };
+    render();
+    clearTimeout(window.__t); window.__t = setTimeout(() => { toast = null; render(); }, 4000);
+  });
   const more = $("more");
   if (more) more.onclick = () => { techOpen = !techOpen; render(); };
   const close = () => { techOpen = false; render(); };
@@ -546,7 +600,9 @@ function render() {
 }
 
 for (const p of PAGES) { const b = document.createElement("button"); b.textContent = p.name; b.dataset.id = p.id; b.onclick = () => { page = p.id; render(); }; $("pages").append(b); }
-for (const v of ["E", "D", "A", "B", "C"]) { const b = document.createElement("button"); b.textContent = { E: "E · Pannello + 8-bit ★", D: "D · Pannello + doodle", A: "A · Pannello", B: "B · Sviluppatore", C: "C · Rana" }[v]; b.dataset.id = v; b.onclick = () => { variant = v; techOpen = false; render(); }; $("vars").append(b); }
+for (const [id, label] of [["link", "1 · Accanto a Dettagli tecnici"], ["actions", "2 · Tra i pulsanti principali"], ["dialog", "3 · Solo nel dialog"]]) { const b = document.createElement("button"); b.textContent = label; b.dataset.id = id; b.onclick = () => { agentPos = id; agentMenu = null; techOpen = id === "dialog"; render(); }; $("apos").append(b); }
+document.addEventListener("click", (e) => { if (agentMenu && !e.target.closest(".ag-pop")) { agentMenu = null; render(); } });
+for (const v of ["F", "E", "D", "A", "B", "C"]) { const b = document.createElement("button"); b.textContent = { F: "D finale ★", E: "E · Pannello + 8-bit", D: "D · Pannello + doodle", A: "A · Pannello", B: "B · Sviluppatore", C: "C · Rana" }[v]; b.dataset.id = v; b.onclick = () => { variant = v; techOpen = false; render(); }; $("vars").append(b); }
 for (const [id, label] of [["expand", "Testo espanso"], ["dialog", "Dialog"]]) { const b = document.createElement("button"); b.textContent = label; b.dataset.id = id; b.onclick = () => { detailMode = id; techOpen = true; render(); }; $("dmode").append(b); }
 render();
 </script>
