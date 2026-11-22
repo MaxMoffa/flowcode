@@ -141,6 +141,26 @@
   @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
   .wave { animation: wave 5s ease-in-out infinite; }
   @keyframes wave { 50% { transform: translateX(-8px); } }
+  /* Variant E: 8-bit pixel art; viewBox is the pixel grid, so translate(1px) moves one art pixel */
+  .px { display: block; }
+  .px-bob { animation: pxbob 1.2s steps(1) infinite; }
+  @keyframes pxbob { 50% { transform: translateY(-1px); } }
+  .px-zz { opacity: 0; animation: pxzz 2.4s steps(6) infinite; } .px-zz.d2 { animation-delay: .8s; } .px-zz.d3 { animation-delay: 1.6s; }
+  @keyframes pxzz { 0% { opacity: 0; transform: translate(0, 2px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(4px, -6px); } }
+  .px-wave { animation: pxwave 1s steps(1) infinite; }
+  @keyframes pxwave { 50% { transform: translateX(1px); } }
+  .px-fall { animation: pxfall 2.4s steps(8) infinite; } .px-fall.d2 { animation-delay: 1.2s; }
+  @keyframes pxfall { 0% { opacity: 1; transform: translateY(0); } 90% { opacity: 0; transform: translateY(10px); } 100% { opacity: 0; } }
+  .px-crawl { animation: pxcrawl 12s steps(36) infinite; }
+  @keyframes pxcrawl { to { transform: translateX(36px); } }
+  .px-tickA, .px-tickB { animation: pxtick 1s steps(1) infinite; } .px-tickB { animation-delay: -.5s; }
+  @keyframes pxtick { 50% { opacity: 0; } }
+  .px-sink { animation: pxsink 2s steps(1) infinite; }
+  @keyframes pxsink { 50% { transform: translateY(1px); } }
+  .px-bub { opacity: 0; animation: pxbub 2s steps(5) infinite; } .px-bub.d2 { animation-delay: .7s; } .px-bub.d3 { animation-delay: 1.4s; }
+  @keyframes pxbub { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-8px); } }
+  .px-blink { animation: pxblink 1.6s steps(1) infinite; }
+  @keyframes pxblink { 50% { opacity: .35; } }
   .feas { margin-top: 28px; max-width: 980px; color: var(--muted); font-size: 13px; }
   .feas h2 { color: var(--fg); font-size: 15px; margin: 18px 0 6px; }
   .feas table { border-collapse: collapse; width: 100%; margin-top: 6px; }
@@ -366,14 +386,125 @@ const ART = {
 };
 const TECH_NEWTAB = { code: "about:blank", pre: `<span class="k">profilo</span>      browser-profile (condiviso)\n<span class="k">motore</span>       WebView2 131.0\n<span class="k">porte vive</span>   <span class="ok">:5173</span> vite · <span class="ok">:1420</span> tauri · <span class="ok">:6006</span> storybook` };
 
+// ---- Variant E: 8-bit art, drawn on a pixel grid (viewBox = grid, so CSS 1px moves = one pixel) ----
+const PAL = { G: "#7fa05f", L: "#9db984", W: "#f1e6d6", K: "#1d1915", B: "#3f5f84", b: "#2f4762", M: "#a08a6f", S: "#3a322a", I: "#e7d8c5", Y: "#d1a752", R: "#d9786a", P: "#8a6a48", D: "#5a4632", k: "#2c201c" };
+const FROG = ["..GG....GG..", ".GWKG..GWKG.", ".GGGGGGGGGG.", "GGGGGGGGGGGG", "GGLLLLLLLLGG", "GGLLKKKKLLGG", ".GLLLLLLLLG.", "GG.GG..GG.GG"];
+const FROG_SLEEP = ["..GG....GG..", ".GKKG..GKKG.", ".GGGGGGGGGG.", "GGGGGGGGGGGG", "GGLLLLLLLLGG", "GGLLLKKLLLGG", ".GLLLLLLLLG.", "GG.GG..GG.GG"];
+const SNAIL = ["....YYYYY...L.", "...YDDDDDY..L.", "..YDYYYYYDY.LL", "..YDYDDDYDY.LK", "..YDYDYYYDY.LL", "..YYDDDDDYYLLL", "LLLLLLLLLLLLLL", ".LLLLLLLLLLLL."];
+const CLOUD = [".....MMMM.....", "...MMSSSSMM...", ".MMSSSSSSSSMM.", "MSSSSSSSSSSSSM", "MMMMMMMMMMMMMM"];
+const PADLOCK = ["...MMMM.", "...M..M.", "......M.", ".MMMMMM.", ".MMKKMM.", ".MMKKMM.", ".MMMMMM."];
+const ZED = ["YYYY", "..Y.", ".Y..", "YYYY"];
+function pix(w, h, scale, draw) {
+  const layers = []; let cur = null;
+  const layer = (cls) => { cur = { cls, px: new Map() }; layers.push(cur); };
+  layer("");
+  const c = {
+    p: (x, y, col) => cur.px.set(x + "," + y, col),
+    r: (x, y, ww, hh, col) => { for (let j = 0; j < hh; j++) for (let i = 0; i < ww; i++) c.p(x + i, y + j, col); },
+    spr: (x, y, rows) => rows.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") c.p(x + i, y + j, ch); })),
+    circ: (cx, cy, rad, col, fill = true) => { for (let y = -rad; y <= rad; y++) for (let x = -rad; x <= rad; x++) { const d = Math.hypot(x, y); if (fill ? d <= rad + .3 : Math.abs(d - rad) < .6) c.p(cx + x, cy + y, col); } },
+    g: (cls, fn) => { layer(cls); fn(); layer(""); },
+  };
+  draw(c);
+  const body = layers.filter((l) => l.px.size).map((l) => {
+    const rects = [...l.px].map(([k, col]) => { const [x, y] = k.split(","); return `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="${PAL[col] || col}"/>`; }).join("");
+    return l.cls ? `<g class="${l.cls}">${rects}</g>` : rects;
+  }).join("");
+  return `<svg class="px" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+}
+const water = (c, y0, y1, w) => c.g("px-wave", () => { for (let y = y0; y <= y1; y++) for (let x = -2; x < w + 2; x++) c.p(x, y, (x + y) % 2 ? "B" : "b"); });
+const PIX = {
+  // wide: pond at night, frog on a pad, blank signpost
+  newtab: pix(80, 26, 4, (c) => {
+    [[6, 3], [14, 7], [27, 2], [40, 5], [55, 2], [76, 9]].forEach(([x, y]) => c.p(x, y, "M"));
+    c.circ(68, 6, 3, "Y");
+    water(c, 20, 25, 80);
+    c.r(14, 19, 12, 2, "G"); c.r(16, 18, 8, 1, "G"); c.p(20, 18, "B");
+    c.r(46, 19, 18, 2, "G"); c.r(48, 18, 14, 1, "G");
+    c.r(32, 6, 2, 14, "D");
+    c.r(34, 7, 10, 4, "P"); c.r(44, 8, 2, 2, "P");
+    c.r(22, 12, 10, 4, "P"); c.r(20, 13, 2, 2, "P");
+    [[38, 7], [39, 7], [39, 8], [38, 10]].forEach(([x, y]) => c.p(x, y, "K"));
+    [[26, 12], [27, 12], [27, 13], [26, 15]].forEach(([x, y]) => c.p(x, y, "K"));
+    c.g("px-bob", () => c.spr(49, 11, FROG));
+  }),
+  // tall: sleeping server, unplugged
+  local: pix(46, 36, 5, (c) => {
+    c.r(6, 33, 30, 2, "S");
+    c.r(10, 6, 20, 27, "M"); c.r(11, 7, 18, 25, "S");
+    c.r(14, 13, 4, 1, "I"); c.r(22, 13, 4, 1, "I"); c.p(13, 12, "I"); c.p(26, 12, "I");
+    c.r(18, 18, 4, 1, "I");
+    c.r(13, 23, 14, 1, "M"); c.r(13, 26, 14, 1, "M"); c.r(25, 29, 2, 1, "M");
+    c.r(29, 31, 1, 2, "M"); c.r(29, 32, 6, 1, "M"); c.r(35, 30, 3, 4, "M"); c.p(38, 31, "M"); c.p(38, 33, "M");
+    c.r(42, 27, 4, 7, "M"); c.r(43, 28, 2, 5, "S"); c.p(43, 29, "K"); c.p(44, 29, "K"); c.p(43, 31, "K"); c.p(44, 31, "K");
+    c.g("px-zz", () => c.spr(31, 6, ZED));
+    c.g("px-zz d2", () => c.spr(35, 2, ZED));
+    c.g("px-zz d3", () => c.spr(40, 0, ZED));
+  }),
+  // wide and low: broken bridge, cloud with no signal
+  offline: pix(84, 28, 4, (c) => {
+    water(c, 22, 27, 84);
+    c.r(0, 14, 24, 14, "S"); c.r(0, 14, 24, 1, "M");
+    c.r(60, 14, 24, 14, "S"); c.r(60, 14, 24, 1, "M");
+    for (let y = 17; y < 28; y += 3) for (let x = (y % 2) * 3; x < 84; x += 6) if (x < 23 || x > 60) c.p(x, y, "D");
+    for (let i = 0; i < 4; i++) { c.r(24 + i * 4, 14 + (i > 2 ? 1 : 0), 3, 1, "P"); c.r(57 - i * 4, 14 + (i > 2 ? 1 : 0), 3, 1, "P"); }
+    c.r(24, 12, 13, 1, "D"); c.r(47, 12, 13, 1, "D");
+    c.g("px-fall", () => c.r(40, 16, 3, 1, "P"));
+    c.g("px-fall d2", () => c.r(44, 17, 3, 1, "P"));
+    c.g("px-bob", () => c.spr(6, 6, FROG));
+    c.spr(35, 1, CLOUD);
+    c.g("px-blink", () => { for (let i = 0; i < 5; i++) { c.p(40 + i, 2 + i, "R"); c.p(44 - i, 2 + i, "R"); } });
+  }),
+  // long strip: snail with a parcel, clock ticking
+  timeout: pix(78, 24, 4, (c) => {
+    for (let x = 0; x < 78; x += 2) c.p(x, 21, "M");
+    c.r(71, 14, 6, 7, "M"); c.r(72, 15, 4, 5, "S");
+    c.circ(64, 7, 5, "Y", false); c.p(64, 7, "I");
+    c.g("px-tickA", () => c.r(64, 3, 1, 4, "I"));
+    c.g("px-tickB", () => c.r(65, 7, 3, 1, "I"));
+    c.g("px-crawl", () => { c.spr(4, 13, SNAIL); c.r(6, 8, 6, 4, "P"); c.r(6, 9, 6, 1, "D"); c.r(8, 8, 2, 4, "D"); });
+  }),
+  // round: cracked shield in a badge
+  cert: pix(32, 32, 5, (c) => {
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) { const d = Math.hypot(x - 15.5, y - 15.5); if (d < 13) c.p(x, y, "k"); else if (d < 14.2 && (x + y) % 3 === 0) c.p(x, y, "R"); }
+    for (let y = 5; y <= 26; y++) { const hw = y < 18 ? 9 : Math.round(9 - (y - 18) * 1.15); for (let x = 16 - hw; x < 16 + hw; x++) c.p(x, y, x === 16 - hw || x === 15 + hw || y === 5 ? "M" : "S"); }
+    [[17, 5], [17, 6], [16, 7], [15, 8], [15, 9], [16, 10], [17, 11], [18, 12], [17, 13], [16, 14], [15, 15], [15, 16], [16, 17], [17, 18], [16, 19], [16, 20], [15, 21], [15, 22], [16, 23], [16, 24]].forEach(([x, y]) => c.p(x, y, "R"));
+    c.spr(8, 14, PADLOCK);
+  }),
+  // medium: Flowcode's house behind the fence, frog on guard
+  blocked: pix(64, 32, 4, (c) => {
+    c.r(2, 29, 60, 2, "S");
+    for (let i = 0; i < 10; i++) c.r(47 - i, 8 + i, 2 + 2 * i, 1, "M");
+    c.r(39, 18, 18, 11, "S"); c.r(39, 18, 1, 11, "M"); c.r(56, 18, 1, 11, "M");
+    c.g("px-blink", () => c.r(42, 21, 4, 3, "Y"));
+    c.r(50, 22, 4, 7, "M");
+    for (let i = 0; i < 10; i++) { const x = 3 + i * 3; c.r(x, 18, 2, 11, "P"); c.p(x, 17, "P"); }
+    c.r(2, 21, 31, 1, "D"); c.r(2, 26, 31, 1, "D");
+    c.r(35, 13, 1, 16, "M");
+    c.circ(35, 10, 4, "R"); c.r(33, 10, 5, 1, "W");
+    c.g("px-bob", () => c.spr(16, 21, FROG));
+  }),
+  // wide: paper boat going under
+  crash: pix(72, 28, 4, (c) => {
+    c.g("px-sink", () => { for (let i = 0; i < 4; i++) c.r(22 + i, 15 + i, 22 - 2 * i, 1, "I"); c.r(32, 5, 1, 10, "M"); for (let i = 0; i < 9; i++) c.r(33, 6 + i, Math.ceil((i + 1) * .9), 1, "I"); });
+    water(c, 18, 27, 72);
+    c.g("px-bub", () => c.circ(30, 23, 1, "W", false));
+    c.g("px-bub d2", () => c.circ(36, 25, 1, "W", false));
+    c.g("px-bub d3", () => c.p(33, 22, "W"));
+    c.r(52, 17, 16, 2, "G"); c.r(54, 16, 12, 1, "G");
+    c.spr(54, 8, FROG_SLEEP);
+  }),
+};
+
 const VARIANTS = {
-  D: "D · Pannello + doodle: la sobrietà di A, un'illustrazione per pagina (forme diverse: larga, alta, tonda) e i dati tecnici di B nascosti dietro \"Dettagli tecnici\", espansi sotto o in un dialog.",
+  E: "E · Pannello + 8-bit: come D, ma le illustrazioni sono pixel art 8-bit (griglia di pixel, animazioni a scatti come un vecchio gioco). Stessi dettagli tecnici, espansi o in dialog.",
+  D:"D · Pannello + doodle: la sobrietà di A, un'illustrazione per pagina (forme diverse: larga, alta, tonda) e i dati tecnici di B nascosti dietro \"Dettagli tecnici\", espansi sotto o in un dialog.",
   A: "A · Pannello: stesso linguaggio del vuoto attuale (icona in riquadro, titolo, frase, pulsanti). Sobria, coerente, il codice errore piccolo in fondo.",
   B: "B · Scheda da sviluppatore: carta stile terminale con codice d'errore, diagnosi (porte vive, DNS, certificato) e azioni. Più informativa, pensata per chi lavora con server locali.",
   C: "C · Rana dello stagno: la mascotte pixel-art delle chat (dorme, salta, occhi a X) con frasi leggere. Più carattere, meno tecnica; il dettaglio resta nell'etichetta.",
 };
 
-let page = "local", variant = "D", detailMode = "expand", techOpen = false;
+let page = "local", variant = "E", detailMode = "expand", techOpen = false;
 const $ = (id) => document.getElementById(id);
 const btns = (list, cls = "") => `<div class="btns">${list.map(([l, p]) => `<button class="btn ${p ? "primary" : ""}">${l === "Riprova" || l === "Ricarica" ? "↻ " : ""}${l}</button>`).join("")}</div>`;
 
@@ -391,11 +522,11 @@ function render() {
   } else if (variant === "B") {
     const tone = d.tone === "wait" ? "t-wait" : pg.id === "newtab" ? "t-ok" : "";
     html = `<div class="B"><div class="card"><div class="bar"><b class="${tone}">●</b>${d.code}<span style="margin-left:auto">${pg.url || "nuova scheda"}</span></div><div class="body"><h4>${d.h}</h4><p>${d.p}</p><pre>${d.pre}</pre>${btns(d.btns)}</div></div></div>`;
-  } else if (variant === "D") {
+  } else if (variant === "D" || variant === "E") {
     const a = pg.A, b = pg.id === "newtab" ? TECH_NEWTAB : pg.B;
     const tone = pg.tone === "wait" ? "t-wait" : pg.tone === "ok" ? "t-ok" : "";
     const bar = `<div class="tech-bar"><b class="${tone}">●</b>${b.code}<span>${pg.url || "nuova scheda"}</span><button>Copia</button></div>`;
-    html = `<div class="D"><div class="art">${ART[pg.id]}</div><h4>${a.h}</h4><p>${a.p}</p>${a.btns.length ? btns(a.btns) : ""}${a.extra || ""}
+    html = `<div class="D"><div class="art">${(variant === "E" ? PIX : ART)[pg.id]}</div><h4>${a.h}</h4><p>${a.p}</p>${a.btns.length ? btns(a.btns) : ""}${a.extra || ""}
       <button class="more ${techOpen && detailMode === "expand" ? "open" : ""}" id="more">Dettagli tecnici <span class="chev">▾</span></button>
       ${detailMode === "expand" ? `<div class="tech ${techOpen ? "open" : ""}"><div>${bar}<pre>${b.pre}</pre></div></div>` : ""}
     </div>
@@ -404,7 +535,7 @@ function render() {
     html = `<div class="C ${d.still ? "still" : ""}">${frog(d.eyes)}<div class="bubble">${d.bubble}</div><h4>${d.h}</h4><p>${d.p}</p>${d.btns.length ? btns(d.btns) : ""}</div>`;
   }
   $("view").innerHTML = html;
-  $("dmode").style.display = variant === "D" ? "" : "none";
+  $("dmode").style.display = variant === "D" || variant === "E" ? "" : "none";
   document.querySelectorAll("#dmode button").forEach((b) => b.classList.toggle("on", b.dataset.id === detailMode));
   const more = $("more");
   if (more) more.onclick = () => { techOpen = !techOpen; render(); };
@@ -415,7 +546,7 @@ function render() {
 }
 
 for (const p of PAGES) { const b = document.createElement("button"); b.textContent = p.name; b.dataset.id = p.id; b.onclick = () => { page = p.id; render(); }; $("pages").append(b); }
-for (const v of ["D", "A", "B", "C"]) { const b = document.createElement("button"); b.textContent = { D: "D · Pannello + doodle ★", A: "A · Pannello", B: "B · Sviluppatore", C: "C · Rana" }[v]; b.dataset.id = v; b.onclick = () => { variant = v; techOpen = false; render(); }; $("vars").append(b); }
+for (const v of ["E", "D", "A", "B", "C"]) { const b = document.createElement("button"); b.textContent = { E: "E · Pannello + 8-bit ★", D: "D · Pannello + doodle", A: "A · Pannello", B: "B · Sviluppatore", C: "C · Rana" }[v]; b.dataset.id = v; b.onclick = () => { variant = v; techOpen = false; render(); }; $("vars").append(b); }
 for (const [id, label] of [["expand", "Testo espanso"], ["dialog", "Dialog"]]) { const b = document.createElement("button"); b.textContent = label; b.dataset.id = id; b.onclick = () => { detailMode = id; techOpen = true; render(); }; $("dmode").append(b); }
 render();
 </script>
