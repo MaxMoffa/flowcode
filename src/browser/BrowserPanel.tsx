@@ -34,7 +34,7 @@ import {
   useBrowser,
   type PreviewPage,
 } from "./browserStore";
-import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView } from "./nativeView";
+import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView, useNativeThemeBackground } from "./nativeView";
 import { useViewportCovered } from "./useViewportCovered";
 import "./browser-panel.css";
 
@@ -551,6 +551,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
   const insetBottom = (toast || diagToast) && urlPage ? TOAST_INSET : 0;
 
+  useNativeThemeBackground();
   useNativeBrowserView({
     viewportRef,
     pageId: urlId ?? "",

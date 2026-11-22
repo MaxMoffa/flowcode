@@ -15,6 +15,30 @@ export interface ViewportState {
   covered: boolean;
 }
 
+/** An overlay smaller than this on either side is a handle, a glow or a stroke, not a menu. */
+const MIN_OVERLAY_PX = 12;
+/** Ancestors this transparent (fading out, invisible hit areas) don't count as covering. */
+const MIN_OPACITY = 0.05;
+
+/**
+ * Whether the element found over the viewport is a real overlay (a menu, a
+ * dialog...) rather than something that only happens to be hit there:
+ * splitter grab zones and edge glows reaching over the panel, elements fading
+ * out at opacity 0, invisible hit areas. Those used to freeze and re-show the
+ * page for nothing, which read as a jump.
+ */
+function isRealOverlay(top: Element): boolean {
+  let root: Element | null = null;
+  for (let n: Element | null = top; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if (Number(cs.opacity) < MIN_OPACITY || cs.visibility === "hidden") return false;
+    // The outermost positioned box is the overlay itself (an icon inside a menu item may be positioned too).
+    if (cs.position === "fixed" || cs.position === "absolute") root = n;
+  }
+  const r = (root ?? top).getBoundingClientRect();
+  return r.width >= MIN_OVERLAY_PX && r.height >= MIN_OVERLAY_PX;
+}
+
 function sample(el: HTMLElement): ViewportState {
   if (!el.isConnected || el.closest(".is-hidden")) return { visible: false, covered: false };
   const r = el.getBoundingClientRect();
@@ -25,7 +49,7 @@ function sample(el: HTMLElement): ViewportState {
     for (const x of xs) {
       const top = document.elementFromPoint(x, y);
       // Outside the window, or the viewport's own content (load bar, freeze frame, toast).
-      if (!top || el.contains(top) || top.closest("[data-cover-ignore]")) continue;
+      if (!top || el.contains(top) || top.closest("[data-cover-ignore]") || !isRealOverlay(top)) continue;
       return { visible: true, covered: true };
     }
   }

@@ -35,6 +35,8 @@ export const nativeView = {
   devtools: (pageId: string) => invoke<void>("browser_view_devtools", { pageId }),
   /** Clears cookies/storage of the shared browser profile (needs a live view for `pageId`). */
   clearData: (pageId: string) => invoke<void>("browser_view_clear_data", { pageId }),
+  /** Colour (`#rrggbb`) the views paint while a page loads, instead of white. */
+  theme: (color: string) => placed(() => invoke<void>("browser_view_theme", { color })),
   /** PNG data URL of what the view shows now (Windows only; null elsewhere or when the capture failed). */
   snapshot: (pageId: string) => invoke<string | null>("browser_view_snapshot", { pageId }),
   /** `<origin>/favicon.ico` of a public site as a data URL, or null. */
@@ -272,4 +274,39 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     if (currentRef.current === url) return;
     void nativeView.navigate(pageId, url).catch((e) => rejectedCb.current?.(String(e)));
   }, [live, pageId, url]);
+}
+
+/** The theme's surface as `#rrggbb` (the panels' colour without their transparency). */
+function themeSurfaceHex(): string | null {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--surface-rgb").trim();
+  const parts = raw.split(/[\s,/]+/).filter(Boolean).slice(0, 3).map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  return "#" + parts.map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Keeps the native views' loading colour on the user's theme: palette, light/dark
+ * and contrast all land on :root (attributes or inline vars), so watch those.
+ */
+export function useNativeThemeBackground(): void {
+  useEffect(() => {
+    let sent: string | null = null;
+    let raf = 0;
+    const send = () => {
+      raf = 0;
+      const hex = themeSurfaceHex();
+      if (!hex || hex === sent) return;
+      sent = hex;
+      void nativeView.theme(hex).catch(() => {});
+    };
+    send();
+    const mo = new MutationObserver(() => {
+      if (!raf) raf = requestAnimationFrame(send);
+    });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class", "data-theme", "data-palette"] });
+    return () => {
+      mo.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 }

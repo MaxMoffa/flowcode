@@ -68,9 +68,39 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::window::Color;
 use tauri::{
     AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl, Window,
 };
+
+/// The app theme's surface colour (`browser_view_theme`): painted by a child
+/// while a page loads, so a navigation or a new view never flashes white over
+/// a dark theme. Pages get the white a browser gives them once they loaded
+/// (a page without its own background must stay readable).
+static THEME_BG: Mutex<Option<Color>> = Mutex::new(None);
+const LOADED_BG: Color = Color(255, 255, 255, 255);
+
+fn theme_bg() -> Option<Color> {
+    *lock(&THEME_BG)
+}
+
+/// `#rrggbb` → opaque colour.
+fn parse_hex_color(s: &str) -> Option<Color> {
+    let h = s.strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let c = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+    Some(Color(c(0)?, c(2)?, c(4)?, 255))
+}
+
+/// Sets the colour children paint while loading (see `THEME_BG`).
+#[tauri::command]
+pub async fn browser_view_theme(color: String) -> Result<(), String> {
+    let c = parse_hex_color(&color).ok_or_else(|| format!("bad colour {color}"))?;
+    *lock(&THEME_BG) = Some(c);
+    Ok(())
+}
 
 /// Live children kept per window; the least recently shown is destroyed past this.
 const MAX_LIVE: usize = 4;
@@ -300,6 +330,9 @@ fn build_child(
 
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url));
     builder = builder.devtools(true);
+    if let Some(c) = theme_bg() {
+        builder = builder.background_color(c);
+    }
     if let Ok(dir) = app.path().app_local_data_dir() {
         builder = builder.data_directory(dir.join("browser-profile"));
     }
@@ -321,10 +354,18 @@ fn build_child(
 
     {
         let (app, win, pid, note) = (app.clone(), win.clone(), page_id.to_string(), note_url.clone());
-        builder = builder.on_page_load(move |_, payload| {
+        builder = builder.on_page_load(move |wv, payload| {
             let state = match payload.event() {
-                PageLoadEvent::Started => "started",
-                PageLoadEvent::Finished => "finished",
+                PageLoadEvent::Started => {
+                    if let Some(c) = theme_bg() {
+                        let _ = wv.set_background_color(Some(c));
+                    }
+                    "started"
+                }
+                PageLoadEvent::Finished => {
+                    let _ = wv.set_background_color(Some(LOADED_BG));
+                    "finished"
+                }
             };
             note(payload.url().as_str());
             emit(
@@ -871,6 +912,14 @@ pub fn forget_window(app: &AppHandle, window: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hex_colours() {
+        assert!(matches!(super::parse_hex_color("#1a2B3c"), Some(tauri::window::Color(0x1a, 0x2b, 0x3c, 255))));
+        assert!(super::parse_hex_color("1a2b3c").is_none());
+        assert!(super::parse_hex_color("#fff").is_none());
+        assert!(super::parse_hex_color("#gg0000").is_none());
+    }
+
     use super::*;
 
     #[test]
