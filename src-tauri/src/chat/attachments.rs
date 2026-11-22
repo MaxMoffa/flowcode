@@ -233,8 +233,10 @@ pub(super) fn shown_image(a: &Attachment) -> Option<UserImage> {
 mod tests {
     #[test]
     fn staging_tracks_quota_and_unstage_frees_it() {
-        let root = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        // A private base of our own: the root is created 0700 by `stage_in` (temp itself belongs to root on unix).
+        let base = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
+        crate::chat_images::create_private_dir(&base).unwrap();
+        let root = base.join("attachments");
         let age = std::time::Duration::from_secs(3 * 24 * 60 * 60);
         let mut total = None;
         let (id, file) = super::stage_in(&root, &mut total, age, "a.txt", b"hello").unwrap();
@@ -247,13 +249,15 @@ mod tests {
         assert!(!file.exists());
         super::unstage_in(&root, &mut total, &uuid::Uuid::new_v4().to_string()).unwrap();
         assert_eq!(total, Some(0));
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn stale_uploads_are_purged_before_refusing() {
-        let root = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        // A private base of our own: the root is created 0700 by `stage_in` (temp itself belongs to root on unix).
+        let base = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
+        crate::chat_images::create_private_dir(&base).unwrap();
+        let root = base.join("attachments");
         let mut total = Some(super::MAX_ATTACHMENTS_TOTAL);
         let (old, _) = super::stage_in(&root, &mut Some(0), std::time::Duration::ZERO, "a.txt", b"x").unwrap();
         // The counter says full: with nothing old enough the stage is refused...
@@ -264,7 +268,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         super::stage_in(&root, &mut full, std::time::Duration::ZERO, "c.txt", b"z").unwrap();
         assert!(!root.join(&old).exists());
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

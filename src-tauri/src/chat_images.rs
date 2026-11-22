@@ -42,7 +42,8 @@ fn dir() -> PathBuf {
 /// readable live under it.
 pub(crate) fn private_base() -> PathBuf {
     let store = dir();
-    store.parent().map_or_else(std::env::temp_dir, Path::to_path_buf)
+    // Before `init` (tests): a folder of this process inside temp, never the shared temp root itself.
+    store.parent().map_or_else(|| std::env::temp_dir().join(format!("flowcode-private-{}", std::process::id())), Path::to_path_buf)
 }
 
 /// Creates `dir` (and parents), mode 0700 on unix.
