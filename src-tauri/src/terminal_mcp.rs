@@ -136,6 +136,11 @@ impl TerminalMcp {
         &self.env
     }
 
+    /// Whether the tab may use `open_in_browser`: then what its processes open is routed through Flowcode.
+    pub(crate) fn opens(&self) -> bool {
+        self.tools.contains(&OPEN)
+    }
+
     pub(crate) fn info(&self) -> Info {
         Info { tools: self.tools.clone(), cfg: self.cfg.clone(), cwd: self.cwd.clone(), wsl: self.wsl.clone() }
     }
@@ -207,6 +212,11 @@ fn write_wsl_shell(app: &AppHandle) -> Option<(String, String)> {
     write_if_changed(&root.join("bashrc"), &lf(BASHRC)).ok()?;
     for cli in ["claude", "codex"] {
         write_if_changed(&bin.join(cli), &shim).ok()?;
+    }
+    // Openers that hand a page to Flowcode's browser settings (see browser_open.rs); BROWSER points to `flowcode-open`.
+    let opener = crate::browser_open::shim_script();
+    for name in crate::browser_open::WSL_NAMES {
+        write_if_changed(&bin.join(name), &opener).ok()?;
     }
     Some((crate::chat::to_wsl_path(shell.to_str()?)?, crate::chat::to_wsl_path(bin.to_str()?)?))
 }

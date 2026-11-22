@@ -541,11 +541,21 @@ pub fn pty_spawn(
         for (k, v) in crate::profiles::env_for(&app, profile.as_deref()) {
             cmd.env(k, v);
         }
-        if let Some(path) = crate::provider_launcher::install(&app, profile.as_deref())? { cmd.env("PATH", path); }
+        let mut base_path = None;
+        if let Some(path) = crate::provider_launcher::install(&app, profile.as_deref())? {
+            cmd.env("PATH", &path);
+            base_path = Some(path);
+        }
         // The shims above turn these into the agent CLIs' flags.
         mcp = tools.as_ref().and_then(|cfg| crate::terminal_mcp::TerminalMcp::new(&app, &id, cfg, cwd_for_mcp.as_deref()));
         for (k, v) in mcp.iter().flat_map(|m| m.env()) {
             cmd.env(k, v);
+        }
+        // Pages the tab's processes open go to Flowcode's browser settings: BROWSER and openers on PATH.
+        if mcp.as_ref().is_some_and(|m| m.opens()) {
+            for (k, v) in crate::browser_open::native_env(&app, base_path) {
+                cmd.env(k, v);
+            }
         }
     } else if let Some(cfg) = tools.as_ref() {
         let posix_cwd = match &wsl_unc {

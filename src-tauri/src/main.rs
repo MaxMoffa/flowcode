@@ -4,5 +4,6 @@
 fn main() {
     flowcode_lib::run_gpu_probe();
     flowcode_lib::run_provider_cli();
+    flowcode_lib::run_browser_open();
     flowcode_lib::run()
 }

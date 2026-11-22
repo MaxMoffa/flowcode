@@ -588,7 +588,7 @@ fn wsl_codex_cached(distro: Option<&str>) -> Option<String> {
 
 /// Starts the agent's ACP server in `cwd` with its pipes open - inside the
 /// distro of `wsl` when given, else as a Windows process.
-pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>, wsl_tag: Option<&str>) -> Result<(Child, String), String> {
+pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>, wsl_tag: Option<&str>, open_token: Option<&str>) -> Result<(Child, String), String> {
     let (program, args) = launch_command(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
     #[cfg(target_os = "windows")]
     if let Some(wsl) = wsl {
@@ -601,17 +601,41 @@ pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Opti
         }
         // `--exec`: without it wsl.exe runs the line through the default shell, which expands the script's `$`.
         // `-l` but not `-i`: a login shell finds node (nvm...), while an interactive one lets .bashrc print into the ACP stream.
-        let script = format!("printf 'FLOWCODE_PROCESS_GROUP=%s\\n' \"$$\" >&2; {script}");
+        // Pages the agent's processes open go to Flowcode's browser settings (browser_open.rs): the
+        // request folder and token travel in WSLENV, the openers and BROWSER are set by the script itself.
+        let mut wsl_names: Vec<&str> = Vec::new();
+        let mut opener_setup = String::new();
+        if let Some(token) = open_token {
+            let bin = crate::terminal_mcp::wsl_shell(app).map(|(_, bin)| bin).filter(|bin| !bin.contains(['\'', '"', '$', '`', '\\', '\n']));
+            if let (Some(bin), Some(route)) = (bin, crate::chat_mcp::open_route_env(app, token, true)) {
+                for (k, v) in route {
+                    cmd.env(k, v);
+                    wsl_names.push(k);
+                }
+                opener_setup = format!("export PATH='{bin}':\"$PATH\" BROWSER=flowcode-open; ");
+            }
+        }
+        let script = format!("printf 'FLOWCODE_PROCESS_GROUP=%s\\n' \"$$\" >&2; {opener_setup}{script}");
         cmd.arg("--cd").arg(&wsl.cwd).arg("--exec").args(["setsid", "bash", "-lc"]).arg(script);
         // Tags every process of the agent (WSLENV carries it in) so they can be
         // swept by it when the group kill can't reach them (see `kill_wsl_group`).
         if let Some(tag) = wsl_tag {
             cmd.env(WSL_TAG_ENV, tag);
-            let wslenv = std::env::var("WSLENV").unwrap_or_default();
-            if !wslenv.split(':').any(|v| v.split('/').next() == Some(WSL_TAG_ENV)) {
-                let joined = if wslenv.is_empty() { format!("{WSL_TAG_ENV}/u") } else { format!("{wslenv}:{WSL_TAG_ENV}/u") };
-                cmd.env("WSLENV", joined);
+            wsl_names.push(WSL_TAG_ENV);
+        }
+        let mut wslenv = std::env::var("WSLENV").unwrap_or_default();
+        let mut changed = false;
+        for name in wsl_names {
+            if !wslenv.split(':').any(|v| v.split('/').next() == Some(name)) {
+                if !wslenv.is_empty() {
+                    wslenv.push(':');
+                }
+                wslenv.push_str(&format!("{name}/u"));
+                changed = true;
             }
+        }
+        if changed {
+            cmd.env("WSLENV", wslenv);
         }
         // No profile env: it holds Windows paths, meaningless in the distro (as for the terminals).
         cmd.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -678,6 +702,16 @@ pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Opti
     }
     for (k, v) in env {
         cmd.env(k, v);
+    }
+    // Pages the agent's processes open go to Flowcode's browser settings (browser_open.rs).
+    if let Some(route) = open_token.and_then(|token| crate::chat_mcp::open_route_env(app, token, false)) {
+        let path = cmd.get_envs().find(|(k, _)| *k == "PATH").and_then(|(_, v)| v).map(std::ffi::OsString::from);
+        for (k, v) in route {
+            cmd.env(k, v);
+        }
+        for (k, v) in crate::browser_open::native_env(app, path) {
+            cmd.env(k, v);
+        }
     }
     let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
     crate::process_job::assign(child.id());
@@ -987,19 +1021,33 @@ pub(super) fn start_once(
     let wsl = wsl_target(&cwd, shell.as_deref());
     let wsl_tag = wsl.is_some().then(|| uuid::Uuid::new_v4().to_string());
     let t_spawn = std::time::Instant::now();
-    let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref(), wsl_tag.as_deref())?;
+    // The token exists before the agent does: its processes carry it to ask Flowcode to open pages (browser_open.rs).
+    let chat_id = uuid::Uuid::new_v4().to_string();
+    let depth = u8::from(extras.link.is_some());
+    let tools_given = crate::chat_mcp::enabled_tools(&extras.tools, depth);
+    let token = (!tools_given.is_empty()).then(|| crate::chat_mcp::register(&chat_id, depth));
+    let open_token = token.as_deref().filter(|_| tools_given.contains(&crate::chat_mcp::OPEN));
+    let (mut child, line) = match spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref(), wsl_tag.as_deref(), open_token) {
+        Ok(started) => started,
+        Err(e) => {
+            if let Some(token) = &token {
+                crate::chat_mcp::unregister(token);
+            }
+            return Err(e);
+        }
+    };
     eprintln!("chat: timing {agent} spawn {} ms (gate held: {}, wsl: {})", t_spawn.elapsed().as_millis(), gate.is_some(), wsl.is_some());
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
+        if let Some(token) = &token {
+            crate::chat_mcp::unregister(token);
+        }
         kill_tree(child.id());
         let _ = child.kill();
         let _ = child.wait();
         return Err(format!("could not open the pipes of `{line}`"));
     };
     let job = crate::process_job::TreeJob::new(child.id());
-    let chat_id = uuid::Uuid::new_v4().to_string();
-    let depth = u8::from(extras.link.is_some());
-    let token = (!crate::chat_mcp::enabled_tools(&extras.tools, depth).is_empty()).then(|| crate::chat_mcp::register(&chat_id, depth));
     let (replies, queued) = mpsc::sync_channel(REPLY_QUEUE);
     let chat = Arc::new(Chat {
         id: chat_id.clone(),

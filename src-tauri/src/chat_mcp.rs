@@ -235,6 +235,14 @@ pub(crate) fn servers(app: &AppHandle, cfg: &ToolsConfig, depth: u8, token: &str
     }
 }
 
+/// The request folder and token a chat's agent processes carry, so the hidden open mode of the
+/// executable (`browser_open.rs`) can ask for a page to be opened like the MCP script would.
+/// Paths as the agent sees them (`wsl`: Linux paths). `None` when the folder is not set up.
+pub(crate) fn open_route_env(app: &AppHandle, token: &str, wsl: bool) -> Option<Vec<(&'static str, String)>> {
+    let dir = agent_path(&setup(app)?.dir, wsl)?;
+    Some(vec![("FLOWCODE_MCP_DIR", dir), ("FLOWCODE_MCP_TOKEN", token.to_string())])
+}
+
 /// The script and IPC folder, for the terminal tabs' own server entries.
 pub(crate) fn script_and_dir(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     setup(app).map(|s| (s.script.clone(), s.dir.clone()))
@@ -307,12 +315,72 @@ pub(crate) fn check_deadline(deadline_ms: Option<u64>, now: u64) -> Result<(), S
 fn dispatch(app: &AppHandle, request: Request) -> Result<String, String> {
     check_deadline(request.deadline_ms, crate::util::now_ms())?;
     let caller = registry().caller(&request.token).ok_or("unknown or expired token")?;
-    match &caller.owner {
+    // The same page asked twice in a moment (a shim and the tool, a dev server's own open and the tool) opens once.
+    let opened = (request.tool == OPEN).then(|| request.args.get("target").and_then(Value::as_str).map(|t| (request.token.clone(), normalize_target(t)))).flatten();
+    if let Some(key) = &opened {
+        if recent_opens().seen(key, std::time::Instant::now()) {
+            return Ok("Already shown to the user in Flowcode a moment ago.".to_string());
+        }
+    }
+    let result = match &caller.owner {
         Owner::Chat(_) => crate::chat::delegate::mcp_call(app, &caller, &request.tool, &request.args, request.deadline_ms),
         Owner::Terminal(pty_id) => {
             crate::terminal_mcp::call(app, pty_id, &request.tool, &request.args, request.cwd.as_deref(), request.agent.as_deref(), request.deadline_ms)
         }
+    };
+    if let (Err(_), Some(key)) = (&result, &opened) {
+        // A refused open must not stop the retry that fixes it.
+        recent_opens().forget(key);
     }
+    result
+}
+
+/// How long a page just opened for a token is not opened again.
+const OPEN_DEDUP: Duration = Duration::from_secs(10);
+
+/// What makes two open requests the same page: the scheme and host in lower case, no fragment, no
+/// trailing slash on a bare host; a file path with one kind of slash (and lower case on Windows).
+fn normalize_target(target: &str) -> String {
+    let target = target.trim();
+    let lower = target.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        let without_fragment = target.split('#').next().unwrap_or(target);
+        let (scheme, rest) = without_fragment.split_once("://").unwrap_or(("", without_fragment));
+        let host_end = rest.find(['/', '?']).unwrap_or(rest.len());
+        let (host, tail) = rest.split_at(host_end);
+        let tail = if tail == "/" { "" } else { tail };
+        return format!("{}://{}{tail}", scheme.to_ascii_lowercase(), host.to_ascii_lowercase());
+    }
+    let path = target.replace('\\', "/");
+    if cfg!(windows) { path.to_ascii_lowercase() } else { path }
+}
+
+/// The pages recently opened, by `(token, normalized target)`.
+#[derive(Default)]
+struct RecentOpens {
+    seen: Mutex<HashMap<(String, String), std::time::Instant>>,
+}
+
+impl RecentOpens {
+    /// Whether `key` was opened within `OPEN_DEDUP` of `now`; when not, it is recorded as opened at `now`.
+    fn seen(&self, key: &(String, String), now: std::time::Instant) -> bool {
+        let mut seen = lock(&self.seen);
+        seen.retain(|_, at| now.saturating_duration_since(*at) < OPEN_DEDUP);
+        if seen.contains_key(key) {
+            return true;
+        }
+        seen.insert(key.clone(), now);
+        false
+    }
+
+    fn forget(&self, key: &(String, String)) {
+        lock(&self.seen).remove(key);
+    }
+}
+
+fn recent_opens() -> &'static RecentOpens {
+    static RECENT: OnceLock<RecentOpens> = OnceLock::new();
+    RECENT.get_or_init(RecentOpens::default)
 }
 
 fn write_atomic(dir: &Path, name: &str, body: &str) -> std::io::Result<()> {
@@ -896,6 +964,28 @@ mod tests {
         assert!(InFlight::enter(&counter).is_none());
         drop(held);
         assert!(InFlight::enter(&counter).is_some());
+    }
+
+    #[test]
+    fn the_same_page_for_the_same_token_opens_once_in_ten_seconds() {
+        use std::time::Instant;
+        let recent = RecentOpens::default();
+        let key = |token: &str, target: &str| (token.to_string(), normalize_target(target));
+        let start = Instant::now();
+        assert!(!recent.seen(&key("a", "http://localhost:5173"), start));
+        // Same page spelled differently, same token: acknowledged, not opened again.
+        assert!(recent.seen(&key("a", "HTTP://LocalHost:5173/"), start + Duration::from_secs(3)));
+        assert!(recent.seen(&key("a", "http://localhost:5173/#top"), start + Duration::from_secs(9)));
+        // Another token, another path or query is another open.
+        assert!(!recent.seen(&key("b", "http://localhost:5173"), start + Duration::from_secs(3)));
+        assert!(!recent.seen(&key("a", "http://localhost:5173/docs"), start + Duration::from_secs(3)));
+        assert!(!recent.seen(&key("a", "http://localhost:5173/?x=1"), start + Duration::from_secs(3)));
+        // After the window it opens again; a refused open is forgotten at once.
+        assert!(!recent.seen(&key("a", "http://localhost:5173"), start + Duration::from_secs(11)));
+        recent.forget(&key("a", "http://localhost:5173"));
+        assert!(!recent.seen(&key("a", "http://localhost:5173"), start + Duration::from_secs(12)));
+        assert_eq!(normalize_target("C:\\Repo\\A.html").to_lowercase(), "c:/repo/a.html");
+        assert_eq!(normalize_target("https://Ex.com/Path?Q=1#f"), "https://ex.com/Path?Q=1");
     }
 
     #[test]

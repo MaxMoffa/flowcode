@@ -11,3 +11,8 @@ if [ -n "$FLOWCODE_SHIM_DIR" ]; then
   esac
   export PATH
 fi
+# Pages that tools open (dev servers, `python -m webbrowser`...) go to Flowcode's browser settings
+# when the tab may use its browser tool; flowcode-open is one of the shims above.
+case ",$FLOWCODE_MCP_TOOLS," in
+  *,open_in_browser,*) [ -n "$FLOWCODE_SHIM_DIR" ] && export BROWSER=flowcode-open ;;
+esac

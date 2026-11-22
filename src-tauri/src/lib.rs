@@ -22,6 +22,8 @@ mod mem_watch;
 mod process_job;
 mod provider_launcher;
 pub use provider_launcher::run_if_requested as run_provider_cli;
+mod browser_open;
+pub use browser_open::run_if_requested as run_browser_open;
 mod provider_auth;
 mod provider_auth_keys;
 mod preview;
@@ -350,6 +352,7 @@ pub fn run() {
             preview::preview_file_mtime,
             system::system_info,
             system::open_with_default_app,
+            system::open_in_system_browser,
             system::wsl_default_distro,
             system::wsl_home_dir,
             system::powershell_history,
