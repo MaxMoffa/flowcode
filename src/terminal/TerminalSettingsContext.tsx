@@ -155,7 +155,7 @@ const readConfirmLinks = (key: string) => readBool(key, true);
 const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "never"], "never");
 const readChatWebImages = (key: string) => readBool(key, false);
 const readChatMcpIcons = (key: string) => readBool(key, true);
-const readTabOffscreenGlow = (key: string) => readBool(key, false);
+const readTabOffscreenGlow = (key: string) => readBool(key, true);
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
 const readNewTabPage = (key: string) => readBool(key, true);
 
