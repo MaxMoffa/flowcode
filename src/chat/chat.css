@@ -156,34 +156,60 @@
   color: var(--fg-muted);
 }
 
-.chat-status-text {
+/* The agent's state on the context ring: blue with a halo while working, yellow while waiting
+ * for a permission, faded once closed (a full context keeps its red ring). */
+.chat-status {
   flex: 0 0 auto;
-  color: var(--fg-muted);
-  font-size: 12px;
+  display: inline-flex;
 }
 
-.chat-status-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--fg-muted);
-  opacity: 0.6;
+.chat-status.is-busy .agent-pill:not(.is-warn) .agent-pill-progress {
+  stroke: var(--ansi-bright-blue, var(--accent));
 }
 
-.chat-status-dot.is-busy {
-  background: var(--ansi-bright-blue, var(--accent));
-  opacity: 1;
+.chat-status.is-busy .agent-pill {
+  position: relative;
 }
 
-.chat-status-dot.is-waiting {
-  background: var(--ansi-bright-yellow);
-  opacity: 1;
+.chat-status.is-busy .agent-pill::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1.5px solid var(--ansi-bright-blue, var(--accent));
+  opacity: 0;
+  pointer-events: none;
+  animation: chat-status-halo 1.6s ease-in-out infinite;
 }
 
-.chat-status-dot.is-exited {
-  background: var(--danger);
-  opacity: 1;
+@keyframes chat-status-halo {
+  50% { opacity: 0.55; }
+}
+
+.chat-status.is-waiting .agent-pill {
+  border-color: var(--ansi-bright-yellow);
+}
+
+.chat-status.is-waiting .agent-pill:not(.is-warn) .agent-pill-progress {
+  stroke: var(--ansi-bright-yellow);
+}
+
+.chat-status.is-exited .agent-pill,
+.chat-status.is-starting .agent-pill {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-status.is-busy .agent-pill::after { animation: none; opacity: 0.45; }
+}
+
+.chat-status-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* --- session menu ------------------------------------------------------- */

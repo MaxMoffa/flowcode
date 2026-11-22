@@ -79,9 +79,13 @@ export function AgentHeader({ icon, title, subtitle, status, children, keepFocus
           )}
         </span>
       )}
-      {extra}
-      <span className="chat-status-text">{t(`chat.status.${status}`)}</span>
-      <span className={`chat-status-dot is-${status}`} aria-hidden="true" />
+      {/* The agent's state shows on the context ring (variant C of docs/design/chat-header-status-variants.html). */}
+      <span className={`chat-status is-${status}`} title={t(`chat.status.${status}`)}>
+        {extra}
+      </span>
+      <span className="chat-status-sr" role="status">
+        {t(`chat.status.${status}`)}
+      </span>
     </div>
   );
 }

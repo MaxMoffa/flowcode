@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — header chat senza stato testuale: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --yellow:#e0c060; --red:#e07a6a; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --yellow:#a67a14; --red:#b8483a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:980px}
+.sub code,.note code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:8px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(420px,560px));gap:28px 32px;align-items:start}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);min-height:58px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.cur{display:inline-block;font-size:11px;background:var(--track);color:var(--fg-muted);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+.chat{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);display:flex;flex-direction:column;height:250px}
+.head{height:46px;display:flex;align-items:center;gap:8px;padding:0 14px 0 14px;border-bottom:1px solid var(--border);font-size:14.5px;flex:none}
+.sess{display:inline-flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;margin-right:auto;min-width:0}
+.sess .ic{width:18px;height:18px;border-radius:5px;background:#d97757;flex:none}
+.sess b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .chev{color:var(--fg-muted);font-size:10px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:999px;background:var(--surface2);font-size:12px;color:var(--fg-muted);position:relative}
+.ring{width:16px;height:16px}
+.ring .tr{stroke:var(--track)}
+.ring .pr{stroke:var(--accent);stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
+.stext{color:var(--fg-muted);font-size:12px}
+.sdot{width:8px;height:8px;border-radius:50%;background:var(--fg-muted);opacity:.6;flex:none}
+.is-busy .sdot{background:var(--blue);opacity:1}
+.is-waiting .sdot{background:var(--yellow);opacity:1}
+.is-exited .sdot{background:var(--red);opacity:1}
+.is-starting .sdot{opacity:.35}
+
+/* B: pallino solo quando serve */
+.bdot{width:7px;height:7px;border-radius:50%;flex:none;display:none}
+.is-busy .bdot{display:block;background:var(--blue);animation:pulse 1.3s ease-in-out infinite}
+.is-waiting .bdot{display:block;background:var(--yellow)}
+.is-exited .bdot{display:block;background:var(--red)}
+@keyframes pulse{50%{opacity:.35}}
+
+/* C: stato sull'anello del contesto */
+.is-busy .pill.c .pr{stroke:var(--blue)}
+.is-busy .pill.c::after{content:"";position:absolute;inset:-2px;border-radius:999px;border:1.5px solid var(--blue);opacity:.0;animation:halo 1.6s ease-in-out infinite}
+@keyframes halo{50%{opacity:.55}}
+.is-waiting .pill.c{box-shadow:inset 0 0 0 1.5px var(--yellow)}
+.is-waiting .pill.c .pr{stroke:var(--yellow)}
+.is-exited .pill.c{opacity:.55}
+
+.body{flex:1;padding:14px 18px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.msg{color:var(--fg-muted);font-size:13px}
+.msg b{color:var(--fg)}
+.line{height:9px;background:var(--hover);border-radius:4px}
+.perm{display:none;border:1px solid color-mix(in srgb,var(--yellow) 50%,var(--border));border-radius:9px;padding:8px 10px;font-size:12px;background:color-mix(in srgb,var(--yellow) 8%,var(--surface))}
+.is-waiting .perm{display:block}
+.ended{display:none;font-size:12px;color:var(--fg-muted);border-top:1px dashed var(--border);padding-top:8px}
+.is-exited .ended{display:block}
+.comp{flex:none;margin:0 12px 12px;border:1px solid var(--border);border-radius:12px;height:44px;display:flex;align-items:center;padding:0 8px 0 12px;color:var(--fg-muted);font-size:12.5px;position:relative;overflow:hidden}
+.comp .send{margin-left:auto;width:28px;height:28px;border-radius:8px;background:var(--accent);display:grid;place-items:center;color:#17210f;font-size:13px}
+.is-busy .comp .send{background:var(--red);color:#fff}
+.is-busy .comp::before{content:"";position:absolute;left:0;top:0;height:2px;width:30%;background:var(--blue);animation:sweep 1.4s linear infinite}
+@keyframes sweep{0%{left:-30%}100%{left:100%}}
+.is-exited .comp{opacity:.5}
+
+.note{margin-top:28px;max-width:1150px;color:var(--fg-muted);line-height:1.55}
+.note h3{color:var(--fg);font-size:14px;margin:16px 0 6px}
+.note li{margin:3px 0}
+</style>
+</head>
+<body>
+<h1>Header della chat: senza "Pronto / Al lavoro" + pallino</h1>
+<p class="sub">Oggi accanto alla percentuale di contesto c'è il testo di stato (<code>Avvio… / Pronto / Al lavoro / In attesa di permesso / Chiuso</code>) con un pallino (<code>AgentHeader.tsx</code>). Lo stato si vede già altrove: barra animata e pulsante stop nel composer quando lavora, card di permesso nella chat quando aspetta, stagno/chiusura quando finisce, glow della scheda. Cambia stato per confrontare.</p>
+
+<div class="bar">
+  <span class="lab">Stato agente:</span>
+  <button data-s="is-starting">Avvio</button>
+  <button data-s="is-idle" class="on">Pronto</button>
+  <button data-s="is-busy">Al lavoro</button>
+  <button data-s="is-waiting">In attesa di permesso</button>
+  <button data-s="is-exited">Chiuso</button>
+  <span class="lab">Tema:</span>
+  <button id="theme">Chiaro / scuro</button>
+</div>
+
+<div class="grid" id="grid">
+
+<div class="col">
+  <h2>Oggi <span class="cur">attuale</span></h2>
+  <p class="d">Testo + pallino sempre visibili, anche quando non dicono nulla ("Pronto").</p>
+  <div class="chat st">
+    <div class="head">
+      <div class="sess"><span class="ic"></span><b>flowcode</b><span class="chev">▾</span></div>
+      <span class="pill"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><circle class="pr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4" stroke-dasharray="37.7" stroke-dashoffset="24"/></svg>36%</span>
+      <span class="stext" data-text></span><span class="sdot"></span>
+    </div>
+    <div class="body"><div class="msg"><b>Tu:</b> sistema il bug del login</div><div class="line" style="width:80%"></div><div class="line" style="width:60%"></div><div class="perm">Claude vuole eseguire <b>npm test</b> · Consenti / Nega</div><div class="ended">La sessione è terminata.</div></div>
+    <div class="comp">Scrivi un messaggio…<span class="send">↑</span></div>
+  </div>
+</div>
+
+<div class="col">
+  <h2>A · Niente stato nell'header <span class="rec">consigliata</span></h2>
+  <p class="d">Solo titolo e percentuale. Lo stato resta dove serve: composer (barra + stop), card di permesso, fine sessione. Header più pulito, nessuna informazione persa.</p>
+  <div class="chat st">
+    <div class="head">
+      <div class="sess"><span class="ic"></span><b>flowcode</b><span class="chev">▾</span></div>
+      <span class="pill"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><circle class="pr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4" stroke-dasharray="37.7" stroke-dashoffset="24"/></svg>36%</span>
+    </div>
+    <div class="body"><div class="msg"><b>Tu:</b> sistema il bug del login</div><div class="line" style="width:80%"></div><div class="line" style="width:60%"></div><div class="perm">Claude vuole eseguire <b>npm test</b> · Consenti / Nega</div><div class="ended">La sessione è terminata.</div></div>
+    <div class="comp">Scrivi un messaggio…<span class="send">↑</span></div>
+  </div>
+</div>
+
+<div class="col">
+  <h2>B · Solo pallino, solo quando serve</h2>
+  <p class="d">Niente testo; il pallino compare solo se l'agente lavora (blu pulsante), aspetta (giallo) o è chiuso (rosso). Da "Pronto" sparisce. Il testo resta nel tooltip.</p>
+  <div class="chat st">
+    <div class="head">
+      <div class="sess"><span class="ic"></span><b>flowcode</b><span class="chev">▾</span></div>
+      <span class="pill"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><circle class="pr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4" stroke-dasharray="37.7" stroke-dashoffset="24"/></svg>36%</span>
+      <span class="bdot" data-tip></span>
+    </div>
+    <div class="body"><div class="msg"><b>Tu:</b> sistema il bug del login</div><div class="line" style="width:80%"></div><div class="line" style="width:60%"></div><div class="perm">Claude vuole eseguire <b>npm test</b> · Consenti / Nega</div><div class="ended">La sessione è terminata.</div></div>
+    <div class="comp">Scrivi un messaggio…<span class="send">↑</span></div>
+  </div>
+</div>
+
+<div class="col">
+  <h2>C · Stato sull'anello del contesto</h2>
+  <p class="d">Nessun elemento in più: l'anello della percentuale diventa blu con un alone mentre lavora, giallo in attesa, sbiadito da chiuso. Più compatto di B ma meno leggibile a colpo d'occhio.</p>
+  <div class="chat st">
+    <div class="head">
+      <div class="sess"><span class="ic"></span><b>flowcode</b><span class="chev">▾</span></div>
+      <span class="pill c"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><circle class="pr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4" stroke-dasharray="37.7" stroke-dashoffset="24"/></svg>36%</span>
+    </div>
+    <div class="body"><div class="msg"><b>Tu:</b> sistema il bug del login</div><div class="line" style="width:80%"></div><div class="line" style="width:60%"></div><div class="perm">Claude vuole eseguire <b>npm test</b> · Consenti / Nega</div><div class="ended">La sessione è terminata.</div></div>
+    <div class="comp">Scrivi un messaggio…<span class="send">↑</span></div>
+  </div>
+</div>
+</div>
+
+<div class="note">
+<h3>Note</h3>
+<ul>
+<li>L'header è condiviso da chat e header agente sopra i terminali (<code>AgentHeader.tsx</code>): la scelta vale per entrambi.</li>
+<li>Con A, l'unico stato senza altro segnale è "Avvio…": oggi la chat mostra già il caricamento (ghost/skeleton) finché l'agente non è pronto.</li>
+<li>Accessibilità: con A/B/C lo stato resta annunciato agli screen reader con un testo nascosto (aria-live) nell'header.</li>
+</ul>
+</div>
+
+<script>
+const LABEL={"is-starting":"Avvio…","is-idle":"Pronto","is-busy":"Al lavoro","is-waiting":"In attesa di permesso","is-exited":"Chiuso"};
+const set=s=>{
+  document.querySelectorAll('.st').forEach(c=>{c.className='chat st '+s;});
+  document.querySelectorAll('[data-text]').forEach(e=>e.textContent=LABEL[s]);
+  document.querySelectorAll('[data-tip]').forEach(e=>e.title=LABEL[s]);
+  document.querySelectorAll('.bar [data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+};
+document.querySelectorAll('.bar [data-s]').forEach(b=>b.onclick=()=>set(b.dataset.s));
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+set('is-idle');
+</script>
+</body>
+</html>
