@@ -24,6 +24,7 @@ import { PairHostDialog } from "./remoteHosts/PairHostDialog";
 import { CrashReportDialog } from "./crash/CrashReportDialog";
 import { useDiagnosisTabEvents, type ChatDiagnosis } from "./crash/diagnosis";
 import { useBrowserDiagnosisEvents } from "./browser/browserDiagnosis";
+import { useBrowserControlBridge } from "./browser/control";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
@@ -591,6 +592,8 @@ function Shell() {
     },
   });
 
+  // Agents driving the browser's pages: answers the backend's permission questions for this window's chats and tabs.
+  useBrowserControlBridge();
   // The browser's failed-page diagnosis (a chat with the message sent, in the folder of the page's project) and its terminal.
   useBrowserDiagnosisEvents({
     openChat: (d) => {

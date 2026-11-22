@@ -61,6 +61,9 @@ pub(crate) struct ToolsConfig {
     /// `call_user`: a bubble from the agent's tab (it asks for nothing, so it never needs permission).
     pub call: bool,
     pub delegate: bool,
+    /// The `browser_*` tools (agent browser control, see `browser_control.rs`). The frontend sets it from the
+    /// "agent control" browser setting (`control != "off"`); each action is still gated by the frontend's policy.
+    pub browser_control: bool,
     /// The agents a task may be delegated to.
     pub delegate_agents: Vec<String>,
     /// Most tasks one chat may have running at once.
@@ -91,6 +94,10 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     }
     if cfg.delegate && depth == 0 && !cfg.delegate_agents.is_empty() {
         tools.extend([LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+    }
+    // Like `call_user`: a delegated child has no browser tab of its own to be given.
+    if cfg.browser_control && depth == 0 {
+        tools.extend(crate::browser_control::TOOLS);
     }
     tools
 }
@@ -312,14 +319,20 @@ pub(crate) fn check_deadline(deadline_ms: Option<u64>, now: u64) -> Result<(), S
 
 /// Serves the request of one caller: the token must be a live chat's, and the
 /// tool one that chat was given - the script's word is never enough.
-fn dispatch(app: &AppHandle, request: Request) -> Result<String, String> {
+fn dispatch(app: &AppHandle, request: Request) -> Result<ToolOutput, String> {
     check_deadline(request.deadline_ms, crate::util::now_ms())?;
     let caller = registry().caller(&request.token).ok_or("unknown or expired token")?;
+    if crate::browser_control::is_tool(&request.tool) {
+        return match &caller.owner {
+            Owner::Chat(_) => crate::chat::delegate::browser_call(app, &caller, &request.tool, &request.args, request.deadline_ms),
+            Owner::Terminal(pty_id) => crate::terminal_mcp::browser_call(app, pty_id, &request.tool, &request.args, request.agent.as_deref(), request.deadline_ms),
+        };
+    }
     // The same page asked twice in a moment (a shim and the tool, a dev server's own open and the tool) opens once.
     let opened = (request.tool == OPEN).then(|| request.args.get("target").and_then(Value::as_str).map(|t| (request.token.clone(), normalize_target(t)))).flatten();
     if let Some(key) = &opened {
         if recent_opens().seen(key, std::time::Instant::now()) {
-            return Ok("Already shown to the user in Flowcode a moment ago.".to_string());
+            return Ok("Already shown to the user in Flowcode a moment ago.".to_string().into());
         }
     }
     let result = match &caller.owner {
@@ -328,6 +341,7 @@ fn dispatch(app: &AppHandle, request: Request) -> Result<String, String> {
             crate::terminal_mcp::call(app, pty_id, &request.tool, &request.args, request.cwd.as_deref(), request.agent.as_deref(), request.deadline_ms)
         }
     };
+    let result = result.map(ToolOutput::from);
     if let (Err(_), Some(key)) = (&result, &opened) {
         // A refused open must not stop the retry that fixes it.
         recent_opens().forget(key);
@@ -389,11 +403,42 @@ fn write_atomic(dir: &Path, name: &str, body: &str) -> std::io::Result<()> {
     std::fs::rename(&tmp, dir.join(name))
 }
 
-fn write_response(dir: &Path, id: &str, result: &Result<String, String>) {
-    let body = match result {
-        Ok(text) => json!({ "ok": true, "text": text }),
+/// An image a tool answers with (the browser screenshot): base64 `data` and its MIME type.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ToolImage {
+    pub data: String,
+    pub mime_type: String,
+}
+
+/// What a tool call answers: text, and for a few tools an image next to it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ToolOutput {
+    pub text: String,
+    pub image: Option<ToolImage>,
+}
+
+impl From<String> for ToolOutput {
+    fn from(text: String) -> Self {
+        ToolOutput { text, image: None }
+    }
+}
+
+/// The response file's body: `ok` and `text` as ever (`browser_open.rs` reads `ok`), plus `image` when there is one.
+fn response_body(result: &Result<ToolOutput, String>) -> Value {
+    match result {
+        Ok(out) => {
+            let mut body = json!({ "ok": true, "text": out.text });
+            if let Some(image) = &out.image {
+                body["image"] = json!({ "data": image.data, "mimeType": image.mime_type });
+            }
+            body
+        }
         Err(error) => json!({ "ok": false, "error": error }),
-    };
+    }
+}
+
+fn write_response(dir: &Path, id: &str, result: &Result<ToolOutput, String>) {
+    let body = response_body(result);
     if let Err(e) = write_atomic(dir, &format!("res-{id}.json"), &body.to_string()) {
         eprintln!("mcp: could not answer request {id}: {e}");
     }
@@ -654,6 +699,10 @@ pub(crate) fn auto_allow(cfg: &ToolsConfig, cwd: &str, params: &Value) -> Option
     if cfg.enabled && cfg.call && is_call_user(params.get("toolCall")?) {
         return allow_once_option(params);
     }
+    // The `browser_*` tools: Flowcode's own consent card (frontend policy) is the gate, not the agent's prompt.
+    if cfg.enabled && cfg.browser_control && is_browser_call(params.get("toolCall")?) {
+        return allow_once_option(params);
+    }
     if !(cfg.enabled && cfg.open && cfg.open_auto_allow) || !is_open_call(params.get("toolCall")?) {
         return None;
     }
@@ -687,6 +736,21 @@ fn is_open_call(tool_call: &Value) -> bool {
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
     let only_target = tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| input.len() == 1 && input.contains_key("target"));
     matches!(title.as_str(), "flowcode/open_in_browser" | "tool: flowcode/open_in_browser") && only_target
+}
+
+/// Whether a permission request's tool call is one of Flowcode's `browser_*` tools, matched as strictly as
+/// `is_open_call`: Claude names it exactly; other adapters give a title, which must be exactly the tool's and
+/// the input must not look like a shell command.
+fn is_browser_call(tool_call: &Value) -> bool {
+    if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
+        return tool.strip_prefix("mcp__flowcode__").is_some_and(crate::browser_control::is_tool)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/name").and_then(Value::as_str) == Some(SERVER_NAME)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/source").and_then(Value::as_str) == Some("dynamic");
+    }
+    let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+    let name = title.strip_prefix("tool: ").unwrap_or(&title).strip_prefix("flowcode/");
+    let no_command = tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| !input.contains_key("command") && !input.contains_key("cmd"));
+    name.is_some_and(crate::browser_control::is_tool) && no_command
 }
 
 /// Whether a permission request's tool call is Flowcode's `call_user`, matched
@@ -747,6 +811,7 @@ mod tests {
             open_auto_allow: true,
             call: true,
             delegate: true,
+            browser_control: false,
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
             shell_integration: true,
@@ -910,7 +975,7 @@ mod tests {
         std::fs::write(dir.join("res-abc.json"), "{}").unwrap();
         assert_eq!(take_requests(&dir), [("abc".to_string(), "{}".to_string())]);
         assert!(take_requests(&dir).is_empty(), "taken means deleted");
-        write_response(&dir, "abc", &Ok("hi".into()));
+        write_response(&dir, "abc", &Ok("hi".to_string().into()));
         let body: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("res-abc.json")).unwrap()).unwrap();
         assert_eq!(body, json!({ "ok": true, "text": "hi" }));
         write_response(&dir, "abc", &Err("no".into()));
@@ -1136,5 +1201,49 @@ mod tests {
         let mut params = claude(CLAUDE_OPEN_TOOL);
         params["toolCall"]["_meta"]["claudeCode"]["mcpServer"]["source"] = json!("project");
         assert_eq!(auto_allow(&on(), &params), None);
+    }
+
+    #[test]
+    fn browser_tools_follow_the_browser_control_flag() {
+        let tools = |cfg: &ToolsConfig, depth| enabled_tools(cfg, depth);
+        assert!(!tools(&on(), 0).iter().any(|t| t.starts_with("browser_")), "off by default");
+        let with = ToolsConfig { browser_control: true, ..on() };
+        for tool in crate::browser_control::TOOLS {
+            assert!(tools(&with, 0).contains(&tool), "{tool}");
+            assert!(terminal_tools(&with).contains(&tool), "terminal tabs get it too: {tool}");
+            assert!(!tools(&with, 1).contains(&tool), "a delegated child has no tab: {tool}");
+        }
+        assert!(!tools(&ToolsConfig { enabled: false, ..with.clone() }, 0).iter().any(|t| t.starts_with("browser_")), "the master switch wins");
+        let only = ToolsConfig { open: false, call: false, delegate: false, browser_control: true, ..on() };
+        assert_eq!(tools(&only, 0), crate::browser_control::TOOLS);
+        let parsed: ToolsConfig = serde_json::from_value(json!({ "enabled": true, "browserControl": true })).unwrap();
+        assert!(parsed.browser_control);
+    }
+
+    #[test]
+    fn browser_tools_are_allowed_without_asking_only_when_on_and_exact() {
+        let with = ToolsConfig { browser_control: true, ..on() };
+        let browser = |tool: &str| claude(tool);
+        assert_eq!(auto_allow(&with, &browser("mcp__flowcode__browser_click")).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&with, &browser("mcp__flowcode__browser_eval")).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&on(), &browser("mcp__flowcode__browser_click")), None, "flag off");
+        assert_eq!(auto_allow(&with, &browser("mcp__other__browser_click")), None);
+        assert_eq!(auto_allow(&with, &browser("mcp__flowcode__browser_nope")), None);
+        let mut project = browser("mcp__flowcode__browser_click");
+        project["toolCall"]["_meta"]["claudeCode"]["mcpServer"]["source"] = json!("project");
+        assert_eq!(auto_allow(&with, &project), None);
+        let titled = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
+        assert_eq!(auto_allow(&with, &titled("Tool: flowcode/browser_snapshot", json!({}))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&with, &titled("flowcode/browser_snapshot", json!({ "command": "rm -rf /" }))), None);
+        assert_eq!(auto_allow(&with, &titled("echo flowcode/browser_snapshot", json!({}))), None);
+    }
+
+    #[test]
+    fn responses_carry_an_image_only_when_the_tool_made_one() {
+        let plain = response_body(&Ok(ToolOutput::from("hi".to_string())));
+        assert_eq!(plain, json!({ "ok": true, "text": "hi" }), "open_in_browser and the open shim read just ok/text");
+        let shot = ToolOutput { text: "shot".into(), image: Some(ToolImage { data: "AAAA".into(), mime_type: "image/png".into() }) };
+        assert_eq!(response_body(&Ok(shot)), json!({ "ok": true, "text": "shot", "image": { "data": "AAAA", "mimeType": "image/png" } }));
+        assert_eq!(response_body(&Err("no".into())), json!({ "ok": false, "error": "no" }));
     }
 }

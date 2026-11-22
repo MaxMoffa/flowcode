@@ -1,5 +1,6 @@
 import { AGENT_CLIS, defaultCliStatus, type AgentCli } from "./cliInfo";
 import { createStore } from "../lib/externalStore";
+import { getBrowserSettings } from "../browser/browserSettings";
 import { readBool, readJson, readNumber, removeKey, writeBool, writeJson, writeString } from "../lib/storage";
 
 /** What a chat's agent may do through Flowcode's own tools (its MCP server): opening pages in the browser panel, and handing tasks to other agents. Applies to chats started afterwards. */
@@ -70,6 +71,8 @@ export interface AgentToolsConfig {
   openAutoAllow: boolean;
   call: boolean;
   delegate: boolean;
+  /** The `browser_*` tools (agent browser control): on unless the Browser setting says "off". */
+  browserControl: boolean;
   delegateAgents: string[];
   maxParallel: number;
   shellIntegration: boolean;
@@ -77,8 +80,8 @@ export interface AgentToolsConfig {
 
 /** `available`: the agents offered while the settings say "every one" (those installed and signed in); all of them when unknown. */
 export function toolsConfig(s: AgentToolsSettings, available: readonly AgentCli[] = AGENT_CLIS): AgentToolsConfig {
-  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, delegateAgents: [], maxParallel: s.maxParallel, shellIntegration: false };
-  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel, shellIntegration: s.shellIntegration };
+  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, browserControl: false, delegateAgents: [], maxParallel: s.maxParallel, shellIntegration: false };
+  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, browserControl: getBrowserSettings().control !== "off", delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel, shellIntegration: s.shellIntegration };
 }
 
 /** What a chat starting now gets (see `toolsConfig`). By default delegation offers the CLIs installed and signed in under the default profile (a failed check counts as available). */

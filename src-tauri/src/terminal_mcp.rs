@@ -121,6 +121,10 @@ impl TerminalMcp {
         if tools.contains(&OPEN) && cfg.open_auto_allow {
             allow.push("mcp__flowcode__open_in_browser");
         }
+        // The browser tools: Flowcode's own consent card is the gate (see `browser_control`).
+        if tools.contains(&crate::browser_control::TOOLS[0]) {
+            allow.extend(crate::browser_control::CLAUDE_TOOLS);
+        }
         if !allow.is_empty() {
             env.push(("FLOWCODE_MCP_AUTO_ALLOW".to_string(), allow.join(",")));
         }
@@ -343,6 +347,16 @@ pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, repo
         }
         _ => Err(format!("unknown tool `{tool}`")),
     }
+}
+
+/// A `browser_*` tool call of a terminal tab (agent browser control); the tab must be open and have been given the tool.
+pub(crate) fn browser_call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, agent: Option<&str>, deadline_ms: Option<u64>) -> Result<chat_mcp::ToolOutput, String> {
+    let state = app.state::<PtyState>();
+    let Info { tools, .. } = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
+    if !tools.contains(&tool) {
+        return Err(format!("the tool `{tool}` is not available in terminal tabs"));
+    }
+    crate::browser_control::call(app, &chat_mcp::Owner::Terminal(pty_id.to_string()), agent, tool, args, deadline_ms)
 }
 
 #[cfg(test)]

@@ -771,3 +771,13 @@
 .agent-view-card.is-active .agent-view-card-radio {
   border: 4px solid var(--accent, var(--sidebar-selected-fg));
 }
+
+.settings-row-warn {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-size: 11.5px;
+}

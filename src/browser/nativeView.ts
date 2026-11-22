@@ -119,11 +119,12 @@ export const onNativeNewWindow = (cb: (p: NativeNewWindow) => void) => sub("brow
 export const onNativeError = (cb: (p: NativeError) => void) => sub("browser-view-error", cb);
 export const onDownload = (cb: (p: DownloadItem) => void) => sub("browser-download", cb);
 
-function readRect(el: HTMLElement, insetBottom: number): NativeViewRect | null {
+function readRect(el: HTMLElement, insetBottom: number, ring = 0): NativeViewRect | null {
   const b = el.getBoundingClientRect();
-  const height = b.height - insetBottom;
-  if (b.width < 1 || height < 1) return null;
-  return { x: b.left, y: b.top, width: b.width, height };
+  const height = b.height - insetBottom - 2 * ring;
+  const width = b.width - 2 * ring;
+  if (width < 1 || height < 1) return null;
+  return { x: b.left + ring, y: b.top + ring, width, height };
 }
 
 /** Same size, far outside the window: the view keeps its painted page while out of sight. */
@@ -150,6 +151,8 @@ export interface UseNativeBrowserViewOptions {
   currentUrl?: string | null;
   /** Pixels at the bottom of the viewport left free for DOM drawn over it (a toast). */
   insetBottom?: number;
+  /** Pixels left free all around the view for a ring drawn in the DOM (an agent controls the page). */
+  ring?: number;
   /** Called after every successful show (the view is on screen again). */
   onShown?: () => void;
   /** The backend refused to show or navigate to the address (its reason). */
@@ -164,12 +167,14 @@ export interface UseNativeBrowserViewOptions {
  * hidden WebView2 drops what it drew and comes back white for a few frames,
  * a parked one comes back with the page already painted.
  */
-export function useNativeBrowserView({ viewportRef, pageId, url, active, suspended, currentUrl, insetBottom = 0, onShown, onRejected }: UseNativeBrowserViewOptions): void {
+export function useNativeBrowserView({ viewportRef, pageId, url, active, suspended, currentUrl, insetBottom = 0, ring = 0, onShown, onRejected }: UseNativeBrowserViewOptions): void {
   const shownUrl = useRef<string | null>(null);
   const wanted = active && !!url;
   const live = wanted && !suspended;
   const insetRef = useRef(insetBottom);
   insetRef.current = insetBottom;
+  const ringRef = useRef(ring);
+  ringRef.current = ring;
   const currentRef = useRef(currentUrl);
   currentRef.current = currentUrl;
   const shownCb = useRef(onShown);
@@ -199,7 +204,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     const tick = () => {
       raf = 0;
       if (cancelled || parkedRef.current) return;
-      const r = readRect(el, insetRef.current);
+      const r = readRect(el, insetRef.current, ringRef.current);
       if (r && shown && !same(last, r)) {
         const now = performance.now();
         if (now - lastSent >= BOUNDS_INTERVAL_MS) {
@@ -221,12 +226,12 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     const park = (parked: boolean) => {
       if (!shown) return;
       if (parked) {
-        const r = last ?? readRect(el, insetRef.current);
+        const r = last ?? readRect(el, insetRef.current, ringRef.current);
         if (r) void nativeView.bounds(pageId, parkedRect(r)).catch(() => {});
         last = null;
         return;
       }
-      const r = readRect(el, insetRef.current);
+      const r = readRect(el, insetRef.current, ringRef.current);
       if (!r) return;
       last = r;
       void nativeView
@@ -241,7 +246,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
 
     kickRef.current = kick;
     parkRef.current = park;
-    const r0 = readRect(el, insetRef.current);
+    const r0 = readRect(el, insetRef.current, ringRef.current);
     if (r0) {
       const parkedAtStart = parkedRef.current;
       last = parkedAtStart ? null : r0;
@@ -291,7 +296,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
   // The inset changed (toast in / out).
   useEffect(() => {
     kickRef.current?.();
-  }, [insetBottom]);
+  }, [insetBottom, ring]);
 
   // The requested URL changed while the view is live.
   useEffect(() => {

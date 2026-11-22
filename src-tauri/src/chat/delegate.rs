@@ -613,6 +613,17 @@ pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Valu
     }
 }
 
+/// A `browser_*` tool call of a chat (agent browser control); like `mcp_call`, the chat must be live and have been given the tool.
+pub(crate) fn browser_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Value, deadline_ms: Option<u64>) -> Result<chat_mcp::ToolOutput, String> {
+    let state = app.state::<ChatState>();
+    let chat_mcp::Owner::Chat(chat_id) = &caller.owner else { return Err("not a chat caller".into()) };
+    let chat = state.get(chat_id).map_err(|_| "this chat is closed".to_string())?;
+    if !chat_mcp::enabled_tools(&chat.tools, caller.depth).contains(&tool) {
+        return Err(format!("the tool `{tool}` is turned off for this chat"));
+    }
+    crate::browser_control::call(app, &caller.owner, Some(&chat.agent), tool, args, deadline_ms)
+}
+
 /// A delegation tool asked for by an agent of a terminal tab; `ctx` describes the tab.
 /// The caller has checked the tab was given the tool.
 pub(crate) fn terminal_delegation_call(app: &AppHandle, ctx: ParentCtx, tool: &str, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
@@ -968,7 +979,7 @@ mod tests {
     }
 
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, browser_control: false, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
     }
 
     fn chat(id: &str) -> Owner {

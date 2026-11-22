@@ -18,6 +18,7 @@ import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentStat
 import { CLI_INFO, cliName } from "../agents/cliInfo";
 import { delegatesOf } from "./chatModel";
 import { DelegateCards, DelegateRequests } from "./DelegateCards";
+import { BrowserControlCards } from "../browser/BrowserControlCard";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
 import { discardAttachment } from "./attachmentRelease";
 import { formatBytes } from "../imageView/imageActions";
@@ -1313,6 +1314,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 autoFocus={!hidden}
               />
             )}
+            {/* An agent asking to use the browser (or run code in a page). */}
+            <BrowserControlCards hostId={chat.chatId ?? null} />
             {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}
             {showCacheCard && !openAsk && !delegateAsk && (
               <div className="chat-cache-card" role="status">

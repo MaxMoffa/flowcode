@@ -48,6 +48,7 @@ mod view_plugins;
 mod watcher;
 mod windows;
 mod browser_view;
+mod browser_control;
 mod browser_downloads;
 
 use pty::PtyState;
@@ -179,6 +180,9 @@ pub fn run() {
         .manage(watcher::DirWatchers::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
+            browser_control::browser_control_reply,
+            browser_control::browser_control_release,
+            browser_control::browser_control_watch,
             browser_view::browser_view_show,
             browser_view::browser_view_bounds,
             browser_view::browser_view_hide,

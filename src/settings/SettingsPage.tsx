@@ -720,6 +720,52 @@ export function SettingsPage({
                 />
               </SettingRow>
             </SettingsGroup>
+
+            <SettingsGroup title={t("settings.group.browserControl")} desc={t("settings.group.browserControl.desc")}>
+              <SettingRow id="browserControl" label={t("settings.browser.control.label")} desc={t("settings.browser.control.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.browser.control.label")}
+                  value={browserSettings.control}
+                  options={[
+                    { value: "off", label: t("settings.browser.control.off") },
+                    { value: "ask", label: t("settings.browser.control.ask") },
+                    { value: "local", label: t("settings.browser.control.local") },
+                  ]}
+                  onChange={(value) => setBrowserSetting("control", value)}
+                />
+              </SettingRow>
+              <SettingRow id="browserEval" label={t("settings.browser.eval.label")} desc={t("settings.browser.eval.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.browser.eval.label")}
+                  value={browserSettings.eval}
+                  options={[
+                    { value: "never", label: t("settings.browser.eval.never") },
+                    { value: "local", label: t("settings.browser.eval.local") },
+                    { value: "ask", label: t("settings.browser.eval.ask") },
+                    { value: "always", label: t("settings.browser.eval.always") },
+                  ]}
+                  onChange={(value) => setBrowserSetting("eval", value)}
+                />
+              </SettingRow>
+              <SettingRow id="browserExternalInteract" label={t("settings.browser.externalInteract.label")} desc={<>{t("settings.browser.externalInteract.desc")}<span className="settings-row-warn">{t("settings.browser.externalInteract.warn")}</span></>}>
+                <Segmented
+                  ariaLabel={t("settings.browser.externalInteract.label")}
+                  value={browserSettings.externalInteract}
+                  options={[
+                    { value: "no", label: t("settings.browser.externalInteract.no") },
+                    { value: "ask", label: t("settings.browser.externalInteract.ask") },
+                    { value: "yes", label: t("settings.browser.externalInteract.yes") },
+                  ]}
+                  onChange={(value) => setBrowserSetting("externalInteract", value)}
+                />
+              </SettingRow>
+              <SettingRow id="browserPauseOnUser" label={t("settings.browser.pauseOnUser.label")} desc={t("settings.browser.pauseOnUser.desc")}>
+                <Switch checked={browserSettings.pauseOnUser} onChange={(on) => setBrowserSetting("pauseOnUser", on)} label={t("settings.browser.pauseOnUser.label")} stateLabels={onOff} />
+              </SettingRow>
+              <SettingRow id="browserHighlight" label={t("settings.browser.highlight.label")} desc={t("settings.browser.highlight.desc")}>
+                <Switch checked={browserSettings.highlightActions} onChange={(on) => setBrowserSetting("highlightActions", on)} label={t("settings.browser.highlight.label")} stateLabels={onOff} />
+              </SettingRow>
+            </SettingsGroup>
           </>
         )}
 

@@ -4,7 +4,8 @@ import { isPdfTarget, type AgentOpen } from "../../shared/agentOpen";
 import { checkPath } from "../lib/fileLinks";
 import { toWindowsPath } from "../terminal/wslPath";
 import { getBrowserSettings, type Target } from "./browserSettings";
-import { askFromAway, isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview } from "./browserStore";
+import { askFromAway, getBrowser, isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview, type ControlOwner } from "./browserStore";
+import { claimOpenedPage } from "./control";
 import type { ConfirmOptions } from "../dialog/ConfirmDialogContext";
 import { t } from "../i18n";
 import { isExecutablePath } from "../lib/filePaths";
@@ -18,8 +19,9 @@ export { agentCallOf, commandCwd, createAgentOpenTracker, openCommandTarget, too
  * tool (`direct`) opened nothing yet. External destinations require the app's
  * confirmation even when an adapter skips its own permission request.
  * `fromTabId`: the agent's own tab - the page waits there instead of popping
- * over another tab the user is working in. */
-export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null, confirm?: (options: ConfirmOptions) => Promise<boolean>, fromTabId?: string): Promise<void> {
+ * over another tab the user is working in.
+ * `owner` / `agent`: who asked. A new page opened for them through Flowcode's own tool becomes one they may control (control.ts). */
+export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null, confirm?: (options: ConfirmOptions) => Promise<boolean>, fromTabId?: string, owner?: ControlOwner, agent?: string): Promise<void> {
   const settings = getBrowserSettings();
   // Flowcode's own tool opens a PDF in the built-in viewer whatever the setting says.
   const inPanel = (setting: Target) => setting === "app" || (direct && (setting === "ask" || isPdfTarget(target)));
@@ -34,7 +36,11 @@ export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro:
       if (answered === false) return;
       if (answered === null && !(await confirm?.({ title: t("link.open"), message: target, confirmLabel: t(setting === "system" ? "link.open" : "link.openInPreview") }))) return;
     }
-    if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target, fromTabId);
+    if (inPanel(setting)) {
+      const before = new Set(getBrowser().pages.map((p) => p.id));
+      const id = openUrlInPreview(local ? normalizeLocalUrl(target) : target, fromTabId);
+      if (direct) claimOpenedPage(id, before.has(id), owner, agent);
+    }
     else if (direct) openUrl(target).catch(() => {});
     return;
   }

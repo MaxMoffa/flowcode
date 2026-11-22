@@ -15,7 +15,7 @@ describe("agent tools config", () => {
     }
   });
   it("allows every agent by default", () => {
-    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, delegateAgents: ["claude", "codex", "vibe", "gemini", "opencode", "cline"], maxParallel: 3, shellIntegration: true });
+    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, browserControl: true, delegateAgents: ["claude", "codex", "vibe", "gemini", "opencode", "cline"], maxParallel: 3, shellIntegration: true });
   });
   it("offers only the available agents by default, but the chosen ones as they are", () => {
     expect(toolsConfig(defaults, ["claude", "codex"]).delegateAgents).toEqual(["claude", "codex"]);

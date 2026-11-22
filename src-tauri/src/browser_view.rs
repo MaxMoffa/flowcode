@@ -290,7 +290,7 @@ fn webview_of(app: &AppHandle, label: &str) -> Result<tauri::Webview, String> {
     app.get_webview(label).ok_or_else(|| "browser view not found".to_string())
 }
 
-fn find_label(state: &BrowserViews, window: &str, page_id: &str) -> Option<String> {
+pub(crate) fn find_label(state: &BrowserViews, window: &str, page_id: &str) -> Option<String> {
     lock(&state.0)
         .get(window)?
         .iter()

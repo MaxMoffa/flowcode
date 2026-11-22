@@ -34,7 +34,10 @@ import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
 import { currentAgentToolsConfig } from "../agents/agentToolsSettings";
 import { AGENT_CLIS, cliName } from "../agents/cliInfo";
+import { basename } from "../lib/path";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { registerControlOwner } from "../browser/control";
+import { BrowserControlCards } from "../browser/BrowserControlCard";
 import { parseDelegate, parseDelegateRequest, requestIdOf, type DelegateInfo } from "../chat/chatModel";
 import type { ChatEvent } from "../chat/chatTypes";
 import { publishTabDelegation } from "../chat/delegateStore";
@@ -246,6 +249,14 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const delegationRef = useRef(delegation);
   delegationRef.current = delegation;
   /** The tasks already running or finished when this view started watching (spawn, or a move from another window). */
+  // This tab is an owner the agent's browser control answers to while its shell lives (see browser/control.ts).
+  const unregisterControlRef = useRef<(() => void) | null>(null);
+  const [ptyIdState, setPtyIdState] = useState<string | null>(null);
+  const registerControl = (ptyId: string) => {
+    setPtyIdState(ptyId);
+    unregisterControlRef.current?.();
+    unregisterControlRef.current = registerControlOwner({ owner: { kind: "terminal", id: ptyId }, hostId: ptyId, tabId: tabIdRef.current, label: basename(cwdRef.current ?? "") || "terminal" });
+  };
   const seedDelegates = (ptyId: string) => {
     invoke<unknown[]>("terminal_delegates", { ptyId })
       .then((raw) => !unmountedRef.current && setDelegation((prev) => seedTerminalDelegates(prev, raw)))
@@ -266,7 +277,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       if (requestId !== null && typeof p.childChatId === "string") setDelegation((prev) => resolveTerminalRequest(prev, p.childChatId as string, requestId));
     } else if (method === "_flowcode/open" && typeof p.target === "string" && p.target) {
       // The backend names the distro of a WSL tab, null elsewhere.
-      void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, typeof p.distro === "string" && p.distro ? p.distro : null, confirmRef.current, tabIdRef.current);
+      const ptyId = ptyIdRef.current;
+      void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, typeof p.distro === "string" && p.distro ? p.distro : null, confirmRef.current, tabIdRef.current, ptyId ? { kind: "terminal", id: ptyId } : undefined, AGENT_CLIS.find((c) => c === p.agent));
     } else if (method === "_flowcode/call" && typeof p.message === "string" && p.message.trim()) {
       const tab = tabIdRef.current;
       // A terminal has no agent of its own: the agent named in the call, if it is one of ours.
@@ -937,7 +949,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         },
         onExit: () => {
           forgetPty(attached.ptyId);
-          if (!disposed) setPtyEnded(true);
+          unregisterControlRef.current?.();
+            if (!disposed) setPtyEnded(true);
           if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
         },
         onExt,
@@ -950,6 +963,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
             return;
           }
           ptyIdRef.current = attached.ptyId;
+          registerControl(attached.ptyId);
           seedDelegates(attached.ptyId);
           onPtyReadyRef.current?.();
           // The tab may have moved while a phone had it open: that phone's
@@ -1080,6 +1094,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           },
           onExit: () => {
             if (ptyIdRef.current) forgetPty(ptyIdRef.current);
+            unregisterControlRef.current?.();
             if (!disposed) setPtyEnded(true);
             if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
           },
@@ -1099,6 +1114,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         return;
       }
       ptyIdRef.current = id;
+      registerControl(id);
       seedDelegates(id);
       watchWriteErrors(id);
       onPtyReadyRef.current?.();
@@ -1228,6 +1244,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         if (nav.timer) clearTimeout(nav.timer);
         navRef.current = null;
       }
+      unregisterControlRef.current?.();
+      unregisterControlRef.current = null;
       if (ptyIdRef.current && !releasedRef.current) killPty(ptyIdRef.current);
       term.dispose();
       xtermRef.current = null;
@@ -1309,6 +1327,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     >
       {phoneSized && <div className="terminal-phone-banner">{t("terminal.phoneSized")}</div>}
       <div ref={hostRef} className="terminal-host" />
+      <BrowserControlCards hostId={ptyIdState} terminal />
       <TerminalDelegateCard
         delegates={delegation.delegates}
         requests={delegation.requests}

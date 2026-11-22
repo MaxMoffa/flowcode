@@ -14,7 +14,9 @@ vi.mock("./browserStore", () => ({
   openUrlInPreview: mocks.preview,
   openFileInPreview: vi.fn(),
   askFromAway: mocks.away,
+  getBrowser: () => ({ pages: [] }),
 }));
+vi.mock("./control", () => ({ claimOpenedPage: vi.fn() }));
 import { routeAgentOpen, commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
 
 describe("agent browser permission", () => {

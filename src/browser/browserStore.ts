@@ -10,6 +10,24 @@ export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
 
+/** Who may drive a page: a chat or a terminal tab's agent. */
+export interface ControlOwner {
+  kind: "chat" | "terminal";
+  id: string;
+}
+
+/** A page an agent drives (see control.ts). Only pages with this set are visible to the agent. */
+export interface PageControl {
+  owner: ControlOwner;
+  /** The agent's cli name ("claude", "codex"...) when known. */
+  agent?: string;
+  /** The user touched the page: the agent waits until it is handed back. */
+  paused: boolean;
+  lastAction?: { summary: string; at: number };
+  /** When the agent last used the page (ms epoch): the page picked when it names none. */
+  lastUsed?: number;
+}
+
 /** Why a page failed to open: what the native view reported (see browser-view-error). */
 export interface PageError {
   kind: NativeErrorKind;
@@ -38,6 +56,8 @@ export type PreviewPage =
       retrying?: boolean;
       /** The tab this page was opened for (an agent, a dev server), for the folder of a diagnosis. */
       fromTabId?: string;
+      /** An agent drives this page (opened by it, or handed over). */
+      control?: PageControl;
     }
   | { id: string; kind: "file"; path: string }
   /** `src` is an http(s) URL or an absolute local path. */
@@ -261,8 +281,10 @@ export function browserTabsSnapshot(state: BrowserState): BrowserTabsSnapshot {
   };
 }
 
-function openPdfInPreview(src: string, fromTabId?: string) {
-  showPage(addOrFindPage({ kind: "pdf", src }), fromTabId);
+function openPdfInPreview(src: string, fromTabId?: string): string {
+  const id = addOrFindPage({ kind: "pdf", src });
+  showPage(id, fromTabId);
+  return id;
 }
 
 /** A url page that turned out to serve a PDF becomes a viewer page, in place. */
@@ -274,12 +296,56 @@ export function convertPageToPdf(id: string, url: string) {
   }));
 }
 
-/** `fromTabId`: the tab this is opened for, when not the user's own action on screen. */
-export function openUrlInPreview(url: string, fromTabId?: string) {
+/** `fromTabId`: the tab this is opened for, when not the user's own action on screen. Returns the page's id. */
+export function openUrlInPreview(url: string, fromTabId?: string): string {
   if (isPdfTarget(url)) return openPdfInPreview(url, fromTabId);
   const id = addOrFindPage({ kind: "url", url });
   if (fromTabId) updateUrlPage(id, (p) => (p.fromTabId ? p : { ...p, fromTabId }));
   showPage(id, fromTabId);
+  return id;
+}
+
+/** An id for a page about to be added, to listen for its native view before it exists. */
+export const reservePageId = newId;
+
+/** A new url page an agent opens and drives: never an existing one (that may be the user's own). */
+export function openAgentPage(url: string, control: PageControl, fromTabId?: string, id: string = newId()): string {
+  const page: PreviewPage = { id, kind: "url", url, requestedUrl: url, back: [], forward: [], fromTabId, control };
+  store.update((s) => ({ ...s, pages: [...s.pages, page] }));
+  showPage(id, fromTabId);
+  return id;
+}
+
+/** Brings a page in front (and opens the Browser), or waits for `fromTabId`'s tab like any page opened for it. */
+export function revealPage(id: string, fromTabId?: string) {
+  if (store.get().pages.some((p) => p.id === id)) showPage(id, fromTabId);
+}
+
+/** Hands a page to an agent (`control`), or takes it back (null). */
+export function setPageControl(id: string, control: PageControl | null) {
+  updateUrlPage(id, (p) => {
+    if (control) return { ...p, control };
+    if (!p.control) return p;
+    const { control: _gone, ...rest } = p;
+    return rest;
+  });
+}
+
+/** Changes part of a controlled page's control (no effect when it has none). */
+export function patchPageControl(id: string, patch: Partial<PageControl>) {
+  updateUrlPage(id, (p) => (p.control ? { ...p, control: { ...p.control, ...patch } } : p));
+}
+
+/** The url pages `owner` drives. */
+export function controlledPagesOf(pages: PreviewPage[], owner: ControlOwner): Extract<PreviewPage, { kind: "url" }>[] {
+  return pages.filter((p): p is Extract<PreviewPage, { kind: "url" }> => p.kind === "url" && !!p.control && p.control.owner.kind === owner.kind && p.control.owner.id === owner.id);
+}
+
+/** The owner's chat or tab ended: its pages are the user's again. Returns their ids. */
+export function releasePagesOf(owner: ControlOwner): string[] {
+  const ids = controlledPagesOf(store.get().pages, owner).map((p) => p.id);
+  ids.forEach((id) => setPageControl(id, null));
+  return ids;
 }
 
 /** Most pages the browser holds; popups past it are ignored. */

@@ -5,6 +5,8 @@ import { cliName, type AgentCli } from "../agents/cliInfo";
 import { basename, parentPath } from "../lib/path";
 import { pluginFileUrl } from "../../shared/agentViewBridge";
 import { useBrowserSettings } from "./browserSettings";
+import { ControlBar, ControlRing, controlAgentName } from "./BrowserControlBar";
+import { handOverPage, releasePage, resumePage, useControlOwners, watchControlledPage } from "./control";
 import { BrowserStatusPage } from "./BrowserStatusPage";
 import { focusBrowserDiagnosisTab, openBrowserDiagnosisChat, openBrowserTerminal } from "./browserDiagnosis";
 import { portOfUrl } from "./statusPageModel";
@@ -38,6 +40,7 @@ import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNew
 import { useViewportCovered } from "./useViewportCovered";
 import { DownloadsBar, DownloadsButton, DownloadsPopover, useDownloads } from "./BrowserDownloads";
 import "./browser-panel.css";
+import "./browser-control.css";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ImageFileViewer = lazy(() => import("./ImageFileViewer"));
@@ -58,6 +61,10 @@ const TOAST_MS = 4000;
 const TOAST_INSET = 44;
 /** The freeze frame is dropped this long after the overlay left, whether or not the view reported back. */
 const FREEZE_FALLBACK_MS = 800;
+/** Height of the strip under a page an agent drives (see BrowserControlBar). */
+const CONTROL_BAR_INSET = 44;
+/** The native view leaves this many px around it for the ring. */
+const CONTROL_RING = 2;
 
 /** Favicon per origin (null: none), so a site is asked once. */
 const faviconCache = new Map<string, string | null>();
@@ -141,6 +148,7 @@ const PdfIcon = () =>
       <path d="M8 17v-4h1.3a1.2 1.2 0 0 1 0 2.4H8M12 13v4h.8a2 2 0 0 0 0-4zM16.5 17v-4h1.8" strokeWidth="1.2" />
     </>,
   );
+const AgentIcon = () => svg(<path d="M5 20c0-4 3-6 7-6s7 2 7 6M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />);
 const MoreIcon = () => svg(<path d="M5 12h.01M12 12h.01M19 12h.01" strokeWidth="2.6" />);
 const CopyIcon = () =>
   svg(
@@ -262,7 +270,8 @@ function usePopoverDismiss(open: boolean, close: () => void, popRef: RefObject<H
  * in native child webviews (src/browser/nativeView.ts) that paint above the DOM. */
 export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const { pages, activeId, servers } = useBrowser();
-  const { artifactScripts, autoReloadArtifacts } = useBrowserSettings();
+  const { artifactScripts, autoReloadArtifacts, control: controlSetting, pauseOnUser } = useBrowserSettings();
+  const controlOwners = useControlOwners();
   const page = pages.find((p) => p.id === activeId) ?? null;
 
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -279,6 +288,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const tabsButtonRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // "Fai controllare all'agente": the list of agents to hand the page to is open.
+  const [handOpen, setHandOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const downloadItems = useDownloads();
@@ -308,7 +319,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   usePopoverDismiss(menuOpen, () => setMenuOpen(false), menuRef, menuButtonRef);
   usePopoverDismiss(dlShown, () => setDlOpen(false), dlRef, dlButtonRef);
   useEffect(() => {
-    if (!menuOpen) setConfirmClear(false);
+    if (!menuOpen) {
+      setConfirmClear(false);
+      setHandOpen(false);
+    }
   }, [menuOpen]);
   useEffect(() => {
     if (!toast) return;
@@ -577,7 +591,16 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
   const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
-  const insetBottom = (toast || diagToast || openError) && urlPage ? TOAST_INSET : 0;
+  // An agent drives this page: ring around the view and a bar under it (settings "off" turns the whole thing inert).
+  const control = urlPage?.control && controlSetting !== "off" ? urlPage.control : null;
+  const toastInset = (toast || diagToast || openError) && urlPage ? TOAST_INSET : 0;
+  const insetBottom = toastInset + (control ? CONTROL_BAR_INSET : 0);
+  const watching = !!control && !control.paused && pauseOnUser && nativeLive;
+  useEffect(() => {
+    if (!urlId || !watching) return;
+    watchControlledPage(urlId, true);
+    return () => watchControlledPage(urlId, false);
+  }, [urlId, watching]);
 
   useNativeThemeBackground();
   useNativeBrowserView({
@@ -588,6 +611,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     suspended,
     currentUrl: urlPage?.url ?? null,
     insetBottom,
+    ring: control ? CONTROL_RING : 0,
     // The backend refuses the app's own addresses: our blocked page says so.
     onRejected: (reason) => {
       if (urlId && nativeUrl && /reserved app host|dev server cannot be opened/i.test(reason)) setPageError(urlId, { kind: "blocked", code: "BLOCKED_LOCAL_ORIGIN", url: nativeUrl });
@@ -654,6 +678,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       hintTabId: hintTabId(),
       onOpened: (tabId) => setDiagToast({ agent, host, tabId }),
     });
+  const anyControlled = pages.some((p) => p.kind === "url" && !!p.control) && controlSetting !== "off";
   const toastSourceOpen = !!toast && pages.some((p) => p.id === toast.sourceId);
 
   return (
@@ -714,7 +739,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
         <button
           ref={tabsButtonRef}
           type="button"
-          className={"browser-tabs-button" + (tabsOpen ? " is-open" : "")}
+          className={"browser-tabs-button" + (tabsOpen ? " is-open" : "") + (anyControlled ? " is-agent" : "")}
           onClick={() => {
             setMenuOpen(false);
             setDlOpen(false);
@@ -726,6 +751,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           aria-expanded={tabsOpen}
         >
           <span className="browser-tabs-count">{pages.length}</span>
+          {anyControlled && <span className="bctl-badge" aria-hidden="true">{"✦"}</span>}
           {freeServers.some((s) => s.alive) && <span className="browser-panel-dot is-alive browser-tabs-signal" />}
         </button>
         <button
@@ -776,6 +802,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             onOpenUrl={(url) => openUrlInPreview(url)}
             onDiagnose={diagnose}
           />
+        )}
+        {control && <ControlRing paused={control.paused} bottom={insetBottom} />}
+        {control && urlId && (
+          <div className="bctl-bar-slot" style={{ position: "absolute", left: 0, right: 0, bottom: toastInset, height: CONTROL_BAR_INSET }}>
+            <ControlBar control={control} onStop={() => releasePage(urlId)} onTakeAway={() => releasePage(urlId)} onGiveBack={() => resumePage(urlId)} />
+          </div>
         )}
         {urlPage && freeze?.src && <img className="browser-panel-freeze" src={freeze.src} alt="" draggable={false} style={{ height: `calc(100% - ${insetBottom}px)` }} />}
         {urlPage && freeze && !freeze.src && (
@@ -837,6 +869,44 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             <CopyIcon />
             {t("browser.menu.copy")}
           </button>
+          {controlSetting !== "off" && (
+            <>
+              {urlPage?.control ? (
+                <button type="button" role="menuitem" className="browser-menu-item" onClick={() => { setMenuOpen(false); if (urlId) releasePage(urlId); }}>
+                  <AgentIcon />
+                  {t("browserControl.takeAway")}
+                </button>
+              ) : (
+                <button type="button" role="menuitem" className="browser-menu-item" disabled={!urlPage} aria-expanded={handOpen} onClick={() => setHandOpen((o) => !o)}>
+                  <AgentIcon />
+                  {t("browserControl.hand")}
+                  <span className="browser-menu-key">{handOpen ? "▾" : "▸"}</span>
+                </button>
+              )}
+              {handOpen && !urlPage?.control && urlPage && (
+                <div className="browser-menu-sub">
+                  <div className="browser-tabs-heading">{t("browserControl.hand.agents")}</div>
+                  {controlOwners.length === 0 && <div className="bctl-sub-note">{t("browserControl.hand.none")}</div>}
+                  {controlOwners.map((o) => (
+                    <button
+                      key={`${o.owner.kind}:${o.owner.id}`}
+                      type="button"
+                      role="menuitem"
+                      className="browser-menu-item"
+                      onClick={() => {
+                        handOverPage(urlPage.id, o);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span className="bctl-bar-av">{(o.agent ? cliName(o.agent) : o.label).charAt(0).toUpperCase()}</span>
+                      {o.agent ? `${cliName(o.agent)} · ${o.label}` : o.label}
+                    </button>
+                  ))}
+                  {controlOwners.length > 0 && <div className="bctl-sub-note">{t("browserControl.hand.note")}</div>}
+                </div>
+              )}
+            </>
+          )}
           <div className="browser-tabs-sep" />
           <button type="button" role="menuitem" className="browser-menu-item" disabled={!urlPage} onClick={() => { setMenuOpen(false); if (urlId) void nativeView.devtools(urlId).catch(() => {}); }}>
             <DevToolsIcon />
@@ -894,6 +964,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
                       <span className="browser-tabs-row-title">{tabLabel(p)}</span>
                       <span className="browser-tabs-row-sub">{describePage(p).full}</span>
                     </span>
+                    {p.kind === "url" && p.control && controlSetting !== "off" && <span className="bctl-who">{controlAgentName(p.control, t("browserControl.anAgent"))}</span>}
                   </button>
                   <button type="button" className="browser-tabs-row-x" onClick={() => closePage(p.id)} title={t("browser.closePage")} aria-label={t("browser.closePage")}>
                     <CloseIcon size={10} />

@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — controllo del browser da parte degli agenti: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --agent:#d9a35b; --agent-ink:#241707; --red:#e07a6a; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.07);
+  --page:#f4f1ec; --page-fg:#2a2622;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --agent:#a8691c; --agent-ink:#fff6ea; --red:#b8483a; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+h2.sec{font-size:15px;margin:34px 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.sub code,.note code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:8px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(360px,400px));gap:30px;align-items:start}
+.col h3{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 12px;color:var(--fg-muted);min-height:84px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+/* pannello browser */
+.panel{position:relative;height:520px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);display:flex;flex-direction:column}
+.hdr{height:38px;display:flex;align-items:center;gap:4px;padding:0 6px;border-bottom:1px solid var(--border);flex:none;background:var(--surface);position:relative}
+.ib{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted);position:relative;flex:none}
+.ib.on{background:var(--track);color:var(--fg)}
+.ib svg{width:14px;height:14px}
+.url{flex:1;min-width:0;height:26px;border-radius:6px;background:var(--surface2);display:flex;align-items:center;padding:0 9px;gap:2px;font-size:12px;white-space:nowrap;overflow:hidden}
+.url b{font-weight:600}.url span{color:var(--fg-muted)}
+.tabs{height:22px;min-width:22px;border:1.5px solid var(--fg-muted);border-radius:5px;display:grid;place-items:center;font-size:11px;color:var(--fg-muted);margin:0 3px;flex:none;position:relative}
+.tabs.agent{border-color:var(--agent);color:var(--agent)}
+.view{flex:1;position:relative;background:var(--page);color:var(--page-fg);overflow:hidden}
+.fake{padding:22px 24px;display:flex;flex-direction:column;gap:10px}
+.fake .h{height:18px;width:50%;background:#d9d2c7;border-radius:4px}
+.fake .l{height:9px;background:#e4ded4;border-radius:3px}
+.fake .in{height:28px;border:1px solid #cfc7ba;border-radius:5px;background:#fff;font-size:12px;color:#555;display:flex;align-items:center;padding:0 8px;position:relative}
+.fake .btnp{margin-top:4px;align-self:flex-start;background:#3b6ea8;color:#fff;border-radius:6px;padding:7px 14px;font-size:12px;position:relative}
+.hl{outline:2px solid var(--agent);outline-offset:2px;border-radius:6px}
+.hl::after{content:attr(data-ref);position:absolute;top:-18px;left:0;font:600 10px/14px "Segoe UI",sans-serif;background:var(--agent);color:var(--agent-ink);padding:0 5px;border-radius:4px}
+.cursor{position:absolute;width:18px;height:18px;z-index:3;pointer-events:none;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.ripple{position:absolute;width:26px;height:26px;border-radius:50%;border:2px solid var(--agent);transform:translate(-50%,-50%);animation:rip 1.4s ease-out infinite;z-index:2}
+@keyframes rip{0%{opacity:.9;width:10px;height:10px}100%{opacity:0;width:44px;height:44px}}
+
+/* A: bordo + barra in basso */
+.ring{position:absolute;inset:0;border:2px solid var(--agent);box-shadow:inset 0 0 22px color-mix(in srgb,var(--agent) 35%,transparent);pointer-events:none;z-index:2;animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{50%{box-shadow:inset 0 0 8px color-mix(in srgb,var(--agent) 20%,transparent)}}
+.ctl{flex:none;display:flex;align-items:center;gap:9px;padding:7px 10px;border-top:1px solid var(--border);background:color-mix(in srgb,var(--agent) 12%,var(--surface));font-size:12px}
+.ctl .av{width:20px;height:20px;border-radius:6px;background:var(--agent);color:var(--agent-ink);display:grid;place-items:center;font-weight:700;font-size:11px;flex:none}
+.ctl .t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.ctl .t b{font-size:12px}
+.ctl .t small{color:var(--fg-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctl.paused{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.ctl.paused .av{background:var(--accent);color:var(--accent-ink)}
+.b{font:inherit;font-size:12px;font-weight:600;border:0;border-radius:6px;padding:5px 11px;cursor:pointer;background:var(--track);color:var(--fg);white-space:nowrap}
+.b.main{background:var(--accent);color:var(--accent-ink)}
+.b.agent{background:var(--agent);color:var(--agent-ink)}
+.b.stop{background:var(--red);color:#fff}
+.b.ghost{background:transparent;color:var(--fg-muted);font-weight:500}
+
+/* B: header in modalità agente */
+.hdr.agentmode{background:color-mix(in srgb,var(--agent) 14%,var(--surface))}
+.hdr.agentmode .url{background:color-mix(in srgb,var(--agent) 10%,var(--surface2))}
+.pill{display:flex;align-items:center;gap:6px;height:24px;border-radius:999px;padding:0 4px 0 9px;background:var(--agent);color:var(--agent-ink);font-size:11.5px;font-weight:600;flex:none}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--agent-ink);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.pill .x{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.18)}
+.pill.paused{background:var(--accent);color:var(--accent-ink)}
+.pill.paused .dot{animation:none;background:var(--accent-ink)}
+.toast{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.3);padding:7px 8px 7px 12px;display:flex;align-items:center;gap:10px;font-size:12px;white-space:nowrap}
+
+/* C: chip flottante */
+.chipf{position:absolute;top:10px;right:10px;z-index:4;display:flex;align-items:center;gap:7px;padding:5px 6px 5px 6px;border-radius:999px;background:var(--surface);color:var(--fg);border:1px solid color-mix(in srgb,var(--agent) 60%,var(--border));box-shadow:0 6px 18px rgba(0,0,0,.3);font-size:11.5px}
+.chipf .av{width:20px;height:20px;border-radius:50%;background:var(--agent);color:var(--agent-ink);display:grid;place-items:center;font-weight:700;font-size:10.5px}
+.chipf .x{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--track)}
+.chipf.paused{border-color:color-mix(in srgb,var(--accent) 60%,var(--border))}
+.chipf.paused .av{background:var(--accent);color:var(--accent-ink)}
+.edge{position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--agent),transparent);background-size:200% 100%;animation:sweep 1.6s linear infinite;z-index:3}
+@keyframes sweep{to{background-position:-200% 0}}
+.badge{position:absolute;top:-5px;right:-6px;width:12px;height:12px;border-radius:50%;background:var(--agent);color:var(--agent-ink);font-size:8px;font-weight:800;display:grid;place-items:center;box-shadow:0 0 0 2px var(--surface)}
+
+/* menu / popover */
+.pop{position:absolute;top:42px;right:8px;z-index:6;width:calc(100% - 16px);max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:5px;display:flex;flex-direction:column}
+.ph{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted);padding:6px 8px 4px}
+.mi{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:6px;font-size:12.5px}
+.mi svg{width:14px;height:14px;color:var(--fg-muted);flex:none}
+.mi.hl2{background:var(--hover)}
+.mi .k{margin-left:auto;color:var(--fg-muted);font-size:11px}
+.mi .av{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-weight:700;flex:none}
+.sep{height:1px;background:var(--border);margin:4px 6px}
+.subm{position:absolute;right:calc(100% + 6px);top:110px;width:220px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:5px;z-index:7}
+.trow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12.5px}
+.trow .fav{width:14px;height:14px;border-radius:3px;background:var(--surface3);flex:none}
+.trow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .who{font-size:10.5px;font-weight:600;border-radius:999px;padding:1px 7px;background:color-mix(in srgb,var(--agent) 22%,transparent);color:var(--agent)}
+.trow.cur{background:var(--hover)}
+
+/* chat */
+.chatwrap{display:grid;grid-template-columns:repeat(2,minmax(360px,440px));gap:30px;align-items:start}
+.chat{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:300px}
+.msg{color:var(--fg-muted);font-size:12.5px}
+.msg b{color:var(--fg)}
+.tool{font-size:12px;color:var(--fg-muted);display:flex;gap:6px;align-items:center}
+.tool i{font-style:normal;color:var(--agent)}
+.card{border:1px solid color-mix(in srgb,var(--agent) 45%,var(--border));border-radius:10px;background:color-mix(in srgb,var(--agent) 7%,var(--surface));padding:12px;display:flex;flex-direction:column;gap:9px}
+.card h4{margin:0;font-size:13px;display:flex;align-items:center;gap:8px}
+.card h4 .ic{width:22px;height:22px;border-radius:6px;background:var(--agent);color:var(--agent-ink);display:grid;place-items:center}
+.card p{margin:0;font-size:12.5px;color:var(--fg-muted)}
+.card ul{margin:0;padding-left:18px;font-size:12px;color:var(--fg-muted)}
+.card .target{font-size:12px;background:var(--surface2);border-radius:6px;padding:6px 8px;display:flex;gap:6px;align-items:center}
+.card .row{display:flex;gap:6px;flex-wrap:wrap}
+.card.done{opacity:.75}
+.card.done .row{display:none}
+.card .res{display:none;font-size:12px;color:var(--accent)}
+.card.done .res{display:block}
+
+/* settings */
+.settings{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:16px 18px;max-width:640px}
+.settings h4{margin:0 0 2px;font-size:14px}
+.settings .hint{color:var(--fg-muted);font-size:12px;margin:0 0 12px}
+.srow{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:11px 0;border-top:1px solid var(--border)}
+.srow:first-of-type{border-top:0}
+.srow .l{display:flex;flex-direction:column;gap:2px;max-width:330px}
+.srow .l b{font-size:12.5px;font-weight:600}
+.srow .l small{color:var(--fg-muted);font-size:11.5px}
+.seg{display:inline-flex;background:var(--surface2);border-radius:8px;padding:2px;flex:none}
+.seg span{font-size:12px;padding:4px 10px;border-radius:6px;color:var(--fg-muted);white-space:nowrap}
+.seg span.on{background:var(--surface3);color:var(--fg);font-weight:600}
+.tg{width:34px;height:20px;border-radius:999px;background:var(--surface3);position:relative;flex:none}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--fg-muted)}
+.tg.on{background:var(--accent)}.tg.on::after{left:17px;background:var(--accent-ink)}
+.warnbox{font-size:11.5px;color:var(--red);background:color-mix(in srgb,var(--red) 10%,transparent);border-radius:6px;padding:6px 8px;margin-top:6px}
+
+.note{margin-top:30px;max-width:1240px;color:var(--fg-muted);line-height:1.55}
+.note h3{color:var(--fg);font-size:14px;margin:18px 0 6px}
+.note li{margin:3px 0}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<h1>Controllo del browser da parte degli agenti</h1>
+<p class="sub">L'agente usa le schede del pannello browser (con i tuoi login) tramite nuovi tool MCP: <code>browser_tabs</code>, <code>navigate</code>, <code>snapshot</code>, <code>screenshot</code>, <code>click/type/press/scroll</code>, <code>console</code>. Di default solo sulle schede che ha aperto lui o che gli cedi; <code>browser_eval</code> solo su localhost e file locali (estendibile dalle impostazioni). Colore ambra = "agente al lavoro". Cambia stato con i pulsanti.</p>
+
+<div class="bar">
+  <span class="lab">Stato scheda:</span>
+  <button data-s="work" class="on">Agente al lavoro</button>
+  <button data-s="paused">Hai toccato la pagina (agente in pausa)</button>
+  <button data-s="hand">Cedi una tua scheda (menu ⋯)</button>
+  <button data-s="tabs">Elenco schede</button>
+  <span class="lab">Tema:</span>
+  <button id="theme">Chiaro / scuro</button>
+</div>
+
+<div class="grid">
+<!-- ======================= A ======================= -->
+<div class="col">
+  <h3>A · Bordo ambra + barra in fondo <span class="rec">consigliata</span></h3>
+  <p class="d">Bordo che "respira" attorno alla pagina, barra sotto con agente, ultima azione e Interrompi. Il punto dell'azione è evidenziato col suo riferimento (e1, e2…), così vedi cosa sta toccando. Se clicchi tu nella pagina, la barra diventa verde: "In pausa · Restituisci".</p>
+  <div class="panel">
+    <div class="hdr">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div>
+      <div class="url"><b>localhost:5173</b><span>/login</span></div>
+      <div class="tabs agent">3<span class="badge">✦</span></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></div>
+    </div>
+    <div class="view">
+      <div class="ring" data-show="work"></div>
+      <div class="fake"><div class="h"></div><div class="l" style="width:70%"></div>
+        <div class="in">mario@example.com</div><div class="in">••••••••</div>
+        <div class="btnp" data-hlwork="e7">Accedi</div></div>
+      <span class="ripple" style="left:66px;top:214px" data-show="work"></span>
+    </div>
+    <div class="ctl" data-show="work">
+      <div class="av">C</div>
+      <div class="t"><b>Claude sta usando questa scheda</b><small>click su "Accedi" (e7) · 3 s fa</small></div>
+      <button class="b stop">Interrompi</button>
+    </div>
+    <div class="ctl paused" data-show="paused">
+      <div class="av">II</div>
+      <div class="t"><b>In pausa: stai usando tu la pagina</b><small>Claude aspetta finché non restituisci la scheda</small></div>
+      <button class="b ghost">Togli all'agente</button><button class="b main">Restituisci</button>
+    </div>
+    <div class="ctl paused" data-show="hand tabs" style="visibility:hidden"><div class="av"></div><div class="t"><b>.</b><small>.</small></div></div>
+  </div>
+</div>
+
+<!-- ======================= B ======================= -->
+<div class="col">
+  <h3>B · Header in modalità agente</h3>
+  <p class="d">L'header della scheda si tinge d'ambra e compare una pillola "Claude ✕" accanto all'indirizzo. Un cursore fantasma mostra dove l'agente clicca. In pausa la pillola diventa verde e un toast offre "Restituisci". Niente spazio verticale in più.</p>
+  <div class="panel">
+    <div class="hdr" data-agentmode="work">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="url"><b>localhost:5173</b><span>/login</span></div>
+      <div class="pill" data-show="work"><span class="dot"></span>Claude<span class="x">✕</span></div>
+      <div class="pill paused" data-show="paused"><span class="dot"></span>In pausa</div>
+      <div class="tabs agent">3</div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></div>
+    </div>
+    <div class="view">
+      <div class="fake"><div class="h"></div><div class="l" style="width:70%"></div>
+        <div class="in">mario@example.com</div><div class="in">••••••••</div>
+        <div class="btnp">Accedi</div></div>
+      <svg class="cursor" data-show="work" style="left:70px;top:212px" viewBox="0 0 18 18"><path d="M2 1l13 7-6 1.5L6.5 16z" fill="var(--agent)" stroke="var(--agent-ink)" stroke-width="1.2"/></svg>
+      <div class="toast" data-show="paused">Claude è in pausa mentre usi la pagina <button class="b main">Restituisci</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= C ======================= -->
+<div class="col">
+  <h3>C · Minimale: chip flottante</h3>
+  <p class="d">Solo una scia animata sul bordo alto della pagina e una chip in alto a destra (avatar agente + ✕). La più discreta, ma l'ultima azione non è visibile e la chip copre un angolo della pagina (va mostrata nel DOM sopra la webview nativa: serve un ritaglio).</p>
+  <div class="panel">
+    <div class="hdr">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div>
+      <div class="url"><b>localhost:5173</b><span>/login</span></div>
+      <div class="tabs agent">3<span class="badge">✦</span></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></div>
+    </div>
+    <div class="view">
+      <div class="edge" data-show="work"></div>
+      <div class="chipf" data-show="work"><span class="av">C</span>Claude<span class="x">✕</span></div>
+      <div class="chipf paused" data-show="paused"><span class="av">II</span>In pausa · <b style="color:var(--accent)">Restituisci</b></div>
+      <div class="fake"><div class="h"></div><div class="l" style="width:70%"></div>
+        <div class="in">mario@example.com</div><div class="in">••••••••</div>
+        <div class="btnp">Accedi</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- popover condivisi: cessione / elenco schede, mostrati nella colonna A -->
+<template id="handTpl">
+  <div class="pop">
+    <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2 7.5 8.5"/></svg>Apri nel browser di sistema</div>
+    <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11V3h8"/></svg>Copia indirizzo</div>
+    <div class="mi hl2"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13c0-2.5 2-4 5-4s5 1.5 5 4M8 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5"/></svg>Fai controllare all'agente<span class="k">▸</span></div>
+    <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m5 4-3 4 3 4M11 4l3 4-3 4"/></svg>Strumenti sviluppatore<span class="k">F12</span></div>
+    <div class="subm">
+      <div class="ph">Agenti attivi</div>
+      <div class="mi hl2"><span class="av" style="background:var(--agent);color:var(--agent-ink)">C</span>Claude · flowcode</div>
+      <div class="mi"><span class="av" style="background:#6b8fd6;color:#fff">X</span>Codex · sito</div>
+      <div class="sep"></div>
+      <div class="mi" style="color:var(--fg-muted);font-size:11.5px">L'agente vede e usa solo questa scheda</div>
+    </div>
+  </div>
+</template>
+<template id="tabsTpl">
+  <div class="pop">
+    <div class="ph">Schede</div>
+    <div class="trow cur"><span class="fav"></span><span class="tt">Login · localhost:5173</span><span class="who">Claude</span></div>
+    <div class="trow"><span class="fav"></span><span class="tt">Docs · vitejs.dev</span><span class="who">Claude</span></div>
+    <div class="trow"><span class="fav"></span><span class="tt">Gmail</span></div>
+    <div class="sep"></div>
+    <div class="mi" style="color:var(--fg-muted);font-size:11.5px">Le schede senza etichetta sono tue: l'agente non le vede</div>
+  </div>
+</template>
+
+<h2 class="sec">Card di consenso in chat (comune a tutte le varianti)</h2>
+<p class="sub">Compare alla prima azione sul browser in una sessione. "Solo lettura" permette tabs/snapshot/screenshot/console ma non click/scrittura. Il secondo esempio è la richiesta di <code>browser_eval</code> su un sito non locale quando l'impostazione lo consente con conferma.</p>
+<div class="chatwrap">
+  <div class="chat">
+    <div class="msg"><b>Tu:</b> controlla che il login della mia app funzioni</div>
+    <div class="tool"><i>●</i> open_in_browser · localhost:5173/login</div>
+    <div class="card" id="c1">
+      <h4><span class="ic"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="2.5" width="13" height="10" rx="1.5"/><path d="M1.5 5.5h13"/></svg></span>Claude vuole usare il browser</h4>
+      <p>Potrà leggere la pagina, fare screenshot, cliccare e scrivere nelle schede che apre lui o che gli cedi. Non legge le password.</p>
+      <div class="target">▸ localhost:5173 · scheda "Login"</div>
+      <div class="row"><button class="b agent" onclick="done('c1','Consentito per questa sessione')">Consenti per questa sessione</button><button class="b" onclick="done('c1','Solo lettura per questa sessione')">Solo lettura</button><button class="b ghost" onclick="done('c1','Negato')">Nega</button></div>
+      <div class="res">✓ Consentito per questa sessione · revocabile dalla barra della scheda</div>
+    </div>
+    <div class="tool"><i>●</i> browser_snapshot · 42 elementi</div>
+    <div class="tool"><i>●</i> browser_type · e5 "mario@example.com"</div>
+    <div class="tool"><i>●</i> browser_click · e7 "Accedi"</div>
+  </div>
+  <div class="chat">
+    <div class="msg"><b>Tu:</b> perché il grafico su dashboard.example.com è vuoto?</div>
+    <div class="card" id="c2">
+      <h4><span class="ic">{ }</span>Claude vuole eseguire codice nella pagina</h4>
+      <p>Su <b>dashboard.example.com</b>, dove potresti essere loggato. Il codice può leggere e modificare tutto ciò che la pagina vede.</p>
+      <div class="target" style="font-family:Consolas,monospace;font-size:11.5px">document.querySelectorAll('canvas').length</div>
+      <div class="row"><button class="b agent" onclick="done('c2','Eseguito una volta')">Esegui una volta</button><button class="b" onclick="done('c2','Consentito su questo sito per la sessione')">Sempre su questo sito</button><button class="b ghost" onclick="done('c2','Negato')">Nega</button></div>
+      <div class="res">✓</div>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">Impostazioni › Browser › Controllo da parte degli agenti</h2>
+<div class="settings">
+  <h4>Controllo da parte degli agenti</h4>
+  <p class="hint">Gli agenti usano le schede del pannello con i tuoi login. Vedono solo le schede che aprono o che gli cedi.</p>
+  <div class="srow"><div class="l"><b>Permesso</b><small>Quando un agente vuole usare il browser.</small></div>
+    <div class="seg"><span>Disattivato</span><span class="on">Chiedi</span><span>Consenti su localhost</span></div></div>
+  <div class="srow"><div class="l"><b>Esecuzione di codice nella pagina (browser_eval)</b><small>Per il debug: legge e modifica la pagina.</small></div>
+    <div class="seg"><span>Mai</span><span class="on">Solo locale</span><span>Chiedi sugli altri siti</span><span>Ovunque</span></div></div>
+  <div class="srow"><div class="l"><b>Interazione sui siti non locali</b><small>Click e scrittura su siti esterni (letti sempre, se consentito).</small><div class="warnbox">Su siti dove sei loggato l'agente agisce a tuo nome.</div></div>
+    <div class="seg"><span>No</span><span class="on">Chiedi</span><span>Sì</span></div></div>
+  <div class="srow"><div class="l"><b>Pausa quando tocco la pagina</b><small>Un tuo click o tasto ferma l'agente finché non restituisci la scheda.</small></div><div class="tg on"></div></div>
+  <div class="srow"><div class="l"><b>Evidenzia le azioni dell'agente</b><small>Mostra l'elemento che sta toccando.</small></div><div class="tg on"></div></div>
+</div>
+
+<div class="note">
+<h3>Come funziona sotto</h3>
+<ul>
+<li><b>Windows:</b> WebView2 espone Chrome DevTools Protocol → screenshot (<code>Page.captureScreenshot</code>), click e tasti veri (<code>Input.dispatch*</code>, <code>isTrusted</code>), console e rete. <b>macOS/Linux:</b> JS iniettato + snapshot nativo della webview; input sintetici, meno affidabili. Telefono fuori scope.</li>
+<li><b>Snapshot:</b> testo compatto (ruolo, nome, testo, stato) con riferimenti e1…eN, ricalcolati a ogni snapshot; i campi password risultano "[password]" senza valore. Il contenuto della pagina è marcato come non affidabile nel risultato del tool.</li>
+<li><b>Perimetro:</b> scheda aperta dall'agente = sua; le tue solo con "Fai controllare all'agente". Più agenti: ogni scheda ha un solo controllore.</li>
+<li><b>Pausa:</b> un tuo input reale nella pagina mette l'agente in pausa; i suoi tool rispondono "l'utente sta usando la scheda, attendi" finché non restituisci.</li>
+<li><b>Fasi:</b> 1) tabs, navigate, snapshot, screenshot, console (solo lettura) · 2) click/type/press/scroll/select/wait + consenso + cessione + indicatore · 3) rete, dialog alert/confirm, upload, viewport mobile, pagine artefatto.</li>
+</ul>
+<h3>Raccomandazione</h3>
+<p>A: l'unica che mostra <i>cosa</i> sta facendo l'agente (ultima azione + elemento evidenziato) e dove sta il pulsante Interrompi senza coprire la pagina; la barra in fondo non tocca la webview nativa (come la barra dei download). Il badge ✦ sul contatore schede e l'etichetta nell'elenco schede valgono per tutte le varianti.</p>
+</div>
+
+<script>
+const firstPanel=document.querySelector('.grid .col .panel');
+let extra=null;
+const set=s=>{
+  document.querySelectorAll('[data-show]').forEach(el=>el.classList.toggle('hide',!el.dataset.show.split(' ').includes(s)));
+  document.querySelectorAll('[data-agentmode]').forEach(el=>el.classList.toggle('agentmode',s==='work'));
+  document.querySelectorAll('[data-hlwork]').forEach(el=>{el.classList.toggle('hl',s==='work');el.dataset.ref=el.dataset.hlwork;});
+  document.querySelectorAll('.bar [data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  if(extra){extra.remove();extra=null;}
+  if(s==='hand'||s==='tabs'){
+    extra=document.getElementById(s==='hand'?'handTpl':'tabsTpl').content.firstElementChild.cloneNode(true);
+    document.querySelectorAll('.grid .panel').forEach((p,i)=>{if(i===0){p.appendChild(extra);}});
+  }
+};
+function done(id,txt){const c=document.getElementById(id);c.classList.add('done');c.querySelector('.res').textContent='✓ '+txt;}
+document.querySelectorAll('.bar [data-s]').forEach(b=>b.onclick=()=>set(b.dataset.s));
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+set('work');
+</script>
+</body>
+</html>

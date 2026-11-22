@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { cliName, type AgentCli } from "../agents/cliInfo";
 import { agentCallOf, createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { registerControlOwner } from "../browser/control";
+import { basename } from "../lib/path";
 import { addCall } from "../calls/callStore";
 import { t } from "../i18n";
 import { readAgentToolsConfig } from "../agents/agentToolsSettings";
@@ -184,6 +186,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     activityRef.current = NO_ACTIVITY;
     let unlisten: (() => void) | null = null;
     let startedId: string | null = null;
+    // The chat is an owner the agent's browser control answers to while it lives (see browser/control.ts).
+    let unregisterControl: (() => void) | null = null;
     // Messages queued before a restart stay queued: they go out once the new agent is idle.
     const resumeId = talkedRef.current ? sessionIdRef.current : undefined;
     closedRef.current = false;
@@ -208,7 +212,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       // An attached child's opens are routed by its orchestrator's chat, whether or not this tab exists.
       if (attachChatId) return;
       const open = trackOpen(ev);
-      if (open) void routeAgentOpen(open, distro, confirmOpenRef.current, openTabIdRef.current);
+      if (open) void routeAgentOpen(open, distro, confirmOpenRef.current, openTabIdRef.current, chatIdRef.current ? { kind: "chat", id: chatIdRef.current } : undefined, agent);
       // `call_user`: the agent wants the user's eyes - shown as a bubble when they are in another tab.
       const call = agentCallOf(ev);
       const callTab = openTabIdRef.current;
@@ -290,6 +294,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           if (cancelled) return;
           prefetchChatBody();
           chatIdRef.current = started.chatId;
+          if (!attachChatId) unregisterControl = registerControlOwner({ owner: { kind: "chat", id: started.chatId }, hostId: started.chatId, tabId: openTabIdRef.current, agent, label: basename(cwd) || agent });
           if (!attachChatId) sessionIdRef.current = started.sessionId;
           // A resume that fell back to a new session (`loaded: false`) has nothing on disk yet either.
           talkedRef.current = started.loaded;
@@ -389,6 +394,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       if (previewTimer) clearTimeout(previewTimer);
       liveBuf = [];
       unlisten?.();
+      unregisterControl?.();
       // An agent still starting is closed once it is up; the next start waits for that.
       const pending = startRef.current;
       startRef.current = null;
@@ -544,6 +550,23 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   useLayoutEffect(() => {
     childIdsRef.current = new Set(delegatesOf(model.items).map((d) => d.childChatId));
   }, [model.items]);
+  // The chats this chat delegated to are owners too (their pages and questions show here).
+  const childOwnersRef = useRef(new Map<string, () => void>());
+  useEffect(() => {
+    if (attachChatId || !chatId) return;
+    const live = childOwnersRef.current;
+    const ids = new Set(delegatesOf(model.items).map((d) => d.childChatId));
+    for (const id of ids) {
+      if (!live.has(id)) live.set(id, registerControlOwner({ owner: { kind: "chat", id }, hostId: chatId, tabId: openTabIdRef.current, label: basename(cwd) || agent }));
+    }
+  }, [model.items, chatId, attachChatId]);
+  useEffect(() => {
+    const live = childOwnersRef.current;
+    return () => {
+      live.forEach((off) => off());
+      live.clear();
+    };
+  }, [chatId]);
   useEffect(() => {
     if (attachChatId) return;
     let off: (() => void) | null = null;
@@ -552,7 +575,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     void listen<ChatEventPayload>("chat-event", (e) => {
       if (!childIdsRef.current.has(e.payload.chatId)) return;
       const open = track(e.payload.event);
-      if (open) void routeAgentOpen(open, wslDistroRef.current, confirmOpenRef.current, openTabIdRef.current);
+      if (open) void routeAgentOpen(open, wslDistroRef.current, confirmOpenRef.current, openTabIdRef.current, { kind: "chat", id: e.payload.chatId });
     }).then((stop) => (gone ? stop() : (off = stop)));
     return () => {
       gone = true;
