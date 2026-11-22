@@ -285,6 +285,8 @@ impl ChatState {
         }
         let cwd = wsl_target(&chat.cwd, chat.shell.as_deref()).map_or_else(|| chat.cwd.clone(), |w| w.cwd);
         let (result, session_id, _) = new_session(&chat, &cwd)?;
+        // An agent that reuses the id of the closed session must not see it as stale.
+        chat.unforget_session(&session_id);
         *lock(&chat.session_id) = Some(session_id.clone());
         let modes = result.get("modes").cloned();
         *lock(&chat.modes) = modes.clone();
@@ -1021,6 +1023,7 @@ pub(super) fn start_once(
         wsl_tag,
         writer: Mutex::new(stdin),
         replies,
+        write_failed: AtomicBool::new(false),
         next_id: AtomicU64::new(1),
         pending: Mutex::new(HashMap::new()),
         permissions: Mutex::new(HashMap::new()),

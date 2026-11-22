@@ -69,12 +69,16 @@ pub(super) struct Chat {
     /// what the group kill misses.
     pub(super) wsl_tag: Option<String>,
     pub(super) writer: Mutex<ChildStdin>,
-    /// Replies the reader thread owes the agent, written by the chat's own
-    /// writer thread (`write_replies`): the reader must never block on the
-    /// agent's stdin - an agent busy writing to a full stdout isn't reading
-    /// it, and nobody would read that stdout. Bounded, unlike a thread per
-    /// reply: an agent flooding requests gets replies dropped, not threads.
+    /// Everything written to the agent's stdin (requests, notifications and
+    /// the replies the reader owes), written in order by the chat's own writer
+    /// thread (`write_replies`): neither the reader nor a caller may block on
+    /// the agent's stdin - an agent busy writing to a full stdout isn't
+    /// reading it, and nobody would read that stdout; a full pipe would also
+    /// hold `session/cancel` behind the stuck write. Bounded, unlike a thread
+    /// per message: a flood gets replies dropped or `send` refused.
     pub(super) replies: mpsc::SyncSender<Value>,
+    /// A write to the agent's stdin failed: `send` refuses from then on.
+    pub(super) write_failed: AtomicBool,
     pub(super) next_id: AtomicU64,
     pub(super) pending: Mutex<HashMap<u64, Pending>>,
     /// Permission requests the agent is waiting on: the JSON text of the
@@ -298,8 +302,21 @@ impl Chat {
         if tail.is_empty() { base.to_string() } else { format!("{base}: {tail}") }
     }
 
-    /// Writes one message line to the agent's stdin.
+    /// Queues one message for the agent's stdin; the writer thread sends the
+    /// queue in order, so this never blocks on a full pipe.
     pub(super) fn send(&self, message: &Value) -> Result<(), String> {
+        if self.write_failed.load(Ordering::Acquire) {
+            return Err(self.with_tail("the agent is not accepting input"));
+        }
+        match self.replies.try_send(message.clone()) {
+            Ok(()) => Ok(()),
+            Err(mpsc::TrySendError::Full(_)) => Err(self.with_tail("the agent is not reading its input")),
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(self.with_tail("the agent is not accepting input")),
+        }
+    }
+
+    /// Writes one message line to the agent's stdin (the writer thread's job).
+    fn write_now(&self, message: &Value) -> Result<(), String> {
         let mut line = serde_json::to_vec(message).map_err(|e| e.to_string())?;
         line.push(b'\n');
         let mut writer = lock(&self.writer);
@@ -948,7 +965,10 @@ pub(super) fn kill_if_running(child: &mut Child) {
 pub(super) fn write_replies(chat: Weak<Chat>, replies: mpsc::Receiver<Value>) {
     while let Ok(reply) = replies.recv() {
         let Some(chat) = chat.upgrade() else { return };
-        let _ = chat.send(&reply);
+        if let Err(e) = chat.write_now(&reply) {
+            chat.write_failed.store(true, Ordering::Release);
+            eprintln!("chat {}: {e}", chat.id);
+        }
     }
 }
 

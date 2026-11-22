@@ -19,6 +19,8 @@ use sha2::{Digest, Sha256};
 const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 /// Stored images older than this are deleted at startup.
 const MAX_AGE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+/// The store is trimmed (oldest first) to this size at startup.
+const MAX_TOTAL_BYTES: u64 = 500 * 1024 * 1024;
 /// Extensions served as images (lowercase).
 const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico"];
 
@@ -35,7 +37,16 @@ fn dir() -> PathBuf {
     STORE_DIR.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("flowcode-chat-images"))
 }
 
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+/// The app's private folder next to the image store (the cache folder; the
+/// shared temp folder in tests): other chat files that must not be world
+/// readable live under it.
+pub(crate) fn private_base() -> PathBuf {
+    let store = dir();
+    store.parent().map_or_else(std::env::temp_dir, Path::to_path_buf)
+}
+
+/// Creates `dir` (and parents), mode 0700 on unix.
+pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -58,6 +69,8 @@ pub(crate) fn store(bytes: &[u8]) -> Result<String, String> {
     let dir = dir();
     let target = dir.join(&id);
     if target.exists() {
+        // A hit counts as use: saved previews still point at the picture, so the purge must not take it.
+        touch(&target);
         return Ok(id);
     }
     create_private_dir(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
@@ -237,20 +250,38 @@ pub(crate) fn mime_of(path: &Path) -> &'static str {
     }
 }
 
-/// Deletes the stored images not touched for three days. Run once at startup.
+/// Sets the modification time of `path` to now (best effort).
+fn touch(path: &Path) {
+    if let Ok(file) = std::fs::File::options().append(true).open(path) {
+        let _ = file.set_modified(SystemTime::now());
+    }
+}
+
+/// Deletes the stored images not touched for three days, then the oldest ones
+/// while the store is over `MAX_TOTAL_BYTES`. Run once at startup.
 pub(crate) fn purge_old() {
-    let Ok(entries) = std::fs::read_dir(dir()) else { return };
+    purge_dir(&dir(), MAX_AGE, MAX_TOTAL_BYTES);
+}
+
+fn purge_dir(dir: &Path, max_age: Duration, max_total: u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     let now = SystemTime::now();
+    let mut kept: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
     for entry in entries.flatten() {
-        let old = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| now.duration_since(t).ok())
-            .is_some_and(|age| age > MAX_AGE);
+        let Ok(meta) = entry.metadata() else { continue };
+        let modified = meta.modified().unwrap_or(now);
+        let old = now.duration_since(modified).is_ok_and(|age| age > max_age);
         if old {
             let _ = std::fs::remove_file(entry.path());
+        } else if meta.is_file() {
+            kept.push((modified, meta.len(), entry.path()));
         }
+    }
+    let mut total: u64 = kept.iter().fold(0, |t, k| t.saturating_add(k.1));
+    kept.sort_by_key(|k| k.0);
+    for (_, len, path) in kept {
+        if total <= max_total { break; }
+        if std::fs::remove_file(&path).is_ok() { total = total.saturating_sub(len); }
     }
 }
 
@@ -258,6 +289,23 @@ pub(crate) fn purge_old() {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn purge_trims_oldest_first_and_touch_refreshes() {
+        let d = std::env::temp_dir().join(format!("flowcode-img-purge-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        let (a, b) = (d.join("a"), d.join("b"));
+        std::fs::write(&a, [0u8; 10]).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        std::fs::write(&b, [0u8; 10]).unwrap();
+        purge_dir(&d, Duration::from_secs(3600), 15);
+        assert!(!a.exists() && b.exists(), "the oldest goes first");
+        std::fs::File::options().append(true).open(&b).unwrap().set_modified(SystemTime::now() - Duration::from_secs(7200)).unwrap();
+        touch(&b);
+        purge_dir(&d, Duration::from_secs(3600), u64::MAX);
+        assert!(b.exists(), "a touched file is not old");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     fn b64(bytes: &[u8]) -> String {
         base64::engine::general_purpose::STANDARD.encode(bytes)

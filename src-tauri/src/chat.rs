@@ -105,9 +105,9 @@ const STDERR_TAIL: usize = 4 * 1024;
 /// ACP's "method not found" JSON-RPC error code.
 const METHOD_NOT_FOUND: i64 = -32601;
 
-/// Replies the reader thread may queue for the chat's writer thread (see
-/// `Chat::replies`) before further ones are dropped.
-const REPLY_QUEUE: usize = 64;
+/// Messages that may wait for the chat's writer thread (see `Chat::replies`)
+/// before further replies are dropped and `send` refuses.
+const REPLY_QUEUE: usize = 256;
 
 /// Longest line read from the agent's stdout: past it the rest of that line
 /// is skipped, not buffered - a runaway agent must not grow one `Vec` until

@@ -45,6 +45,8 @@ const STALE: Duration = Duration::from_secs(10 * 60);
 const SWEEP_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Requests served at once; more are refused, so a runaway script can't pile up threads.
 const MAX_IN_FLIGHT: usize = 32;
+/// Requests served at once for one token, so a single agent can't use up every slot.
+const MAX_PER_TOKEN: usize = 8;
 
 /// What a chat's agent may do through Flowcode (`chat_start`'s `tools`, from
 /// the "Agent tools" settings). Missing means everything off.
@@ -187,6 +189,7 @@ fn setup(app: &AppHandle) -> Option<&'static Setup> {
                 std::fs::write(&script, SCRIPT).ok()?;
             }
             sweep(&dir, STALE);
+            sweep_terminal_configs(&root);
             let (app, watched) = (app.clone(), dir.clone());
             std::thread::spawn(move || poll(app, watched));
             Some(Setup { script, dir })
@@ -374,6 +377,46 @@ fn sweep(dir: &Path, max_age: Duration) {
     }
 }
 
+/// Deletes the `term-*.json` configs of terminal tabs in `root`: a crash leaves
+/// them behind, and their tokens died with the app. Run once at startup, before
+/// any tab of this run can write one.
+fn sweep_terminal_configs(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("term-") && name.ends_with(".json") && entry.file_type().is_ok_and(|t| t.is_file()) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Requests in flight per token, so one agent can't take every slot.
+#[derive(Clone, Default)]
+struct TokenSlots(Arc<Mutex<HashMap<String, usize>>>);
+
+struct TokenSlot(TokenSlots, String);
+
+impl TokenSlots {
+    fn enter(&self, token: &str) -> Option<TokenSlot> {
+        let mut map = lock(&self.0);
+        let n = map.entry(token.to_string()).or_insert(0);
+        if *n >= MAX_PER_TOKEN { return None; }
+        *n += 1;
+        Some(TokenSlot(self.clone(), token.to_string()))
+    }
+}
+
+impl Drop for TokenSlot {
+    fn drop(&mut self) {
+        let mut map = lock(&(self.0).0);
+        if let Some(n) = map.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 { map.remove(&self.1); }
+        }
+    }
+}
+
 /// Counts a request in flight until dropped.
 struct InFlight(Arc<AtomicUsize>);
 
@@ -395,6 +438,7 @@ impl Drop for InFlight {
 /// The poller: every `POLL`, serves the new request files, each on its own thread.
 fn poll(app: AppHandle, dir: PathBuf) {
     let in_flight = Arc::new(AtomicUsize::new(0));
+    let per_token = TokenSlots::default();
     let mut swept = std::time::Instant::now();
     loop {
         let requests = take_requests(&dir);
@@ -404,10 +448,21 @@ fn poll(app: AppHandle, dir: PathBuf) {
                 write_response(&dir, &id, &Err("Flowcode is busy with too many tool calls".into()));
                 continue;
             };
+            let request = match parse_request(&id, &text) {
+                Ok(request) => request,
+                Err(e) => {
+                    write_response(&dir, &id, &Err(e));
+                    continue;
+                }
+            };
+            let Some(token_slot) = per_token.enter(&request.token) else {
+                write_response(&dir, &id, &Err("this agent has too many tool calls in flight".into()));
+                continue;
+            };
             let (app, dir) = (app.clone(), dir.clone());
             std::thread::spawn(move || {
-                let _slot = slot;
-                let result = parse_request(&id, &text).and_then(|request| dispatch(&app, request));
+                let (_slot, _token_slot) = (slot, token_slot);
+                let result = dispatch(&app, request);
                 write_response(&dir, &id, &result);
             });
         }
@@ -810,6 +865,27 @@ mod tests {
         assert!(!dir.join("req-a.json").exists() && !dir.join("res-a.json").exists());
         assert!(dir.join("keep.txt").exists());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn terminal_configs_are_swept_at_startup() {
+        let dir = temp_dir();
+        std::fs::write(dir.join("term-1.json"), "{}").unwrap();
+        std::fs::write(dir.join("keep.json"), "{}").unwrap();
+        sweep_terminal_configs(&dir);
+        assert!(!dir.join("term-1.json").exists() && dir.join("keep.json").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn requests_per_token_are_capped() {
+        let slots = TokenSlots::default();
+        let held: Vec<_> = (0..MAX_PER_TOKEN).filter_map(|_| slots.enter("a")).collect();
+        assert_eq!(held.len(), MAX_PER_TOKEN);
+        assert!(slots.enter("a").is_none());
+        assert!(slots.enter("b").is_some(), "other tokens are not starved");
+        drop(held);
+        assert!(slots.enter("a").is_some());
     }
 
     #[test]

@@ -52,11 +52,22 @@ pub(super) static ATTACHMENT_STORE: Mutex<Option<u64>> = Mutex::new(None);
 pub(super) const ATTACHMENT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(super) fn attachments_root() -> std::path::PathBuf {
-    std::env::temp_dir().join("flowcode-attachments")
+    // The app's private cache folder (see `chat_images::init`), not the shared temp one.
+    crate::chat_images::private_base().join("chat-attachments")
 }
 
 pub(super) fn root_is_safe(root: &std::path::Path) -> bool {
-    crate::fs::links_stay_local(root) && !std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink())
+    if !crate::fs::links_stay_local(root) || std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink()) {
+        return false;
+    }
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(root) {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        // Ours (same owner as the folder it sits in) and closed to everyone else.
+        let owner_ok = root.parent().and_then(|p| std::fs::metadata(p).ok()).is_none_or(|p| p.uid() == meta.uid());
+        if !owner_ok || meta.permissions().mode() & 0o077 != 0 { return false; }
+    }
+    true
 }
 
 /// Bytes of the files directly inside `dir`.
@@ -101,6 +112,9 @@ pub(crate) fn purge_attachments() {
 /// Saves `bytes` as `<root>/<uuid>/<name>`; returns the uuid and the file.
 pub(super) fn stage_in(root: &std::path::Path, total: &mut Option<u64>, max_age: Duration, name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
     if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
+    if !root.exists() {
+        crate::chat_images::create_private_dir(root).map_err(|e| format!("could not create the attachment directory: {e}"))?;
+    }
     if !root_is_safe(root) { return Err("unsafe attachment directory".into()); }
     let len = bytes.len() as u64;
     let mut current = *total.get_or_insert_with(|| scan_attachments_total(root));
@@ -136,7 +150,7 @@ pub(super) fn unstage_in(root: &std::path::Path, total: &mut Option<u64>, upload
     Ok(())
 }
 
-/// Saves `bytes` as `<temp>/flowcode-attachments/<uuid>/<name>`; returns the uuid and the file.
+/// Saves `bytes` as `<private cache>/chat-attachments/<uuid>/<name>`; returns the uuid and the file.
 pub(super) fn stage_attachment(name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
     let mut total = lock(&ATTACHMENT_STORE);
     stage_in(&attachments_root(), &mut total, ATTACHMENT_MAX_AGE, name, bytes)
@@ -155,8 +169,8 @@ pub(crate) fn stage_upload(name: &str, bytes: &[u8]) -> Result<String, String> {
 /// The attachment a phone prompt refers to: a file `stage_upload` stored.
 pub(crate) fn uploaded_attachment(id: &str, name: &str, mime: &str) -> Result<Attachment, String> {
     uuid::Uuid::parse_str(id).map_err(|_| "invalid attachment id".to_string())?;
-    let root = std::env::temp_dir().join("flowcode-attachments");
-    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
+    let root = attachments_root();
+    if !root_is_safe(&root) { return Err("unsafe attachment directory".into()); }
     let path = root.join(id).join(sanitize_name(name));
     match std::fs::symlink_metadata(&path) {
         Ok(m) if m.file_type().is_file() => {}
@@ -264,7 +278,7 @@ mod tests {
         assert!(super::uploaded_attachment("not-a-uuid", "note.txt", "text/plain").is_err());
         assert!(super::uploaded_attachment(&uuid::Uuid::new_v4().to_string(), "note.txt", "text/plain").is_err());
         assert!(super::uploaded_attachment(&format!("../{id}"), "note.txt", "").is_err());
-        let root = std::env::temp_dir().join("flowcode-attachments");
+        let root = super::attachments_root();
         let evil = id_path("../../x.txt", &id);
         assert!(evil.is_none_or(|p| p.starts_with(&root)));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
