@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — download nel browser: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --warn:#e0b252; --red:#e07a6a; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.07);
+  --page:#f4f1ec; --page-fg:#2a2622;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --warn:#a67a14; --red:#b8483a; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:980px}
+.sub code,.note code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:8px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(360px,400px));gap:30px;align-items:start}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 12px;color:var(--fg-muted);min-height:96px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+/* pannello browser */
+.panel{position:relative;height:560px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);display:flex;flex-direction:column}
+.hdr{height:38px;display:flex;align-items:center;gap:4px;padding:0 6px;border-bottom:1px solid var(--border);flex:none;background:var(--surface)}
+.ib{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted);position:relative;flex:none}
+.ib.on{background:var(--track);color:var(--fg)}
+.ib svg{width:14px;height:14px}
+.url{flex:1;min-width:0;height:26px;border-radius:6px;background:var(--surface2);display:flex;align-items:center;padding:0 9px;gap:2px;font-size:12px;white-space:nowrap;overflow:hidden}
+.url b{font-weight:600}.url span{color:var(--fg-muted)}
+.tabs{height:22px;min-width:22px;border:1.5px solid var(--fg-muted);border-radius:5px;display:grid;place-items:center;font-size:11px;color:var(--fg-muted);margin:0 3px;flex:none}
+.ring{position:absolute;inset:1px;border-radius:50%;background:conic-gradient(var(--accent) 0 var(--p,0%),transparent var(--p,0%));-webkit-mask:radial-gradient(circle,transparent 9px,#000 9.5px);mask:radial-gradient(circle,transparent 9px,#000 9.5px)}
+.badge{position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface)}
+.view{flex:1;position:relative;background:var(--page);color:var(--page-fg);overflow:hidden}
+.fake{padding:22px 24px;display:flex;flex-direction:column;gap:10px}
+.fake .h{height:18px;width:55%;background:#d9d2c7;border-radius:4px}
+.fake .l{height:9px;background:#e4ded4;border-radius:3px}
+.fake .btnp{margin-top:8px;align-self:flex-start;background:#3b6ea8;color:#fff;border-radius:6px;padding:7px 14px;font-size:12px}
+.frozen::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.28);backdrop-filter:blur(1px)}
+
+/* barra conferma (A) */
+.ask{flex:none;display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
+.ask.danger{background:color-mix(in srgb,var(--red) 12%,var(--surface))}
+.ask .fi{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.ask .fi b{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ask .fi small{color:var(--fg-muted);font-size:11.5px}
+.ask.danger .fi small{color:var(--red)}
+.b{font:inherit;font-size:12px;font-weight:600;border:0;border-radius:6px;padding:5px 11px;cursor:pointer;background:var(--track);color:var(--fg);white-space:nowrap}
+.b.main{background:var(--accent);color:var(--accent-ink)}
+.b.warn{background:var(--red);color:#fff}
+.b.ghost{background:transparent;color:var(--fg-muted);font-weight:500}
+
+/* icona file */
+.ficon{width:30px;height:34px;border-radius:5px;background:var(--surface3);display:grid;place-items:center;font-size:9px;font-weight:700;letter-spacing:.02em;color:var(--fg-muted);flex:none;position:relative}
+.ficon.pdf{color:#e07a6a}.ficon.zip{color:#e0b252}.ficon.exe{color:#fff;background:var(--red)}.ficon.img{color:#7fb3d5}
+
+/* popover */
+.pop{position:absolute;top:42px;right:8px;z-index:5;width:calc(100% - 16px);max-width:330px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:5px;display:flex;flex-direction:column}
+.ph{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted);padding:6px 8px 4px;display:flex;justify-content:space-between;align-items:center}
+.ph a{text-transform:none;letter-spacing:0;color:var(--fg-muted);font-size:11.5px;cursor:pointer}
+.dl{display:flex;gap:9px;align-items:center;padding:7px 8px;border-radius:6px}
+.dl:hover{background:var(--hover)}
+.dl .m{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;line-height:1.2}
+.dl .m b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl .m small{font-size:11.5px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl .m small.err{color:var(--red)}
+.dl .acts{display:flex;gap:2px;opacity:.85}
+.dl .acts .ib{width:24px;height:24px}
+.trk{height:3px;border-radius:3px;background:var(--track);overflow:hidden;position:relative}
+.trk i{position:absolute;top:0;bottom:0;width:35%;background:var(--accent);border-radius:3px;animation:ind 1.3s ease-in-out infinite}
+@keyframes ind{0%{left:-35%}100%{left:100%}}
+.sep{height:1px;background:var(--border);margin:4px 6px}
+.mi{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:6px;font-size:12.5px}
+.mi svg{width:14px;height:14px;color:var(--fg-muted)}
+.mi.hl{background:var(--hover)}
+.mi .k{margin-left:auto;color:var(--fg-muted);font-size:11px}
+.cnt{margin-left:auto;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:0 7px;font-weight:600}
+
+/* popover conferma (B) */
+.confirm{padding:10px 10px 8px;display:flex;flex-direction:column;gap:9px}
+.confirm .row{display:flex;gap:10px;align-items:center}
+.confirm .row .m{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.confirm .row b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.confirm .row small{color:var(--fg-muted);font-size:11.5px}
+.confirm .w{font-size:11.5px;color:var(--red);background:color-mix(in srgb,var(--red) 12%,transparent);border-radius:6px;padding:6px 8px}
+.confirm .btns{display:flex;gap:6px;justify-content:flex-end}
+.chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--fg-muted)}
+.chk i{width:12px;height:12px;border:1.5px solid var(--fg-muted);border-radius:3px}
+
+/* dialog (C) */
+.dlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;width:300px;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:16px;display:flex;flex-direction:column;gap:12px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .row{display:flex;gap:10px;align-items:center}
+.dlg .row .m{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.dlg .row b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dlg .row small{color:var(--fg-muted);font-size:11.5px}
+.dlg .btns{display:flex;gap:6px;justify-content:flex-end}
+
+/* pagina download (C) */
+.dpage{position:absolute;inset:0;background:var(--surface);color:var(--fg);padding:16px 16px 10px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.dpage h3{margin:0;font-size:15px;display:flex;align-items:center;gap:8px}
+.dpage .tools{display:flex;gap:6px}
+.dpage .search{flex:1;height:26px;border-radius:6px;background:var(--surface2);color:var(--fg-muted);display:flex;align-items:center;padding:0 9px;font-size:12px}
+.dpage .grp{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted);margin-top:4px}
+.dpage .card{border:1px solid var(--border);border-radius:8px;padding:2px}
+
+.note{margin-top:30px;max-width:1240px;color:var(--fg-muted);line-height:1.55}
+.note h3{color:var(--fg);font-size:14px;margin:18px 0 6px}
+.note li{margin:3px 0}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<h1>Download nel browser in-app — conferma + menu download</h1>
+<p class="sub">Oggi il browser nativo (<code>browser_view.rs on_download</code>) accetta ogni download in silenzio. Proposta: ogni download chiede conferma, i file pericolosi (<code>.exe .bat .msi .ps1 .cmd .scr .sh .apk…</code>) hanno un avviso rosso, e c'è un elenco dei download dove vedere stato, aprire, mostrare nella cartella, ritentare, cancellare. Usa i pulsanti per vedere i vari stati.</p>
+
+<div class="bar">
+  <span class="lab">Stato:</span>
+  <button data-s="ask" class="on">Conferma (file normale)</button>
+  <button data-s="danger">Conferma (file .exe)</button>
+  <button data-s="list">Elenco download</button>
+  <button data-s="idle">Download in corso, menu chiuso</button>
+  <span class="lab">Tema:</span>
+  <button id="theme">Chiaro / scuro</button>
+</div>
+
+<div class="grid">
+<!-- ======================= A ======================= -->
+<div class="col">
+  <h2>A · Barra sotto l'indirizzo + pulsante download <span class="rec">consigliata</span></h2>
+  <p class="d">La conferma è una barra che spinge giù la pagina (niente overlay: la webview nativa resta viva e cliccabile). Compare un'icona download nell'header solo quando c'è almeno un download; anello di avanzamento mentre scarica. Il clic apre un popover in stile "schede".</p>
+  <div class="panel">
+    <div class="hdr">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div>
+      <div class="url"><b>releases.example.com</b><span>/v2.4/</span></div>
+      <div class="ib dlbtn" data-show="list idle ask danger"><span class="ring" style="--p:62%"></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10"/></svg></div>
+      <div class="tabs">3</div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></div>
+    </div>
+    <div class="ask" data-show="ask">
+      <div class="ficon zip">ZIP</div>
+      <div class="fi"><b>flowkit-2.4.0-win64.zip</b><small>18,4 MB · da releases.example.com</small></div>
+      <button class="b ghost">Annulla</button><button class="b main">Scarica</button>
+    </div>
+    <div class="ask danger" data-show="danger">
+      <div class="ficon exe">EXE</div>
+      <div class="fi"><b>setup-tool.exe</b><small>Programma eseguibile · può modificare il PC</small></div>
+      <button class="b ghost">Annulla</button><button class="b warn">Scarica comunque</button>
+    </div>
+    <div class="view"><div class="fake"><div class="h"></div><div class="l"></div><div class="l" style="width:80%"></div><div class="l" style="width:65%"></div><div class="btnp">Download for Windows</div></div></div>
+    <div class="pop" data-show="list">
+      <div class="ph">Download <a>Apri cartella</a></div>
+      <div class="dl"><div class="ficon zip">ZIP</div><div class="m"><b>flowkit-2.4.0-win64.zip</b><div class="trk"><i></i></div><small>In corso · releases.example.com</small></div><div class="acts"><div class="ib" title="Annulla"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 4 8 8M12 4l-8 8"/></svg></div></div></div>
+      <div class="dl"><div class="ficon pdf">PDF</div><div class="m"><b>fattura-ottobre.pdf</b><small>212 KB · 2 min fa</small></div><div class="acts"><div class="ib" title="Mostra nella cartella"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"/></svg></div></div></div>
+      <div class="dl"><div class="ficon img">PNG</div><div class="m"><b>screenshot-hero@2x.png</b><small>1,1 MB · ieri</small></div><div class="acts"><div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"/></svg></div></div></div>
+      <div class="dl"><div class="ficon zip">TAR</div><div class="m"><b>dataset-full.tar.gz</b><small class="err">Non riuscito · connessione interrotta</small></div><div class="acts"><div class="ib" title="Riprova"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div></div></div>
+      <div class="sep"></div>
+      <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M6 4V2.5h4V4M4.5 4l.5 9.5h6l.5-9.5"/></svg>Svuota elenco</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= B ======================= -->
+<div class="col">
+  <h2>B · Tutto nel popover del pulsante download</h2>
+  <p class="d">Il pulsante download è sempre presente. Alla richiesta si apre da solo il popover con la scheda di conferma in cima e l'elenco sotto. Più compatto, ma il popover copre la pagina: la webview nativa va in freeze-frame mentre è aperto.</p>
+  <div class="panel">
+    <div class="hdr">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div>
+      <div class="url"><b>releases.example.com</b><span>/v2.4/</span></div>
+      <div class="ib on"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10"/></svg><span class="badge" data-show="idle ask danger"></span></div>
+      <div class="tabs">3</div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></div>
+    </div>
+    <div class="view fz"><div class="fake"><div class="h"></div><div class="l"></div><div class="l" style="width:80%"></div><div class="l" style="width:65%"></div><div class="btnp">Download for Windows</div></div></div>
+    <div class="pop" data-show="ask danger list">
+      <div class="confirm" data-show="ask">
+        <div class="row"><div class="ficon zip">ZIP</div><div class="m"><b>flowkit-2.4.0-win64.zip</b><small>18,4 MB · releases.example.com</small></div></div>
+        <div class="btns"><button class="b ghost">Annulla</button><button class="b main">Scarica</button></div>
+      </div>
+      <div class="confirm" data-show="danger">
+        <div class="row"><div class="ficon exe">EXE</div><div class="m"><b>setup-tool.exe</b><small>4,2 MB · tools.example.net</small></div></div>
+        <div class="w">È un programma eseguibile: aprilo solo se ti fidi del sito.</div>
+        <div class="btns"><button class="b ghost">Annulla</button><button class="b warn">Scarica comunque</button></div>
+      </div>
+      <div class="sep" data-show="ask danger"></div>
+      <div class="ph">Recenti <a>Apri cartella</a></div>
+      <div class="dl"><div class="ficon pdf">PDF</div><div class="m"><b>fattura-ottobre.pdf</b><small>212 KB · 2 min fa</small></div></div>
+      <div class="dl"><div class="ficon img">PNG</div><div class="m"><b>screenshot-hero@2x.png</b><small>1,1 MB · ieri</small></div></div>
+      <div class="dl"><div class="ficon zip">TAR</div><div class="m"><b>dataset-full.tar.gz</b><small class="err">Non riuscito · Riprova</small></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= C ======================= -->
+<div class="col">
+  <h2>C · Dialog di conferma + pagina "Download" nel menu ⋯</h2>
+  <p class="d">Conferma come dialog centrato (freeze-frame sotto). Niente icona nuova nell'header: i download stanno nel menu ⋯ con un contatore, e aprono una pagina interna (come le pagine custom d'errore) con ricerca e gruppi per giorno. Più "Chrome", ma più clic.</p>
+  <div class="panel">
+    <div class="hdr">
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 3 5 5-5 5"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg></div>
+      <div class="url" data-show="ask danger idle"><b>releases.example.com</b><span>/v2.4/</span></div>
+      <div class="url" data-show="list"><b>Download</b></div>
+      <div class="tabs">3</div>
+      <div class="ib on"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg><span class="badge" data-show="idle"></span></div>
+    </div>
+    <div class="view frozen" data-show="ask danger"><div class="fake"><div class="h"></div><div class="l"></div><div class="l" style="width:80%"></div><div class="btnp">Download for Windows</div></div></div>
+    <div class="view" data-show="idle"><div class="fake"><div class="h"></div><div class="l"></div><div class="l" style="width:80%"></div><div class="btnp">Download for Windows</div></div></div>
+    <div class="pop" data-show="idle" style="max-width:260px">
+      <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2 7.5 8.5"/></svg>Apri nel browser di sistema</div>
+      <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11V3h8"/></svg>Copia indirizzo</div>
+      <div class="mi hl"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10"/></svg>Download<span class="cnt">1</span></div>
+      <div class="mi"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m5 4-3 4 3 4M11 4l3 4-3 4"/></svg>Strumenti sviluppatore<span class="k">F12</span></div>
+    </div>
+    <div class="dlg" data-show="ask">
+      <h3>Scaricare questo file?</h3>
+      <div class="row"><div class="ficon zip">ZIP</div><div class="m"><b>flowkit-2.4.0-win64.zip</b><small>18,4 MB · releases.example.com</small></div></div>
+      <div class="chk"><i></i>Non chiedere più per questo sito</div>
+      <div class="btns"><button class="b ghost">Annulla</button><button class="b main">Scarica</button></div>
+    </div>
+    <div class="dlg" data-show="danger">
+      <h3>File potenzialmente pericoloso</h3>
+      <div class="row"><div class="ficon exe">EXE</div><div class="m"><b>setup-tool.exe</b><small>4,2 MB · tools.example.net</small></div></div>
+      <div class="confirm" style="padding:0"><div class="w">È un programma eseguibile: aprilo solo se ti fidi del sito.</div></div>
+      <div class="btns"><button class="b ghost">Annulla</button><button class="b warn">Scarica comunque</button></div>
+    </div>
+    <div class="dpage" data-show="list">
+      <h3><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10"/></svg>Download</h3>
+      <div class="tools"><div class="search">Cerca nei download</div><button class="b">Apri cartella</button></div>
+      <div class="grp">Oggi</div>
+      <div class="card">
+        <div class="dl"><div class="ficon zip">ZIP</div><div class="m"><b>flowkit-2.4.0-win64.zip</b><div class="trk"><i></i></div><small>In corso · releases.example.com</small></div><button class="b ghost">Annulla</button></div>
+        <div class="dl"><div class="ficon pdf">PDF</div><div class="m"><b>fattura-ottobre.pdf</b><small>212 KB · 14:32</small></div><button class="b ghost">Mostra</button></div>
+      </div>
+      <div class="grp">Ieri</div>
+      <div class="card">
+        <div class="dl"><div class="ficon img">PNG</div><div class="m"><b>screenshot-hero@2x.png</b><small>1,1 MB · 18:05</small></div><button class="b ghost">Mostra</button></div>
+        <div class="dl"><div class="ficon zip">TAR</div><div class="m"><b>dataset-full.tar.gz</b><small class="err">Non riuscito · connessione interrotta</small></div><button class="b ghost">Riprova</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="note">
+<h3>Come funzionerebbe sotto (uguale per tutte le varianti)</h3>
+<ul>
+<li><b>La conferma non può bloccare WebView2:</b> il callback <code>on_download</code> di wry è sincrono. Quindi il download parte subito ma in una cartella privata dell'app (<code>…/flowcode/downloads-pending/</code>, file <code>.part</code>). Con <i>Scarica</i> il file viene spostato in Download (nome libero, tipo <code>file (1).zip</code>); con <i>Annulla</i> viene cancellato. Così restano cookie/login del sito e nessun file arriva in Download senza consenso.</li>
+<li><b>Avanzamento:</b> wry dà solo "richiesto" e "finito", non i byte. La barra quindi è indeterminata (niente %); la dimensione si mostra se il server manda <code>Content-Length</code> (HEAD rapido) oppure a fine download.</li>
+<li><b>File pericolosi:</b> stessa lista che <code>system.rs</code> usa per non aprire eseguibili; per questi niente "Apri", solo "Mostra nella cartella".</li>
+<li><b>Elenco:</b> per finestra, persistito (ultimi 50), azioni: apri, mostra nella cartella, annulla, riprova, rimuovi dall'elenco, svuota. Se la conferma resta senza risposta, scade dopo 2 min e il <code>.part</code> si cancella.</li>
+<li><b>Telefono:</b> fuori scope per ora (il browser del telefono passa dal tunnel, i download lì sono un tema a parte).</li>
+</ul>
+<h3>Raccomandazione</h3>
+<p>A: la barra non copre la webview nativa (niente freeze-frame, puoi ancora leggere la pagina mentre decidi), il pulsante appare solo quando serve, e il popover riusa lo stile del selettore schede. "Non chiedere più per questo sito" (di C) si può aggiungere ad A come link nella barra.</p>
+</div>
+
+<script>
+const set=s=>{document.querySelectorAll('[data-show]').forEach(el=>el.classList.toggle('hide',!el.dataset.show.split(' ').includes(s)));
+  document.querySelectorAll('.bar [data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  document.querySelectorAll('.fz').forEach(v=>v.classList.toggle('frozen',s!=='idle'));};
+document.querySelectorAll('.bar [data-s]').forEach(b=>b.onclick=()=>set(b.dataset.s));
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+set('ask');
+</script>
+</body>
+</html>

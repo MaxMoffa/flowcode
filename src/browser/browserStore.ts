@@ -282,6 +282,27 @@ export function openUrlInPreview(url: string, fromTabId?: string) {
   showPage(id, fromTabId);
 }
 
+/** Most pages the browser holds; popups past it are ignored. */
+const MAX_PAGES = 30;
+/** A page may open this many popups per window of time. */
+const POPUP_BURST = 3;
+const POPUP_WINDOW_MS = 2000;
+const popupTimes = new Map<string, number[]>();
+
+/** A new page a web page asked for (`window.open`). False when ignored: more than 3 popups from the
+ * same page within 2 s, or the browser already holds 30 pages. */
+export function openPopupFromPage(sourcePageId: string, url: string, now = Date.now()): boolean {
+  const recent = (popupTimes.get(sourcePageId) ?? []).filter((at) => now - at < POPUP_WINDOW_MS);
+  if (recent.length >= POPUP_BURST) {
+    popupTimes.set(sourcePageId, recent);
+    return false;
+  }
+  if (store.get().pages.length >= MAX_PAGES) return false;
+  popupTimes.set(sourcePageId, [...recent, now]);
+  openUrlInPreview(url);
+  return true;
+}
+
 export function openFileInPreview(path: string, fromTabId?: string) {
   if (isPdfTarget(path)) return openPdfInPreview(path, fromTabId);
   showPage(addOrFindPage({ kind: "file", path }), fromTabId);

@@ -113,6 +113,9 @@ const RESERVED_HOSTS: [&str; 5] = [
     "flowcode-preview.localhost",
 ];
 
+/// Labels of children currently hidden (not polled for their URL).
+static HIDDEN: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> = std::sync::LazyLock::new(Default::default);
+
 static TICK: AtomicU64 = AtomicU64::new(1);
 
 struct Entry {
@@ -190,15 +193,6 @@ struct LoadPayload<'a> {
 struct TitlePayload<'a> {
     page_id: &'a str,
     title: &'a str,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct DownloadPayload<'a> {
-    page_id: &'a str,
-    url: &'a str,
-    path: Option<String>,
-    success: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -397,31 +391,15 @@ fn build_child(
         let (app, win, pid) = (app.clone(), win.clone(), page_id.to_string());
         builder = builder.on_download(move |_, event| {
             match event {
-                DownloadEvent::Requested { url, destination } => emit(
-                    &app,
-                    &win,
-                    "browser-view-download",
-                    DownloadPayload {
-                        page_id: &pid,
-                        url: url.as_str(),
-                        path: Some(destination.to_string_lossy().into_owned()),
-                        success: None,
-                    },
-                ),
-                DownloadEvent::Finished { url, path, success } => emit(
-                    &app,
-                    &win,
-                    "browser-view-download",
-                    DownloadPayload {
-                        page_id: &pid,
-                        url: url.as_str(),
-                        path: path.map(|p| p.to_string_lossy().into_owned()),
-                        success: Some(success),
-                    },
-                ),
+                DownloadEvent::Requested { url, destination } => {
+                    crate::browser_downloads::on_requested(&app, &win, &pid, url.as_str(), destination)
+                }
+                DownloadEvent::Finished { url, path, success } => {
+                    crate::browser_downloads::on_finished(&app, url.as_str(), path, success)
+                }
                 _ => {}
             }
-            // Default destination: the user's Downloads folder.
+            // The file lands in a private pending folder; the user's answer moves it.
             true
         });
     }
@@ -440,6 +418,11 @@ fn build_child(
         loop {
             tokio::time::sleep(Duration::from_millis(800)).await;
             let Some(wv) = app.get_webview(&label) else { break };
+            // A hidden child (another tab is shown) is not polled: `url()` is a
+            // synchronous round trip to the webview.
+            if lock(&HIDDEN).contains(&label) {
+                continue;
+            }
             if let Ok(u) = wv.url() {
                 if u.scheme() == "http" || u.scheme() == "https" {
                     note_url(u.as_str());
@@ -569,6 +552,7 @@ fn attach_webkit_errors(pw: tauri::webview::PlatformWebview, app: AppHandle, win
 }
 
 fn destroy(app: &AppHandle, label: &str) {
+    lock(&HIDDEN).remove(label);
     if let Some(wv) = app.get_webview(label) {
         let _ = wv.close();
     }
@@ -594,6 +578,7 @@ pub async fn browser_view_show(
     if let Some(wv) = app.get_webview(&label) {
         wv.set_bounds(rect(x, y, width, height)).map_err(|e| e.to_string())?;
         wv.show().map_err(|e| e.to_string())?;
+        lock(&HIDDEN).remove(&label);
     } else {
         build_child(&app, &window, &label, &page_id, url, (x, y, width, height))?;
     }
@@ -611,6 +596,7 @@ pub async fn browser_view_show(
         for e in list.iter().filter(|e| e.page_id != page_id) {
             if let Some(wv) = app.get_webview(&e.label) {
                 let _ = wv.hide();
+                lock(&HIDDEN).insert(e.label.clone());
             }
         }
         while list.len() > MAX_LIVE {
@@ -670,6 +656,7 @@ pub async fn browser_view_hide(
     for label in labels {
         if let Some(wv) = app.get_webview(&label) {
             let _ = wv.hide();
+            lock(&HIDDEN).insert(label);
         }
     }
     Ok(())
@@ -686,6 +673,13 @@ pub async fn browser_view_navigate(
     let url = validate_url(&url)?;
     let label = find_label(&state, window.label(), &page_id).ok_or("browser view not found")?;
     webview_of(&app, &label)?.navigate(url).map_err(|e| e.to_string())
+}
+
+/// Runs `js` in the live child of (`window`, `page_id`), if it still exists.
+pub(crate) fn eval_in_page(app: &AppHandle, window: &str, page_id: &str, js: &str) -> Result<(), String> {
+    let state = app.state::<BrowserViews>();
+    let label = find_label(&state, window, page_id).ok_or("browser view not found")?;
+    webview_of(app, &label)?.eval(js).map_err(|e| e.to_string())
 }
 
 fn eval_on(app: &AppHandle, state: &BrowserViews, window: &Window, page_id: &str, js: &str) -> Result<(), String> {

@@ -45,6 +45,21 @@ export const nativeView = {
   probeLocal: (url: string) => invoke<boolean>("browser_probe_local", { url }),
 };
 
+/** The in-app browser's downloads (src-tauri/src/browser_downloads.rs). */
+export const downloads = {
+  list: () => invoke<DownloadItem[]>("browser_downloads_list"),
+  /** `accept` moves the file to the Downloads folder, otherwise it is deleted. */
+  answer: (id: string, accept: boolean) => invoke<void>("browser_download_answer", { id, accept }),
+  cancel: (id: string) => invoke<void>("browser_download_cancel", { id }),
+  open: (id: string) => invoke<void>("browser_download_open", { id }),
+  reveal: (id: string) => invoke<void>("browser_download_reveal", { id }),
+  openFolder: () => invoke<void>("browser_downloads_open_folder"),
+  /** Drops the entry from the list; the downloaded file stays. */
+  remove: (id: string) => invoke<void>("browser_download_remove", { id }),
+  clear: () => invoke<void>("browser_downloads_clear"),
+  retry: (id: string) => invoke<void>("browser_download_retry", { id }),
+};
+
 export interface NativeNavigated {
   pageId: string;
   url: string;
@@ -70,12 +85,24 @@ export interface NativeError {
   code: string;
   url: string;
 }
-export interface NativeDownload {
+export type DownloadState = "asking" | "downloading" | "done" | "failed";
+/** What `browser-download` carries: an item of the downloads list. `cancelled` / `removed` mean it left the list. */
+export interface DownloadItem {
+  id: string;
   pageId: string;
+  window: string;
   url: string;
+  host: string;
+  fileName: string;
+  state: DownloadState | "cancelled" | "removed";
+  dangerous: boolean;
+  size: number | null;
+  /** Epoch milliseconds. */
+  startedAt: number;
+  /** While `asking`: the file is already completely downloaded. */
+  finished: boolean;
+  /** Final path once `done`. */
   path: string | null;
-  /** null while the download is only requested; set when it finished. */
-  success: boolean | null;
 }
 
 // Window-scoped listen: `getCurrentWebviewWindow().listen` only receives events
@@ -90,7 +117,7 @@ export const onNativeLoad = (cb: (p: NativeLoad) => void) => sub("browser-view-l
 export const onNativeTitle = (cb: (p: NativeTitle) => void) => sub("browser-view-title", cb);
 export const onNativeNewWindow = (cb: (p: NativeNewWindow) => void) => sub("browser-view-new-window", cb);
 export const onNativeError = (cb: (p: NativeError) => void) => sub("browser-view-error", cb);
-export const onNativeDownload = (cb: (p: NativeDownload) => void) => sub("browser-view-download", cb);
+export const onDownload = (cb: (p: DownloadItem) => void) => sub("browser-download", cb);
 
 function readRect(el: HTMLElement, insetBottom: number): NativeViewRect | null {
   const b = el.getBoundingClientRect();

@@ -22,6 +22,7 @@ import {
   navigatePage,
   normalizeLocalUrl,
   normalizeTypedUrl,
+  openPopupFromPage,
   openUrlInPreview,
   pageLoadFinished,
   pageLoadStarted,
@@ -36,6 +37,7 @@ import {
 } from "./browserStore";
 import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView, useNativeThemeBackground } from "./nativeView";
 import { useViewportCovered } from "./useViewportCovered";
+import { DownloadsBar, DownloadsButton, DownloadsPopover, useDownloads } from "./BrowserDownloads";
 import "./browser-panel.css";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
@@ -280,6 +282,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const downloadItems = useDownloads();
+  const [dlOpen, setDlOpen] = useState(false);
+  const dlRef = useRef<HTMLDivElement>(null);
+  const dlButtonRef = useRef<HTMLButtonElement>(null);
+  // The list empties (cleared): its button is gone, so the popover goes with it.
+  const dlShown = dlOpen && downloadItems.length > 0;
   const viewportRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
@@ -297,6 +305,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   usePopoverDismiss(tabsOpen, () => setTabsOpen(false), tabsRef, tabsButtonRef);
   usePopoverDismiss(menuOpen, () => setMenuOpen(false), menuRef, menuButtonRef);
+  usePopoverDismiss(dlShown, () => setDlOpen(false), dlRef, dlButtonRef);
   useEffect(() => {
     if (!menuOpen) setConfirmClear(false);
   }, [menuOpen]);
@@ -335,7 +344,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
         } catch {
           /* show the raw text */
         }
-        openUrlInPreview(url);
+        // A page opening popups in a loop is ignored (see openPopupFromPage).
+        if (!openPopupFromPage(pageId, url)) return;
         setToast({ sourceId: pageId, host });
       }),
     ];
@@ -346,7 +356,20 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   hostUrlRef.current = hostUrl;
   const hostReady = readyHost?.url === hostUrl && readyHost.source === frameRef.current?.contentWindow;
 
-  const post = (message: Record<string, unknown>) => frameRef.current?.contentWindow?.postMessage(message, "*");
+  // Only the host frame may read what we post: its own origin, not "*".
+  const hostOrigin = (() => {
+    try {
+      const u = new URL(hostUrl);
+      // A custom scheme (macOS / Linux: flowcode-preview://) has an opaque `origin` in the URL API but
+      // a real one in the webview: scheme + host.
+      return u.origin !== "null" ? u.origin : `${u.protocol}//${u.host}`;
+    } catch {
+      return null;
+    }
+  })();
+  const post = (message: Record<string, unknown>) => {
+    if (hostOrigin) frameRef.current?.contentWindow?.postMessage(message, hostOrigin);
+  };
 
   // The host only talks to its parent, and so do we only to it.
   useEffect(() => {
@@ -544,7 +567,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   // The native view is above the DOM: while an overlay covers the viewport (a menu, a dialog, this
   // panel's own popovers) a snapshot stands in for the page and the view is hidden.
   const { visible, covered } = useViewportCovered(viewportRef, !dragging);
-  const coverNow = covered || tabsOpen || menuOpen;
+  const coverNow = covered || tabsOpen || menuOpen || dlShown;
   // Shown only after the PDF check, except pages already shown (a later navigation is checked alongside).
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
@@ -673,12 +696,23 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             )}
           </button>
         )}
+        <DownloadsButton
+          items={downloadItems}
+          open={dlShown}
+          buttonRef={dlButtonRef}
+          onToggle={() => {
+            setMenuOpen(false);
+            setTabsOpen(false);
+            setDlOpen((o) => !o);
+          }}
+        />
         <button
           ref={tabsButtonRef}
           type="button"
           className={"browser-tabs-button" + (tabsOpen ? " is-open" : "")}
           onClick={() => {
             setMenuOpen(false);
+            setDlOpen(false);
             setTabsOpen((o) => !o);
           }}
           title={t("browser.tabs")}
@@ -696,6 +730,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           disabled={!page}
           onClick={() => {
             setTabsOpen(false);
+            setDlOpen(false);
             setMenuOpen((o) => !o);
           }}
           title={t("browser.more")}
@@ -709,6 +744,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           <CloseIcon />
         </button>
       </div>
+
+      <DownloadsBar items={downloadItems} />
 
       <div ref={viewportRef} className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
         {loading && <div className="browser-panel-loadbar" />}
@@ -822,6 +859,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           <div className="browser-menu-note">{t("browser.menu.sessionNote")}</div>
         </div>
       )}
+
+      {dlShown && <DownloadsPopover items={downloadItems} popRef={dlRef} close={() => setDlOpen(false)} />}
 
       {tabsOpen && (
         <div ref={tabsRef} className="browser-tabs-pop" role="dialog" aria-label={t("browser.tabs")}>

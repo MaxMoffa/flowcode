@@ -792,3 +792,221 @@
 .pdf-viewer .icon-button.is-active {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
+
+/* Downloads: the question bar under the header, the header button and its list popover. */
+.browser-dl-ask {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 9%, var(--sidebar-bg));
+}
+
+.browser-dl-ask.is-danger {
+  background: color-mix(in srgb, var(--danger, #e07a6a) 12%, var(--sidebar-bg));
+}
+
+.browser-dl-ask-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.browser-dl-ask-text b,
+.browser-dl-row-text b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.browser-dl-ask-text small,
+.browser-dl-row-text small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.browser-dl-ask.is-danger .browser-dl-ask-text small,
+.browser-dl-row-text small.is-err {
+  color: var(--danger, #e07a6a);
+}
+
+.browser-dl-more {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.browser-dl-btn {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-dl-btn.is-main {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.browser-dl-btn.is-warn {
+  background: var(--danger, #e07a6a);
+  color: #fff;
+}
+
+.browser-dl-btn.is-ghost {
+  background: transparent;
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.browser-dl-ficon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  background: var(--ctrl-hover-bg);
+  color: var(--fg-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.browser-dl-ficon.pdf { color: #e07a6a; }
+.browser-dl-ficon.zip { color: #e0b252; }
+.browser-dl-ficon.img { color: #7fb3d5; }
+.browser-dl-ficon.is-danger {
+  background: var(--danger, #e07a6a);
+  color: #fff;
+}
+
+.browser-dl-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+}
+
+.browser-dl-pop {
+  width: min(330px, calc(100% - 16px));
+}
+
+.browser-dl-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  border-radius: 7px;
+}
+
+.browser-dl-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.browser-dl-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-dl-row-main:disabled {
+  cursor: default;
+}
+
+.browser-dl-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.2;
+}
+
+.browser-dl-row-acts {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.browser-dl-row-acts button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.browser-dl-row-acts button:hover {
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
+.browser-dl-track {
+  position: relative;
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ctrl-hover-bg);
+}
+
+.browser-dl-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  border-radius: 3px;
+  background: var(--accent);
+  animation: browser-dl-indeterminate 1.3s ease-in-out infinite;
+}
+
+@keyframes browser-dl-indeterminate {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-dl-track i {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

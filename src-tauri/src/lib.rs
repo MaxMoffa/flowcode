@@ -46,6 +46,7 @@ mod view_plugins;
 mod watcher;
 mod windows;
 mod browser_view;
+mod browser_downloads;
 
 use pty::PtyState;
 use tauri::Manager;
@@ -123,6 +124,7 @@ pub fn run() {
             }
             std::thread::spawn(chat_images::purge_old);
             std::thread::spawn(chat::purge_attachments);
+            browser_downloads::purge_pending(app.handle());
             let remote = remote::RemoteState::load(app.handle());
             remote.autostart();
             app.manage(remote);
@@ -189,6 +191,15 @@ pub fn run() {
             browser_view::browser_favicon,
             browser_view::browser_probe_local,
             browser_view::browser_view_theme,
+            browser_downloads::browser_downloads_list,
+            browser_downloads::browser_download_answer,
+            browser_downloads::browser_download_cancel,
+            browser_downloads::browser_download_open,
+            browser_downloads::browser_download_reveal,
+            browser_downloads::browser_downloads_open_folder,
+            browser_downloads::browser_download_remove,
+            browser_downloads::browser_downloads_clear,
+            browser_downloads::browser_download_retry,
             set_ui_language,
             crash::crash_pending,
             crash::crash_dismiss,
