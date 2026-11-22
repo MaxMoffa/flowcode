@@ -136,7 +136,7 @@ export const en: Record<MessageKey, string> = {
   "edit.copy": "Copy",
   "edit.paste": "Paste",
   "edit.selectAll": "Select all",
-  "link.open": "Open in browser",
+  "link.open": "Open in system browser",
   "link.openInPreview": "Open in preview",
   "link.copy": "Copy link",
   "pathLink.openFile": "Open file",

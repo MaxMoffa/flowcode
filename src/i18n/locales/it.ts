@@ -134,7 +134,7 @@ export const it = {
   "edit.copy": "Copia",
   "edit.paste": "Incolla",
   "edit.selectAll": "Seleziona tutto",
-  "link.open": "Apri nel browser",
+  "link.open": "Apri nel browser di sistema",
   "link.openInPreview": "Apri nell'anteprima",
   "link.copy": "Copia link",
   "pathLink.openFile": "Apri file",
