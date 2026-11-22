@@ -37,13 +37,15 @@ fn dir() -> PathBuf {
     STORE_DIR.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("flowcode-chat-images"))
 }
 
-/// The app's private folder next to the image store (the cache folder; the
-/// shared temp folder in tests): other chat files that must not be world
-/// readable live under it.
+/// The app's private folder next to the image store (the cache folder): other
+/// chat files that must not be world readable live under it. Before `init`
+/// (tests) it is a folder of this process inside temp, never the shared temp
+/// root itself (on Linux /tmp belongs to root, so nothing in it is "ours").
 pub(crate) fn private_base() -> PathBuf {
-    let store = dir();
-    // Before `init` (tests): a folder of this process inside temp, never the shared temp root itself.
-    store.parent().map_or_else(|| std::env::temp_dir().join(format!("flowcode-private-{}", std::process::id())), Path::to_path_buf)
+    match STORE_DIR.get().and_then(|store| store.parent()) {
+        Some(base) => base.to_path_buf(),
+        None => std::env::temp_dir().join(format!("flowcode-private-{}", std::process::id())),
+    }
 }
 
 /// Creates `dir` (and parents), mode 0700 on unix.

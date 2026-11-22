@@ -1197,8 +1197,9 @@ mod tests {
     #[test]
     fn scrubs_personal_data() {
         let c = ctx();
-        let s = scrub(r"open c:\users\MASSI\x.rs and C:/Users/massi/y.rs", &c);
-        assert_eq!(s, "open ~\\x.rs and ~/y.rs");
+        // Windows paths match case-insensitively only on Windows (the home here is a Windows one).
+        #[cfg(windows)]
+        assert_eq!(scrub(r"open c:\users\MASSI\x.rs and C:/Users/massi/y.rs", &c), "open ~\\x.rs and ~/y.rs");
         assert_eq!(scrub("user massi on desktop-abc", &c), "user <user> on <host>");
         assert_eq!(scrub("massive massimo", &c), "massive massimo");
         assert_eq!(scrub("mail me at a.b@example.com now", &c), "mail me at <email> now");

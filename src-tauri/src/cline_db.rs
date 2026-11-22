@@ -456,7 +456,8 @@ mod tests {
         let skip = HashSet::new();
         let live = live_session_in(&home, 7, "C:/elsewhere", None, &skip).unwrap();
         assert_eq!((live.0.as_str(), live.2), ("run", "busy"));
-        // Unknown pid: falls back to folder + start time.
+        // Unknown pid: falls back to folder + start time (a Windows folder: case and slashes only fold on Windows).
+        #[cfg(windows)]
         assert_eq!(live_session_in(&home, 99, "c:/q/", Some(now - 60_000), &skip).unwrap().0, "other");
         assert!(live_session_in(&home, 99, "C:/q", Some(now + 3_600_000), &skip).is_none());
         let skip: HashSet<String> = ["run".to_string()].into();
