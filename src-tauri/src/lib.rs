@@ -208,6 +208,7 @@ pub fn run() {
             chat::chat_set_thought,
             chat::chat_goal,
             chat::chat_close,
+            chat::chat_renew,
             chat::delegate::delegate_cancel,
             chat::delegate::terminal_delegates,
             chat::chat_adapter_ready,

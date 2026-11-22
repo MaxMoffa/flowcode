@@ -234,6 +234,8 @@ function onChatList(chats: ChatInfo[]) {
     const prev = sessionIds.get(chat.chatId);
     if (chat.sessionId && prev && prev !== chat.sessionId) {
       opened.delete(chat.chatId);
+      // A `/clear` on this chat: the desktop kept the agent and the chat id, so the wait is over.
+      if (store.get().clearing?.chatId === chat.chatId) consumeClear();
       // Nothing of the old history applies, but a message still on its way (or one sent and not seen arriving) must not vanish: it queues again in the fresh session.
       const old = sessions[chat.chatId];
       if (old && (old.queued.length > 0 || old.sentText !== null)) {
@@ -377,7 +379,7 @@ export const consumeClear = () => {
   if (store.get().clearing) store.set({ clearing: null });
 };
 
-/** `/clear`: the desktop starts a fresh conversation in the chat's tab. The chat leaves the list until its new agent has a session, then comes back under a new id (App shows the wait, then follows the tab). */
+/** `/clear`: the desktop starts a fresh conversation in the chat's tab. When the agent can replace its session the chat keeps its id and the list shows a new session id (the wait ends there); otherwise the chat leaves the list until its new agent has a session, then comes back under a new id (App shows the wait, then follows the tab). */
 export function clearChat(chatId: string) {
   const tabId = infoOf(chatId)?.tabId;
   void sendChecked({ t: "chatclear", chatId }).then((ok) => {

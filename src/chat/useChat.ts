@@ -167,6 +167,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const teardownRef = useRef<Promise<void>>(Promise.resolve());
   // `close` ended the agent for good (a terminal takes the session over): what is sent meanwhile waits in the queue, for a restart.
   const closedRef = useRef(false);
+  /** A `/clear` is replacing the session on the running agent (`chat_renew`): nothing is sent until it is done. */
+  const renewingRef = useRef(false);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   // `lastSeq` when the last message was handed to the agent: until a newer
@@ -185,6 +187,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     // Messages queued before a restart stay queued: they go out once the new agent is idle.
     const resumeId = talkedRef.current ? sessionIdRef.current : undefined;
     closedRef.current = false;
+    renewingRef.current = false;
     setModelState(initialChat());
     setPreviewing(false);
     setOlder({ has: false, loading: false });
@@ -456,7 +459,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
         setQueued((q) => [...q, { text: trimmed, attachments }]);
         return;
       }
-      if (closedRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
+      if (closedRef.current || renewingRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
       else if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
       else setQueued((q) => [...q, { text: trimmed, attachments }]);
     },
@@ -469,13 +472,13 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     if (!online) return;
     if (authRequired || providerAuthRequired(agent, profileId)) return;
     if (authQueuePausedRef.current) return;
-    if (closedRef.current) return;
+    if (closedRef.current || renewingRef.current) return;
     if (sentAtSeqRef.current !== null && model.lastSeq <= sentAtSeqRef.current) return;
     sentAtSeqRef.current = null;
     if (queued.length === 0) return;
     dispatch(queued[0].text, queued[0].attachments);
     setQueued((q) => q.slice(1));
-  }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId, online]);
+  }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId, online, phase]);
 
   const cancel = useCallback(() => {
     // A delegated child is stopped through its task, so the orchestrator hears of it (status `cancelled`).
@@ -711,19 +714,55 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     return () => window.removeEventListener(PROVIDER_AUTHENTICATED, authenticated);
   }, [agent, profileId, attachChatId, restart]);
 
-  /** "/clear": a fresh conversation in this tab. The queue is dropped and the
-   * session forgotten, so the start effect runs a `session/new` (and reports
-   * its id); the old agent is closed by the effect's cleanup, mid-turn or not. */
+  /** "/clear": a fresh conversation in this tab. The queue is dropped. The running agent keeps its process: the backend
+   * cancels the turn, closes the session and opens a new one under the same chat id (`chat_renew`; a `_flowcode/cleared`
+   * event empties the conversation). If that can't be done (the agent can't close sessions, or it fails) the session is
+   * forgotten and the start effect runs again: a new agent process, whose cleanup closes the old one, mid-turn or not. */
   const clear = useCallback(() => {
+    // A renew already under way gives a fresh conversation anyway.
+    if (renewingRef.current) return;
     queuedRef.current.forEach((m) => m.attachments.forEach(discardAttachment));
     queuedRef.current = [];
     setQueued([]);
     talkedRef.current = false;
-    sessionIdRef.current = undefined;
     resumedRef.current = false;
     setClearCount((n) => n + 1);
-    setAttempt((n) => n + 1);
-  }, []);
+    const id = chatIdRef.current;
+    const restartFresh = () => {
+      renewingRef.current = false;
+      sessionIdRef.current = undefined;
+      setAttempt((n) => n + 1);
+    };
+    if (!id || attachedRef.current || closedRef.current) {
+      restartFresh();
+      return;
+    }
+    renewingRef.current = true;
+    setPhase("starting");
+    invoke<ChatStartResult>("chat_renew", { chatId: id }).then(
+      (started) => {
+        if (chatIdRef.current !== id) return;
+        sessionIdRef.current = started.sessionId;
+        setLoaded(false);
+        setModes(started.modes);
+        setAnnouncedModels(started.models ?? null);
+        setAnnouncedThought(started.thought ?? null);
+        onSessionIdRef.current(started.sessionId);
+        forgetGoalChat(id);
+        forgetCacheWarning(id);
+        activityRef.current = NO_ACTIVITY;
+        firstSeqRef.current = 0;
+        setOlder({ has: false, loading: false });
+        sentAtSeqRef.current = null;
+        setError(null);
+        renewingRef.current = false;
+        setPhase("ready");
+      },
+      () => {
+        if (chatIdRef.current === id) restartFresh();
+      },
+    );
+  }, [setOlder]);
 
   /** Ends the agent now and resolves once the backend has killed it: a terminal
    * about to resume the same session must never run beside it. */

@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,8 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(180);
 const MODE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The event carrying a chat's goal (`{ goal: Goal | null, actions: string[] }`).
 const GOAL_EXT_METHOD: &str = "_flowcode/goal";
+/// Flowcode's own: `/clear` replaced the session on the same agent process - the views empty the chat.
+pub(super) const CLEARED_EXT_METHOD: &str = "_flowcode/cleared";
 /// Flowcode's own: the resume message scheduled for the usage limit's reset
 /// changed - `state` "armed" (with `at`, `text`), "cancelled" or "sent", and
 /// the `limitId` (the views' limit item) it was armed for.

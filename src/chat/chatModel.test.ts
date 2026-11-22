@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, CLEARED_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 import { buildAskContent } from "./askQuestions";
 
@@ -17,6 +17,21 @@ describe("chat model", () => {
   it("starts in 'starting' and settles to idle", () => {
     expect(initialChat().status).toBe("starting");
     expect(settleChat(initialChat()).status).toBe("idle");
+  });
+
+  it("starts the conversation over at a cleared marker", () => {
+    const before = run([chunk("agent_message_chunk", "ciao")]);
+    expect(before.items).toHaveLength(1);
+    const marker: ChatEvent = { kind: "ext", seq: before.lastSeq + 5, at: 0, method: CLEARED_EXT_METHOD, params: {} };
+    const cleared = applyEvents(before, [marker]);
+    expect(cleared.items).toEqual([]);
+    expect(cleared.status).toBe("idle");
+    expect(cleared.lastSeq).toBe(marker.seq);
+    // An event older than the marker is skipped; a newer one lands in the empty chat.
+    const late = applyEvents(cleared, [{ ...chunk("agent_message_chunk", "vecchio"), seq: marker.seq - 1 }]);
+    expect(late.items).toEqual([]);
+    const fresh = applyEvents(cleared, [{ ...chunk("agent_message_chunk", "nuovo"), seq: marker.seq + 1 }]);
+    expect(fresh.items).toHaveLength(1);
   });
 
   it("merges consecutive text chunks and splits on other items", () => {

@@ -96,9 +96,12 @@ pub(super) struct Chat {
     pub(super) exited: AtomicBool,
     /// The chat was closed on purpose: nobody is left to tell.
     pub(super) closed: AtomicBool,
-    pub(super) session_id: OnceLock<String>,
+    /// The agent's session; replaced by `ChatState::renew` (`/clear` on the same process).
+    pub(super) session_id: Mutex<Option<String>>,
     /// The `modes` the agent announced when the session started.
-    pub(super) modes: OnceLock<Value>,
+    pub(super) modes: Mutex<Option<Value>>,
+    /// The agent announced `sessionCapabilities.close`: a session can be closed and replaced on the same process.
+    pub(super) can_close: AtomicBool,
     pub(super) current_mode: Mutex<Option<String>>,
     /// The models the agent offers; unlike the modes they change after the
     /// start (`chat_set_model`, a `config_option_update`), hence the mutex.
@@ -226,6 +229,30 @@ impl Chat {
         *lock(&self.cline_spawns) = cline::Spawns::default();
     }
 
+    /// `/clear` on the running agent: `old` is being closed and replaced. Whatever it still streams or asks is
+    /// dropped from now on, its turn's late answer ends nothing, and the log starts over with a `_flowcode/cleared`
+    /// marker that empties every view. Call it after cancelling the turn, with no lock held.
+    pub(super) fn begin_renew(&self, old: &str) {
+        {
+            // Lock order: log first (see `emit_when`).
+            let mut log = lock(&self.log);
+            *lock(&self.stale_session) = Some(old.to_string());
+            // Until the new session exists, a prompt (from a phone) fails instead of reaching the closed one.
+            *lock(&self.session_id) = None;
+            lock(&self.pending).retain(|_, pending| !matches!(pending, Pending::Prompt));
+            log.reset();
+            lock(&self.cline_tools).clear();
+            *lock(&self.cline_spawns) = cline::Spawns::default();
+            lock(&self.children).clear();
+            lock(&self.launches).clear();
+            *lock(&self.goal) = goal::GoalTrack::default();
+            *lock(&self.status) = ChatStatus::Idle;
+            self.status_at.store(now_ms(), Ordering::Relaxed);
+        }
+        self.emit(ChatBody::Ext { method: CLEARED_EXT_METHOD.into(), params: json!({}) });
+        self.changed();
+    }
+
     /// The new session took the id of the one `forget_session` dropped (an
     /// agent that reuses ids): its updates are this chat's after all.
     pub(super) fn unforget_session(&self, session_id: &str) {
@@ -257,8 +284,8 @@ impl Chat {
             ChatBody::TurnEnd { stop_reason } if stop_reason != "cancelled" => AlertKind::Done,
             _ => return,
         };
-        let (Some(state), Some(session_id)) = (self.app.try_state::<ChatState>(), self.session_id.get()) else { return };
-        let _ = state.alerts.send(ChatAlert { agent: self.agent.clone(), session_id: session_id.clone(), kind });
+        let (Some(state), Some(session_id)) = (self.app.try_state::<ChatState>(), lock(&self.session_id).clone()) else { return };
+        let _ = state.alerts.send(ChatAlert { agent: self.agent.clone(), session_id, kind });
     }
 
     pub(super) fn stderr_tail(&self) -> String {
@@ -319,8 +346,8 @@ impl Chat {
         self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }))
     }
 
-    pub(super) fn session_id(&self) -> Result<&str, String> {
-        self.session_id.get().map(String::as_str).ok_or_else(|| "chat not started".to_string())
+    pub(super) fn session_id(&self) -> Result<String, String> {
+        lock(&self.session_id).clone().ok_or_else(|| "chat not started".to_string())
     }
 
     /// Switches the agent to `model_id` (one it offers) through whichever API
@@ -328,7 +355,7 @@ impl Chat {
     /// prompt. Every view hears of it through a `_flowcode/model` event, the
     /// phones' chat list through `changed`.
     pub(super) fn set_model(&self, model_id: &str) -> Result<(), String> {
-        let session_id = self.session_id()?.to_string();
+        let session_id = self.session_id()?;
         let via = {
             let models = lock(&self.models);
             let models = models.as_ref().ok_or_else(|| "the agent offers no model to choose".to_string())?;
@@ -365,7 +392,7 @@ impl Chat {
     /// `session/set_config_option`. Every view hears of it through a
     /// `_flowcode/thought` event, as for `set_model`.
     pub(super) fn set_thought(&self, value: &str) -> Result<(), String> {
-        let session_id = self.session_id()?.to_string();
+        let session_id = self.session_id()?;
         let config_id = {
             let thought = lock(&self.thought);
             let thought = thought.as_ref().ok_or_else(|| "the agent offers no thinking level to choose".to_string())?;
@@ -451,9 +478,9 @@ impl Chat {
         if !goal::supported(&self.agent) || self.closed.load(Ordering::Relaxed) {
             return;
         }
-        let Some(session_id) = self.session_id.get() else { return };
+        let Some(session_id) = lock(&self.session_id).clone() else { return };
         let distro = if self.wsl { self.wsl_distro.as_deref() } else { None };
-        let read = goal::read(&self.app, &self.agent, session_id, self.profile.as_deref(), distro);
+        let read = goal::read(&self.app, &self.agent, &session_id, self.profile.as_deref(), distro);
         let next = take(&mut lock(&self.goal), read);
         if let Some(next) = next {
             self.emit_goal(next.as_ref());
@@ -487,7 +514,7 @@ impl Chat {
         if !goal::actions(&self.agent).contains(&action) {
             return Err(format!("unsupported goal action: {action}"));
         }
-        let session_id = self.session_id()?.to_string();
+        let session_id = self.session_id()?;
         self.request("_session/goal", json!({ "sessionId": session_id, "action": action }), MODE_TIMEOUT)?;
         self.goal_asked(&match action {
             "pause" => goal::PromptGoal::Pause,
@@ -531,6 +558,12 @@ impl Chat {
                 }
             }
             Incoming::Request { id, method, params } => {
+                // Asked by the session `/clear` replaced: nobody is left to answer.
+                if matches!(method.as_str(), "session/request_permission" | "elicitation/create") && self.is_stale(&params) {
+                    let result = if method == "elicitation/create" { json!({ "action": "cancel" }) } else { json!({ "outcome": { "outcome": "cancelled" } }) };
+                    let _ = self.replies.try_send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+                    return;
+                }
                 // A reply that could not be queued falls through to the prompt.
                 let auto_allowed = (method == "session/request_permission")
                     .then(|| crate::chat_mcp::auto_allow(&self.tools, &self.cwd, &params))

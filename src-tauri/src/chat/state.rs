@@ -44,7 +44,7 @@ impl ChatState {
     /// The session ids of the running chats, so the agent scan can tell a
     /// chat's thread (Codex, Vibe) from a terminal tab's.
     pub(crate) fn live_session_ids(&self) -> std::collections::HashSet<String> {
-        lock(&self.sessions).values().filter_map(|s| s.chat.session_id.get().cloned()).collect()
+        lock(&self.sessions).values().filter_map(|s| lock(&s.chat.session_id).clone()).collect()
     }
 
     /// Every running chat, in no particular order.
@@ -56,8 +56,8 @@ impl ChatState {
                 agent: s.chat.agent.clone(),
                 cwd: s.chat.cwd.clone(),
                 profile: s.chat.profile.clone(),
-                session_id: s.chat.session_id.get().cloned(),
-                modes: s.chat.modes.get().cloned(),
+                session_id: lock(&s.chat.session_id).clone(),
+                modes: lock(&s.chat.modes).clone(),
                 models: lock(&s.chat.models).as_ref().map(ChatModels::to_json),
                 thought: lock(&s.chat.thought).as_ref().map(ThoughtLevels::to_json),
                 wsl_distro: if s.chat.wsl { s.chat.wsl_distro.clone() } else { None },
@@ -137,7 +137,7 @@ impl ChatState {
     ) -> Result<(), String> {
         if attachments.len() > 16 { return Err("at most 16 attachments per prompt".into()); }
         let chat = self.get(chat_id)?;
-        let session_id = chat.session_id()?.to_string();
+        let session_id = chat.session_id()?;
         // File IO first: a failure here must not leave a turn open.
         let mut blocks = Vec::new();
         if !text.is_empty() || attachments.is_empty() {
@@ -259,6 +259,63 @@ impl ChatState {
         self.get(chat_id)?.resolve_ask(request_id, action, content)
     }
 
+    /// `/clear` without restarting the agent: cancels the turn, closes the session and opens a new one on the same
+    /// process, keeping the chat id. The log starts over with a `_flowcode/cleared` marker. `renew_unsupported` when
+    /// the agent can't close sessions (or the chat is a delegated child, or dead): the caller restarts the chat instead.
+    /// Blocking: runs on the blocking pool.
+    pub(crate) fn renew(&self, app: &AppHandle, chat_id: &str) -> Result<ChatStarted, String> {
+        let t = std::time::Instant::now();
+        let chat = self.get(chat_id)?;
+        if chat.link.is_some() || chat.exited.load(Ordering::Acquire) || chat.closed.load(Ordering::Relaxed) || !chat.can_close.load(Ordering::Acquire) {
+            return Err("renew_unsupported".into());
+        }
+        let old = chat.session_id()?;
+        if matches!(*lock(&chat.status), ChatStatus::Busy | ChatStatus::Waiting) {
+            let _ = chat.notify("session/cancel", json!({ "sessionId": old }));
+        }
+        // Open permission requests and questions are answered as cancelled.
+        chat.cancel_permissions();
+        chat.drop_resume("cancelled");
+        // The tasks it delegated end with the conversation; dropping them kills them, so after the rest.
+        let children = self.take_children(&chat);
+        persist_preview(app, &lock(&chat.log), &old);
+        chat.begin_renew(&old);
+        if let Err(e) = chat.request("session/close", json!({ "sessionId": old }), MODE_TIMEOUT) {
+            eprintln!("chat {chat_id}: session/close failed: {e}");
+        }
+        let cwd = wsl_target(&chat.cwd, chat.shell.as_deref()).map_or_else(|| chat.cwd.clone(), |w| w.cwd);
+        let (result, session_id, _) = new_session(&chat, &cwd)?;
+        *lock(&chat.session_id) = Some(session_id.clone());
+        let modes = result.get("modes").cloned();
+        *lock(&chat.modes) = modes.clone();
+        *lock(&chat.current_mode) = modes.as_ref().and_then(|m| m.get("currentModeId")).and_then(Value::as_str).map(str::to_string);
+        if let Some(options) = result.get("configOptions") { chat.config_options_changed(options); }
+        let models = normalize_models(&result);
+        *lock(&chat.models) = models.clone();
+        let thought = result.get("configOptions").and_then(thought_from_config_options);
+        *lock(&chat.thought) = thought.clone();
+        // The views emptied their state with the marker: tell them again.
+        chat.models_changed(models.as_ref());
+        chat.thought_changed(thought.as_ref());
+        if goal::supported(&chat.agent) {
+            // The running `watch_goal` reads the session id on every poll.
+            let first = Arc::clone(&chat);
+            std::thread::spawn(move || first.refresh_goal_first());
+        }
+        chat.changed();
+        std::thread::spawn(move || drop(children));
+        eprintln!("chat: timing {} renew {} ms", chat.agent, t.elapsed().as_millis());
+        Ok(ChatStarted {
+            chat_id: chat_id.to_string(),
+            session_id,
+            modes,
+            models: models.as_ref().map(ChatModels::to_json),
+            thought: thought.as_ref().map(ThoughtLevels::to_json),
+            loaded: false,
+            wsl_distro: chat.wsl_distro.clone(),
+        })
+    }
+
     /// Waits for the agent's answer, so it runs on the blocking pool. Agents
     /// only send `current_mode_update` for switches of their own, so once
     /// one is accepted it is logged as one: every view (the window, the
@@ -266,7 +323,7 @@ impl ChatState {
     pub(crate) async fn set_mode(&self, chat_id: &str, mode_id: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || {
-            let session_id = chat.session_id()?.to_string();
+            let session_id = chat.session_id()?;
             chat.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)?;
             *lock(&chat.current_mode) = Some(mode_id.clone());
             chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode_id }) });
@@ -804,6 +861,7 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
     eprintln!("chat: timing {} initialize {} ms", chat.agent, t_init.elapsed().as_millis());
     let images = init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false);
     chat.prompt_images.store(images, Ordering::Release);
+    chat.can_close.store(init.pointer("/agentCapabilities/sessionCapabilities/close").is_some_and(|v| !v.is_null()), Ordering::Release);
     let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
     if strict && !can_load && resume.as_deref().is_some_and(|id| !id.is_empty()) {
         return Err("resume_unsupported: the agent can't resume a session".into());
@@ -975,8 +1033,9 @@ pub(super) fn start_once(
         stderr_done: AtomicBool::new(false),
         exited: AtomicBool::new(false),
         closed: AtomicBool::new(false),
-        session_id: OnceLock::new(),
-        modes: OnceLock::new(),
+        session_id: Mutex::new(None),
+        modes: Mutex::new(None),
+        can_close: AtomicBool::new(false),
         current_mode: Mutex::new(None),
         models: Mutex::new(None),
         thought: Mutex::new(None),
@@ -1005,9 +1064,9 @@ pub(super) fn start_once(
     // The agent sees Linux paths when it runs in WSL.
     match handshake(&chat, wsl.as_ref().map_or(&cwd, |w| &w.cwd), resume, strict, &mut gate) {
         Ok((result, session_id, loaded)) => {
-            let _ = chat.session_id.set(session_id.clone());
+            *lock(&chat.session_id) = Some(session_id.clone());
             if let Some(modes) = result.get("modes") {
-                let _ = chat.modes.set(modes.clone());
+                *lock(&chat.modes) = Some(modes.clone());
                 *lock(&chat.current_mode) = modes.get("currentModeId").and_then(Value::as_str).map(str::to_string);
             }
             if let Some(options) = result.get("configOptions") { chat.config_options_changed(options); }

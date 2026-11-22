@@ -456,7 +456,7 @@ export type ClientMsg =
   | { t: "chatthought"; chatId: string; value: string }
   /** Pauses, resumes or clears the chat's goal (the actions it advertises in its `_flowcode/goal` event). */
   | { t: "chatgoal"; chatId: string; action: "pause" | "resume" | "clear" }
-  /** Starts a fresh conversation in the chat's tab, as `/clear` does on the desktop: the tab stays, the chat gets a new `chatId`. */
+  /** Starts a fresh conversation in the chat's tab, as `/clear` does on the desktop: the tab stays. The chat keeps its `chatId` and gets a new `sessionId` when its agent can replace the session in place, otherwise it gets a new `chatId`. */
   | { t: "chatclear"; chatId: string }
   /** Asks the desktop to check for an update of itself (answered with `update`). */
   | { t: "updatecheck" }

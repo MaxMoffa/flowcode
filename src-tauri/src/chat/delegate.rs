@@ -714,10 +714,11 @@ fn set_start_mode(chat: &Chat, mode: Result<Option<String>, String>) -> Result<(
 /// else its normal mode that asks. It never keeps a bypass mode.
 pub(super) fn set_diagnosis_mode(chat: &Chat) -> Result<(), String> {
     // An agent with no modes has none to choose.
-    if chat.modes.get().is_none() {
+    if lock(&chat.modes).is_none() {
         return Ok(());
     }
-    set_start_mode(chat, inherited_mode(false, None, chat.modes.get()))
+    let mode = inherited_mode(false, None, lock(&chat.modes).as_ref());
+    set_start_mode(chat, mode)
 }
 
 /// Starts the child chat of `task` and gives it its prompt.
@@ -743,7 +744,8 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Ta
         child.kill();
         return Err(error);
     }
-    let inherit = set_start_mode(&child, inherited_mode(same_agent, parent.mode.as_deref(), child.modes.get()));
+    let mode = inherited_mode(same_agent, parent.mode.as_deref(), lock(&child.modes).as_ref());
+    let inherit = set_start_mode(&child, mode);
     if let Err(error) = inherit { child.kill(); return Err(error); }
     state.adopt(app, Arc::clone(&child))?;
     if let Err(error) = check() {
@@ -752,8 +754,8 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Ta
         return Err(error);
     }
     let _ = task.child_chat_id.set(child.id.clone());
-    if let Some(session_id) = child.session_id.get() {
-        let _ = task.child_session_id.set(session_id.clone());
+    if let Some(session_id) = lock(&child.session_id).clone() {
+        let _ = task.child_session_id.set(session_id);
     }
     // A terminal parent's id goes in `parentChatId` too: the field names whoever asked, `parentKind` which kind it is.
     let (parent_id, parent_kind) = match &parent.owner {

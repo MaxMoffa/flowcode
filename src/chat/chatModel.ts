@@ -172,6 +172,9 @@ export function initialChat(): ChatModelState {
   return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [], resume: null, resumeLimitId: null };
 }
 
+/** The backend's event saying `/clear` replaced the session on the same agent process: the conversation starts over (params: `{}`). */
+export const CLEARED_EXT_METHOD = "_flowcode/cleared";
+
 /** The backend's event about the scheduled resume (params: `{ state: "armed" | "cancelled" | "sent", at, text, limitId }`). */
 export const RESUME_EXT_METHOD = "_flowcode/resume";
 
@@ -735,6 +738,8 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       return trackTurn(PROGRESS_UPDATES.has(ev.update.sessionUpdate) ? { ...next, notice: null } : next, ev.update, ev.at);
     }
     case "ext": {
+      // The agent was given a fresh session: everything before is gone (the models and thinking levels come again as events).
+      if (ev.method === CLEARED_EXT_METHOD) return { ...initialChat(), status: "idle" };
       if (ev.method === MODEL_EXT_METHOD) {
         const params = (ev.params ?? {}) as Record<string, unknown>;
         if (!Array.isArray(params.availableModels) && str(params.currentModelId) === null) return state;

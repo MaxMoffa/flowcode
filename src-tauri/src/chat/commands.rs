@@ -159,6 +159,12 @@ pub async fn chat_goal(state: State<'_, ChatState>, chat_id: String, action: Str
     state.goal_action(&chat_id, action).await
 }
 
+/// `/clear` on the running agent (see `ChatState::renew`); `renew_unsupported` means restart the chat instead.
+#[tauri::command]
+pub async fn chat_renew(app: AppHandle, chat_id: String) -> Result<ChatStarted, String> {
+    crate::blocking(move || app.state::<ChatState>().renew(&app, &chat_id)).await
+}
+
 /// Resolves only once the agent is dead: the terminal handoff awaits it
 /// before running `claude --resume` on the same session, which must not find
 /// the chat's agent still holding it.
@@ -174,8 +180,8 @@ pub async fn chat_close(app: AppHandle, chat_id: String) -> Result<(), String> {
     crate::blocking(move || {
         // What the chat showed last, for the next time this session opens.
         if let Some(session) = &session {
-            if let Some(session_id) = session.chat.session_id.get() {
-                persist_preview(&app, &lock(&session.chat.log), session_id);
+            if let Some(session_id) = lock(&session.chat.session_id).clone() {
+                persist_preview(&app, &lock(&session.chat.log), &session_id);
             }
         }
         drop(session);
@@ -226,8 +232,8 @@ pub fn chat_preview(app: AppHandle, session_id: String) -> Option<Vec<Value>> {
 #[tauri::command(async)]
 pub fn chat_preview_save(state: State<'_, ChatState>, app: AppHandle, chat_id: String) -> Result<(), String> {
     let chat = state.get(&chat_id)?;
-    if let Some(session_id) = chat.session_id.get() {
-        persist_preview(&app, &lock(&chat.log), session_id);
+    if let Some(session_id) = lock(&chat.session_id).clone() {
+        persist_preview(&app, &lock(&chat.log), &session_id);
     }
     Ok(())
 }
