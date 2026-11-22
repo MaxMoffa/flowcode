@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
-import { SegmentedSwitch } from "../lib/SegmentedSwitch";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
 import { formatTokens, metricText, modelDisplayName } from "../plugins/usage";
 import { useUsageState } from "../plugins/useUsageState";
 import { writePty } from "../terminal/ptyClient";
-import { useTabDelegation } from "../chat/delegateStore";
-import type { DelegateInfo } from "../chat/chatModel";
+import { agentCliIcon } from "../plugins/icons";
 import { useActiveAgent, type ActiveAgent } from "./activeAgent";
-import { useAgentToolsSettings } from "./agentToolsSettings";
-import { DelegatesPane } from "./DelegatesPane";
 import { CLI_INFO, type AgentCli } from "./cliInfo";
 import { hasCap } from "../../shared/agentRegistry";
 import {
@@ -34,7 +30,7 @@ interface AgentContext {
   model: string | null;
 }
 
-const TABS = ["context", "usage", "delegates"] as const;
+const TABS = ["context", "usage"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_KEY = "flowcode.agentPanel.tab";
 const CONTEXT_POLL_MS = 5000;
@@ -63,23 +59,21 @@ function RobotIcon() {
 
 interface AgentInsightPanelProps {
   onCompactChat?: () => void;
-  /** Opens a delegate's chat in a tab next to its orchestrator's. */
-  onOpenDelegate?: (parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) => void;
-  /** Brings a tab to the front. */
-  onFocusTab?: (tabId: string) => void;
-  /** Set when shown pinned in the sidebar: adds a button to send it back to the header's popover. */
+  /** Set when shown pinned in the sidebar: the header's button sends it back to the popover. */
   onUnpin?: () => void;
+  /** Set when shown in the header's popover: the header's button pins it to the sidebar. */
+  onPin?: () => void;
 }
 
-/** The sidebar's Agent tab for the agent in front (chat or terminal): context
- * fill with a "compact" action, then context (with the tools it is made of), usage and delegates tabs. */
-export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab, onUnpin }: AgentInsightPanelProps) {
+/** The Agent panel for the agent in front (chat or terminal): who it is, the
+ * context fill with a "compact" action, then the context (with the tools it is made of) and usage tabs. */
+export function AgentInsightPanel({ onCompactChat, onUnpin, onPin }: AgentInsightPanelProps) {
   const { t } = useI18n();
   const agent = useActiveAgent();
   return (
     <div className="agents-sidebar agent-insight">
       {agent ? (
-        <AgentBody agent={agent} onCompactChat={onCompactChat} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} onUnpin={onUnpin} />
+        <AgentBody agent={agent} onCompactChat={onCompactChat} onUnpin={onUnpin} onPin={onPin} />
       ) : (
         <div className="agent-insight-empty">
           <RobotIcon />
@@ -107,71 +101,143 @@ export function useAgentContextFill(agent: ActiveAgent) {
   return { context, ctx, percent, warn, readable };
 }
 
-function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab, onUnpin }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onOpenDelegate" | "onFocusTab" | "onUnpin">) {
+const PIN_ICON = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+  </svg>
+);
+const UNPIN_ICON = (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+    <path d="M3 3l18 18" />
+  </svg>
+);
+
+const RING_R = 15;
+const RING_C = 2 * Math.PI * RING_R;
+
+/** The context fill as a donut with its percentage in the middle. */
+function ContextRing({ percent, warn }: { percent: number | null; warn: boolean }) {
+  return (
+    <div className={"agent-insight-donut" + (warn ? " is-warn" : "")}>
+      <svg viewBox="0 0 36 36" aria-hidden="true">
+        <circle className="agent-insight-donut-track" cx="18" cy="18" r={RING_R} fill="none" strokeWidth="4" />
+        <circle
+          className="agent-insight-donut-progress"
+          cx="18"
+          cy="18"
+          r={RING_R}
+          fill="none"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={`${RING_C * (percent ?? 0)} ${RING_C}`}
+        />
+      </svg>
+      <span>{percent === null ? "\u2014" : `${Math.round(percent * 100)}%`}</span>
+    </div>
+  );
+}
+
+/** Underline tabs (a tablist with roving tabindex and arrow-key moves). */
+function InsightTabs({ value, onChange, options, ariaLabel }: { value: Tab; onChange: (t: Tab) => void; options: { id: Tab; label: string }[]; ariaLabel: string }) {
+  const buttons = useRef(new Map<Tab, HTMLButtonElement>());
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const i = options.findIndex((o) => o.id === value);
+    const next = options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+    onChange(next.id);
+    buttons.current.get(next.id)?.focus();
+  }
+  return (
+    <div className="agent-insight-tabs" role="tablist" aria-label={ariaLabel} onKeyDown={onKeyDown}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          ref={(el) => {
+            if (el) buttons.current.set(o.id, el);
+            else buttons.current.delete(o.id);
+          }}
+          type="button"
+          role="tab"
+          id={`agent-insight-tab-${o.id}`}
+          aria-selected={value === o.id}
+          aria-controls={`agent-insight-panel-${o.id}`}
+          tabIndex={value === o.id ? 0 : -1}
+          className={"agent-insight-tab" + (value === o.id ? " is-selected" : "")}
+          onClick={() => onChange(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AgentBody({ agent, onCompactChat, onUnpin, onPin }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onUnpin" | "onPin">) {
   const { t } = useI18n();
-  const agentTools = useAgentToolsSettings();
-  const delegation = useTabDelegation(agent.tabId);
-  // A chat shows the tab while the feature is on, or when it has (or is) a delegate; a terminal's agent only once it has delegated.
-  const showDelegates = (agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || !!agent.delegateOf)) || delegation.delegates.length > 0;
   const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
-  const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
+  const tab: Tab = storedTab === "usage" ? "usage" : "context";
   const cli = agent.cli;
   const { context, ctx, percent, warn, readable } = useAgentContextFill(agent);
   const { tools, supported: toolsSupported, reload } = useAgentTools(cli, agent.cwd, agent.profile, tab === "context");
 
   const label = CLI_INFO[cli as AgentCli]?.name ?? cli;
-  const chip = [label, ctx?.model && modelDisplayName(ctx.model), agent.kind === "chat" ? t("agentPanel.chat") : t("agentPanel.terminal")]
+  const subtitle = [ctx?.model && modelDisplayName(ctx.model), agent.kind === "chat" ? t("agentPanel.chat") : t("agentPanel.terminal"), agent.tabLabel]
     .filter(Boolean)
-    .join(" · ");
+    .join(" \u00b7 ");
   const busy = agent.status === "busy";
+  const headAction = onUnpin ? { title: t("agentPanel.unpin"), icon: UNPIN_ICON, run: onUnpin } : onPin ? { title: t("agentPanel.pin"), icon: PIN_ICON, run: onPin } : null;
 
   return (
     <div className="agent-insight-body">
       <div className="agent-insight-top">
-        <div className="agent-insight-chip-row">
-          <div className="agent-insight-chip" title={chip}>
-            {chip}
+        <div className="agent-insight-head">
+          <span className="agent-insight-avatar" aria-hidden="true">{agentCliIcon(cli)}</span>
+          <div className="agent-insight-who">
+            <b title={label}>{label}</b>
+            <small title={subtitle}>{subtitle}</small>
           </div>
-          {onUnpin && (
-            <button type="button" className="agent-insight-unpin" title={t("agentPanel.unpin")} aria-label={t("agentPanel.unpin")} onClick={onUnpin}>
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z" />
-                <path d="M3 3l18 18" />
-              </svg>
+          {headAction && (
+            <button type="button" className="agent-insight-unpin" title={headAction.title} aria-label={headAction.title} onClick={headAction.run}>
+              {headAction.icon}
             </button>
           )}
         </div>
-        <div className="agent-insight-hero">
-          <span className={"agent-insight-big" + (warn ? " is-warn" : "")}>{percent === null ? "—" : `${Math.round(percent * 100)}%`}</span>
-          <span className="agent-insight-muted agent-insight-hero-detail">
-            {ctx
-              ? t("agentPanel.ofWindow", {
-                  used: formatTokens(ctx.used),
-                  window: (ctx.windowEstimated ? "~" : "") + formatTokens(ctx.window),
-                })
-              : contextNote(agent, readable, context, t)}
-          </span>
-          <CompactButton agent={agent} busy={busy} onCompactChat={onCompactChat} />
+        <div className="agent-insight-ctx">
+          <ContextRing percent={percent} warn={warn} />
+          <div className="agent-insight-ctx-info">
+            {ctx ? (
+              <>
+                <b>
+                  {t("agentPanel.ofWindow", {
+                    used: formatTokens(ctx.used),
+                    window: (ctx.windowEstimated ? "~" : "") + formatTokens(ctx.window),
+                  })}
+                </b>
+                <span className="agent-insight-muted">{t("agentPanel.free", { n: formatTokens(Math.max(0, ctx.window - ctx.used)) })}</span>
+              </>
+            ) : (
+              <span className="agent-insight-muted">{contextNote(agent, readable, context, t)}</span>
+            )}
+            <div>
+              <CompactButton agent={agent} busy={busy} onCompactChat={onCompactChat} />
+            </div>
+          </div>
         </div>
-        <div className={"agent-insight-meter" + (warn ? " is-warn" : "")}>
-          <i style={{ width: `${Math.round((percent ?? 0) * 100)}%` }} />
-        </div>
-        <SegmentedSwitch<Tab>
+        <InsightTabs
           ariaLabel={t("agentPanel.tabs")}
-          idPrefix="agent-insight"
           value={tab}
           onChange={setTab}
           options={[
             { id: "context", label: t("agentPanel.tab.context") },
             { id: "usage", label: t("agentPanel.tab.usage") },
-            ...(showDelegates ? [{ id: "delegates" as const, label: t("agentPanel.tab.delegates"), count: delegation.delegates.length }] : []),
           ]}
         />
       </div>
       <div className="agent-insight-pane" role="tabpanel" id={`agent-insight-panel-${tab}`} aria-labelledby={`agent-insight-tab-${tab}`}>
-        {tab === "context" && <ContextPane agent={agent} ctx={ctx} tools={tools} toolsSupported={toolsSupported} onRefresh={reload} warn={warn} />}
+        {tab === "context" && <ContextPane ctx={ctx} tools={tools} toolsSupported={toolsSupported} onRefresh={reload} warn={warn} />}
         {tab === "usage" && <UsagePane agent={agent} />}
-        {tab === "delegates" && <DelegatesPane agent={agent} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} />}
       </div>
     </div>
   );
@@ -263,14 +329,12 @@ function ChevronIcon() {
 }
 
 function ContextPane({
-  agent,
   ctx,
   tools,
   toolsSupported,
   onRefresh,
   warn,
 }: {
-  agent: ActiveAgent;
   ctx: AgentContext | null;
   tools: Loaded<AgentTools>;
   toolsSupported: boolean;
@@ -317,6 +381,10 @@ function ContextPane({
         </div>
       ) : (
         <div className="agent-insight-note">{t("usage.context.unavailable")}</div>
+      )}
+      <div className="agent-insight-legend">
+      {seg && (
+        <Row swatch={<>{pad}<span className="agent-insight-sw" style={{ background: "var(--c-msg)" }} /></>} name={t("agentPanel.ctx.conversation")} value={formatTokens(seg.conversation)} />
       )}
       <Group
         open={openGroups.has("memory")}
@@ -382,18 +450,13 @@ function ContextPane({
           </>
         )}
       </Group>
+      </div>
       {seg && (
         <>
-          <Row swatch={<>{pad}<span className="agent-insight-sw" style={{ background: "var(--c-msg)" }} /></>} name={t("agentPanel.ctx.conversation")} value={formatTokens(seg.conversation)} />
-          <Row swatch={<>{pad}<span className="agent-insight-sw agent-insight-sw--free" /></>} name={t("agentPanel.ctx.free")} value={formatTokens(seg.free)} muted />
           {warn && <div className="agent-insight-tip">{t("agentPanel.ctx.full")}</div>}
         </>
       )}
       {openGroups.size > 0 && tools && <div className="agent-insight-note agent-insight-foot">{t("agentPanel.tools.note")}</div>}
-      <div className="agent-insight-section">
-        {ctx?.model && <Row name={t("agentPanel.ctx.model")} value={modelDisplayName(ctx.model)} />}
-        {agent.tabLabel && <Row name={t("agentPanel.ctx.tab")} value={agent.tabLabel} />}
-      </div>
     </>
   );
 }

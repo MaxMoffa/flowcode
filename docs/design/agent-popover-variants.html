@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — popover del contesto agente: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --menu:#1d1610; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --red:#e07a6a; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+  --c-mem:#c99a5b; --c-skill:#8fb3d9; --c-mcp:#b48ad6; --c-msg:#9db984;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --menu:#fbf6ec; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --red:#b8483a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+  --c-mem:#a7742e; --c-skill:#3f78b3; --c-mcp:#8452b0; --c-msg:#4f6e3a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:8px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(300px,330px));gap:26px;align-items:start}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 12px;color:var(--fg-muted);min-height:96px;font-size:12.5px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.cur{display:inline-block;font-size:11px;background:var(--track);color:var(--fg-muted);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+/* stage: header pill + popover */
+.stage{position:relative;padding-top:44px}
+.hpill{position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px 0 5px;border:1px solid var(--border);border-radius:999px;font-size:12px;background:color-mix(in srgb,var(--fg) 7%,transparent)}
+.pop{width:320px;margin-left:auto;background:var(--menu);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.4);overflow:hidden}
+.muted{color:var(--fg-muted)}
+.btn{font:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:7px;padding:4px 10px;background:transparent;color:var(--fg);cursor:pointer;white-space:nowrap}
+.btn.solid{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.ib{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted)}
+.ib:hover{background:var(--hover)}
+.ib svg{width:13px;height:13px}
+kbd{font:11px Consolas,monospace;border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--fg-muted)}
+.sw{width:9px;height:9px;border-radius:3px;flex:none}
+.row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px}
+.row .v{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--fg-muted)}
+.stack{display:flex;height:8px;border-radius:5px;overflow:hidden;background:var(--track)}
+.stack i{display:block;height:100%}
+.meter{height:5px;border-radius:4px;background:var(--track);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:4px}
+.warnon .meter.ctx i,.warnon .donut .p{background:var(--red);stroke:var(--red)}
+.tip{display:none;font-size:11.5px;color:var(--red);background:color-mix(in srgb,var(--red) 10%,transparent);border-radius:6px;padding:6px 8px}
+.warnon .tip{display:block}
+
+/* ---------- attuale ---------- */
+.o .chip{margin:10px 12px 0;display:inline-block;font-size:11.5px;color:var(--fg-muted);background:var(--surface2);border-radius:999px;padding:2px 9px}
+.o .hero{display:flex;align-items:baseline;gap:8px;padding:6px 12px 6px}
+.o .big{font-size:24px;font-weight:700}
+.o .hero .btn{margin-left:auto;align-self:center}
+.o .meter{margin:0 12px 10px}
+.o .seg{display:flex;margin:0 12px 8px;background:var(--surface2);border-radius:8px;padding:2px}
+.o .seg span{flex:1;text-align:center;font-size:12px;padding:4px 0;border-radius:6px;color:var(--fg-muted)}
+.o .seg span.on{background:var(--surface3);color:var(--fg);font-weight:600}
+.o .seg span.del{position:relative;text-decoration:line-through;color:var(--red)}
+.o .pane{padding:4px 12px 8px}
+.o .grp{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px}
+.o .grp .v{margin-left:auto;color:var(--fg-muted)}
+.o .foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:7px 12px;font-size:12px}
+.o .foot .pin{margin-left:auto;color:var(--fg-muted)}
+
+/* ---------- A ---------- */
+.a .head{display:flex;align-items:center;gap:9px;padding:12px 12px 10px}
+.a .av{width:28px;height:28px;border-radius:8px;background:#d97757;flex:none}
+.a .tt{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.a .tt b{font-size:13px}
+.a .tt small{font-size:11.5px;color:var(--fg-muted)}
+.a .head .ib{margin-left:auto}
+.a .ctx{display:flex;align-items:center;gap:14px;padding:4px 14px 12px}
+.donut{width:64px;height:64px;flex:none;position:relative}
+.donut svg{width:64px;height:64px;transform:rotate(-90deg)}
+.donut .t{stroke:var(--track)}
+.donut .p{stroke:var(--accent);stroke-linecap:round}
+.donut span{position:absolute;inset:0;display:grid;place-items:center;font-weight:700;font-size:15px}
+.a .ctx .info{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.a .ctx .info b{font-size:13px}
+.a .tabs{display:flex;gap:16px;padding:0 14px;border-bottom:1px solid var(--border)}
+.a .tabs span{font-size:12.5px;padding:7px 0;color:var(--fg-muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.a .tabs span.on{color:var(--fg);border-color:var(--accent);font-weight:600}
+.a .pane{padding:10px 14px 6px;display:flex;flex-direction:column;gap:8px}
+.a .legend{display:grid;grid-template-columns:1fr auto;gap:2px 10px}
+.a .foot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border);font-size:11.5px;color:var(--fg-muted)}
+.a .foot .btn{margin-left:auto}
+
+/* ---------- B ---------- */
+.b .head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
+.b .head b{font-size:13px}
+.b .head small{color:var(--fg-muted);font-size:11.5px}
+.b .head .sp{margin-left:auto;display:flex;gap:2px}
+.b .sec{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:7px}
+.b .sec:last-of-type{border-bottom:0}
+.b .sh{display:flex;align-items:baseline;gap:8px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted)}
+.b .sh .r{margin-left:auto;text-transform:none;letter-spacing:0}
+.b .num{display:flex;align-items:baseline;gap:6px}
+.b .num b{font-size:20px}
+.b .num .btn{margin-left:auto}
+.b .det summary{cursor:pointer;font-size:12px;color:var(--fg-muted);list-style:none}
+.b .det summary::before{content:"▸ ";}
+.b .det[open] summary::before{content:"▾ ";}
+.b .lim{display:flex;flex-direction:column;gap:3px}
+.b .lim .top{display:flex;font-size:12.5px}
+.b .lim .top span:last-child{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--fg-muted)}
+.b .lim small{font-size:11px;color:var(--fg-muted)}
+.b .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.b .g4 div{background:var(--surface2);border-radius:7px;padding:5px 6px;display:flex;flex-direction:column}
+.b .g4 small{font-size:10.5px;color:var(--fg-muted)}
+.b .g4 b{font-size:12.5px;font-variant-numeric:tabular-nums}
+
+/* ---------- C ---------- */
+.c .head{display:flex;align-items:center;gap:8px;padding:10px 12px 4px;font-size:12px;color:var(--fg-muted)}
+.c .head b{color:var(--fg);font-size:13px}
+.c .head .ib{margin-left:auto}
+.c .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 12px}
+.c .tile{background:var(--surface2);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:5px;min-height:78px}
+.c .tile small{font-size:11px;color:var(--fg-muted)}
+.c .tile b{font-size:18px;font-variant-numeric:tabular-nums}
+.c .tile .meter{margin-top:auto}
+.c .tile.big{grid-column:span 2;flex-direction:row;align-items:center;gap:12px;min-height:0}
+.c .tile.big .donut{width:52px;height:52px}
+.c .tile.big .donut svg{width:52px;height:52px}
+.c .tile.big .info{display:flex;flex-direction:column;gap:2px;flex:1}
+.c .tile.big .btn{align-self:center}
+.c .more{margin:0 12px 8px;border:1px solid var(--border);border-radius:9px;padding:6px 10px}
+.c .more summary{cursor:pointer;font-size:12px;list-style:none;display:flex;align-items:center}
+.c .more summary::after{content:"▾";margin-left:auto;color:var(--fg-muted)}
+.c .more .stack{margin:8px 0 6px}
+.c .foot{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border);font-size:11.5px;color:var(--fg-muted)}
+.c .foot .btn{margin-left:auto}
+
+.note{margin-top:30px;max-width:1200px;color:var(--fg-muted);line-height:1.55}
+.note h3{color:var(--fg);font-size:14px;margin:16px 0 6px}
+.note li{margin:3px 0}
+</style>
+</head>
+<body>
+<h1>Popover del contesto (clic sulla percentuale in alto a destra)</h1>
+<p class="sub">Tutte le varianti tolgono la sezione <b>Delegati</b> (le deleghe restano nella card in chat e nel tray). Stessi dati di oggi: contesto usato, composizione (memoria, skill, MCP, conversazione, libero), limiti del piano, consumi della sessione, Compatta, Fissa in sidebar, Ctrl+Shift+A.</p>
+
+<div class="bar">
+  <span class="lab">Stato:</span>
+  <button data-w="0" class="on">Contesto normale (36%)</button>
+  <button data-w="1">Contesto quasi pieno (88%)</button>
+  <span class="lab">Tema:</span>
+  <button id="theme">Chiaro / scuro</button>
+</div>
+
+<div class="grid" id="grid">
+
+<!-- ================= ATTUALE ================= -->
+<div class="col">
+  <h2>Oggi <span class="cur">attuale</span></h2>
+  <p class="d">Chip testuale, numero grande, barra, tre schede segmentate (Delegati barrata = da togliere), gruppi espandibili, riga modello/scheda in fondo.</p>
+  <div class="stage"><span class="hpill">◔ <span class="pct">36%</span></span>
+  <div class="pop o">
+    <span class="chip">Claude · Opus 4.7 · Chat</span>
+    <div class="hero"><span class="big pct">36%</span><span class="muted" style="font-size:12px"><span class="used">72k</span> di 200k token</span><button class="btn">Compatta</button></div>
+    <div class="meter ctx"><i class="fill"></i></div>
+    <div class="seg"><span class="on">Contesto</span><span>Consumi</span><span class="del">Delegati 2</span></div>
+    <div class="pane">
+      <div class="grp">▸ <span class="sw" style="background:var(--c-mem)"></span>Memoria e istruzioni (stima)<span class="v">9,2k</span></div>
+      <div class="grp">▸ <span class="sw" style="background:var(--c-skill)"></span>Skill (stima)<span class="v">3,1k</span></div>
+      <div class="grp">▸ <span class="sw" style="background:var(--c-mcp)"></span>Server MCP<span class="v">6,4k</span></div>
+      <div class="grp">&nbsp;&nbsp;<span class="sw" style="background:var(--c-msg)"></span>Conversazione e strumenti<span class="v used2">53k</span></div>
+      <div class="grp">&nbsp;&nbsp;<span class="sw" style="background:var(--track)"></span>Libero<span class="v free">128k</span></div>
+      <div class="tip">Il contesto è quasi pieno: compattare libera spazio.</div>
+      <div class="grp" style="border-top:1px solid var(--border);margin-top:4px;padding-top:7px">Modello<span class="v">Opus 4.7</span></div>
+      <div class="grp">Scheda<span class="v">flowcode</span></div>
+    </div>
+    <div class="foot"><kbd>Ctrl+Shift+A</kbd><span class="pin">Fissa in sidebar</span></div>
+  </div></div>
+</div>
+
+<!-- ================= A ================= -->
+<div class="col">
+  <h2>A · Intestazione agente + anello <span class="rec">consigliata</span></h2>
+  <p class="d">In cima chi è (avatar, Claude, modello · chat) con pin come icona. Anello con percentuale al posto del numero gigante, token e Compatta accanto. Due schede a sottolineatura (Contesto / Consumi). La composizione diventa una barra a segmenti + legenda compatta. Footer con scorciatoia e basta.</p>
+  <div class="stage"><span class="hpill">◔ <span class="pct">36%</span></span>
+  <div class="pop a">
+    <div class="head"><span class="av"></span><div class="tt"><b>Claude</b><small>Opus 4.7 · chat · flowcode</small></div>
+      <span class="ib" title="Fissa in sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z"/></svg></span></div>
+    <div class="ctx">
+      <div class="donut"><svg viewBox="0 0 36 36"><circle class="t" cx="18" cy="18" r="15" fill="none" stroke-width="4"/><circle class="p ring" cx="18" cy="18" r="15" fill="none" stroke-width="4" stroke-dasharray="94.2" stroke-dashoffset="60"/></svg><span class="pct">36%</span></div>
+      <div class="info"><b><span class="used">72k</span> di 200k token</b><span class="muted" style="font-size:12px"><span class="free">128k</span> liberi</span><div><button class="btn">Compatta</button></div></div>
+    </div>
+    <div class="tabs"><span class="on">Contesto</span><span>Consumi</span></div>
+    <div class="pane">
+      <div class="stack"><i style="width:4.6%;background:var(--c-mem)"></i><i style="width:1.6%;background:var(--c-skill)"></i><i style="width:3.2%;background:var(--c-mcp)"></i><i class="msgseg" style="width:26.6%;background:var(--c-msg)"></i></div>
+      <div class="legend">
+        <div class="row"><span class="sw" style="background:var(--c-msg)"></span>Conversazione</div><div class="row"><span class="v used2">53k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-mem)"></span>Memoria e istruzioni</div><div class="row"><span class="v">9,2k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-mcp)"></span>Server MCP ▸</div><div class="row"><span class="v">6,4k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-skill)"></span>Skill ▸</div><div class="row"><span class="v">3,1k</span></div>
+      </div>
+      <div class="tip">Il contesto è quasi pieno: compattare libera spazio.</div>
+    </div>
+    <div class="foot"><kbd>Ctrl+Shift+A</kbd> apri/chiudi</div>
+  </div></div>
+</div>
+
+<!-- ================= B ================= -->
+<div class="col">
+  <h2>B · Pagina unica, senza schede</h2>
+  <p class="d">Niente schede: tre sezioni una sotto l'altra (Contesto, Piano, Sessione). La composizione del contesto si apre a richiesta. Limiti del piano e sessione sempre visibili, senza clic. Più alta, ma tutto in un colpo d'occhio.</p>
+  <div class="stage"><span class="hpill">◔ <span class="pct">36%</span></span>
+  <div class="pop b">
+    <div class="head"><b>Claude</b><small>Opus 4.7 · chat</small><span class="sp"><span class="ib" title="Fissa in sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z"/></svg></span></span></div>
+    <div class="sec">
+      <div class="sh">Contesto<span class="r"><span class="used">72k</span> / 200k</span></div>
+      <div class="num"><b class="pct">36%</b><span class="muted" style="font-size:12px"><span class="free">128k</span> liberi</span><button class="btn">Compatta</button></div>
+      <div class="meter ctx"><i class="fill"></i></div>
+      <div class="tip">Il contesto è quasi pieno: compattare libera spazio.</div>
+      <details class="det"><summary>Composizione</summary>
+        <div class="row"><span class="sw" style="background:var(--c-msg)"></span>Conversazione<span class="v used2">53k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-mem)"></span>Memoria e istruzioni<span class="v">9,2k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-mcp)"></span>Server MCP<span class="v">6,4k</span></div>
+        <div class="row"><span class="sw" style="background:var(--c-skill)"></span>Skill<span class="v">3,1k</span></div>
+      </details>
+    </div>
+    <div class="sec">
+      <div class="sh">Piano Max</div>
+      <div class="lim"><div class="top"><span>Sessione 5 h</span><span>42%</span></div><div class="meter"><i style="width:42%"></i></div><small>si azzera tra 2 h 10 min</small></div>
+      <div class="lim"><div class="top"><span>Settimana</span><span>18%</span></div><div class="meter"><i style="width:18%"></i></div></div>
+    </div>
+    <div class="sec">
+      <div class="sh">Questa sessione<span class="r">cache hit 91%</span></div>
+      <div class="g4"><div><small>Input</small><b>12k</b></div><div><small>Output</small><b>8,4k</b></div><div><small>Cache W</small><b>40k</b></div><div><small>Cache R</small><b>410k</b></div></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ================= C ================= -->
+<div class="col">
+  <h2>C · Cruscotto a tessere</h2>
+  <p class="d">Una tessera larga per il contesto (anello + Compatta) e tessere piccole per limiti del piano e sessione. La composizione sta in un riquadro "Dettagli contesto" chiuso di default. Il più "a colpo d'occhio", meno testo.</p>
+  <div class="stage"><span class="hpill">◔ <span class="pct">36%</span></span>
+  <div class="pop c">
+    <div class="head"><b>Claude</b> Opus 4.7 · chat<span class="ib" title="Fissa in sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 4h6l-1 6 3 3H7l3-3-1-6z"/></svg></span></div>
+    <div class="tiles">
+      <div class="tile big">
+        <div class="donut"><svg viewBox="0 0 36 36"><circle class="t" cx="18" cy="18" r="15" fill="none" stroke-width="4"/><circle class="p ring" cx="18" cy="18" r="15" fill="none" stroke-width="4" stroke-dasharray="94.2" stroke-dashoffset="60"/></svg><span class="pct" style="font-size:13px">36%</span></div>
+        <div class="info"><small>Contesto</small><b style="font-size:14px"><span class="used">72k</span> / 200k</b><small><span class="free">128k</span> liberi</small></div>
+        <button class="btn">Compatta</button>
+      </div>
+      <div class="tile"><small>Sessione 5 h</small><b>42%</b><small>reset 2 h 10 min</small><div class="meter"><i style="width:42%"></i></div></div>
+      <div class="tile"><small>Settimana</small><b>18%</b><small>reset lun</small><div class="meter"><i style="width:18%"></i></div></div>
+      <div class="tile"><small>Token sessione</small><b>20k</b><small>in 12k · out 8,4k</small></div>
+      <div class="tile"><small>Cache hit</small><b>91%</b><small>410k letti</small></div>
+    </div>
+    <div class="tip" style="margin:0 12px 8px">Il contesto è quasi pieno: compattare libera spazio.</div>
+    <details class="more"><summary>Dettagli contesto</summary>
+      <div class="stack"><i style="width:4.6%;background:var(--c-mem)"></i><i style="width:1.6%;background:var(--c-skill)"></i><i style="width:3.2%;background:var(--c-mcp)"></i><i class="msgseg" style="width:26.6%;background:var(--c-msg)"></i></div>
+      <div class="row"><span class="sw" style="background:var(--c-msg)"></span>Conversazione<span class="v used2">53k</span></div>
+      <div class="row"><span class="sw" style="background:var(--c-mem)"></span>Memoria e istruzioni<span class="v">9,2k</span></div>
+      <div class="row"><span class="sw" style="background:var(--c-mcp)"></span>Server MCP<span class="v">6,4k</span></div>
+      <div class="row"><span class="sw" style="background:var(--c-skill)"></span>Skill<span class="v">3,1k</span></div>
+    </details>
+    <div class="foot"><kbd>Ctrl+Shift+A</kbd> apri/chiudi</div>
+  </div></div>
+</div>
+</div>
+
+<div class="note">
+<h3>Note</h3>
+<ul>
+<li>"Fissa in sidebar" diventa un'icona pin in alto (oggi è testo nel footer); nella sidebar fissata lo stesso pannello mostra l'icona "sgancia".</li>
+<li>Modello e scheda passano nell'intestazione (oggi sono righe in fondo al pannello Contesto).</li>
+<li>Agenti senza dati di piano (pay-as-you-go, OpenCode) : in B e C la sezione/tessere del piano mostrano il costo stimato della sessione al posto delle barre.</li>
+<li>Il pannello è condiviso col pannello fissato in sidebar: la scelta vale per entrambi.</li>
+</ul>
+</div>
+
+<script>
+const setW=w=>{
+  const pct=w?88:36, used=w?"176k":"72k", free=w?"24k":"128k", msg=w?"157k":"53k";
+  document.body.classList.toggle('warnon',!!w);
+  document.querySelectorAll('.pct').forEach(e=>e.textContent=pct+'%');
+  document.querySelectorAll('.used').forEach(e=>e.textContent=used);
+  document.querySelectorAll('.used2').forEach(e=>e.textContent=msg);
+  document.querySelectorAll('.free').forEach(e=>e.textContent=free);
+  document.querySelectorAll('.fill').forEach(e=>e.style.width=pct+'%');
+  document.querySelectorAll('.ring').forEach(e=>e.setAttribute('stroke-dashoffset',(94.2*(1-pct/100)).toFixed(1)));
+  document.querySelectorAll('.msgseg').forEach(e=>e.style.width=(w?78.6:26.6)+'%');
+  document.querySelectorAll('.bar [data-w]').forEach(b=>b.classList.toggle('on',+b.dataset.w===w));
+};
+document.querySelectorAll('.bar [data-w]').forEach(b=>b.onclick=()=>setW(+b.dataset.w));
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+setW(0);
+</script>
+</body>
+</html>

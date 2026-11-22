@@ -74,21 +74,13 @@ function Pill({ agent, host }: { agent: NonNullable<ReturnType<typeof useActiveA
       </button>
       {open && (
         <div className="agent-pop" role="dialog" aria-label={t("agentPanel.pill.title")}>
-          {host.renderPanel()}
+          {host.renderPanel(() => {
+            setAgentPanelPinned(true);
+            setAgentPopoverOpen(false);
+            host.showPinned();
+          })}
           <div className="agent-pop-foot">
-            <kbd>Ctrl+Shift+A</kbd>
-            <span className="agent-pop-spacer" />
-            <button
-              type="button"
-              className="agent-pop-pin"
-              onClick={() => {
-                setAgentPanelPinned(true);
-                setAgentPopoverOpen(false);
-                host.showPinned();
-              }}
-            >
-              {t("agentPanel.pin")}
-            </button>
+            <kbd>Ctrl+Shift+A</kbd> {t("agentPanel.popFoot")}
           </div>
         </div>
       )}

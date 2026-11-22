@@ -1861,15 +1861,14 @@ function Shell() {
     togglePanel("sidebar");
   };
   useEffect(() => setAgentPopoverOpen(false), [activeTabId]);
-  const renderAgentPanel = (onUnpin?: () => void) => (
+  const renderAgentPanel = (onUnpin?: () => void, onPin?: () => void) => (
     <AgentInsightPanel
       onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
-      onOpenDelegate={openDelegateTab}
-      onFocusTab={setActiveTabId}
       onUnpin={onUnpin}
+      onPin={onPin}
     />
   );
-  const agentPanelHost: AgentPanelHost = { renderPanel: () => renderAgentPanel(), showPinned: showPinnedAgentPanel };
+  const agentPanelHost: AgentPanelHost = { renderPanel: (onPin) => renderAgentPanel(undefined, onPin), showPinned: showPinnedAgentPanel };
   // The sidebar button's dot: Git changes in the folder in front while the sidebar is closed (a parked one already shows the parked dot there).
   const gitChangeCount = useGitChangeCount(sidebarCwd, !sidebarVisible);
 

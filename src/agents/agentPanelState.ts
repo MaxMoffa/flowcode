@@ -32,7 +32,8 @@ export function setAgentPanelPinned(value: boolean) {
 /** What the header's context pill needs from the app: the panel to show in its
  * popover, and a way to bring up the pinned sidebar copy. */
 export interface AgentPanelHost {
-  renderPanel: () => ReactNode;
+  /** `onPin` adds the header's "pin to sidebar" button (the popover passes it). */
+  renderPanel: (onPin?: () => void) => ReactNode;
   showPinned: () => void;
 }
 export const AgentPanelHostContext = createContext<AgentPanelHost | null>(null);
