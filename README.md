@@ -169,9 +169,7 @@ flowcode/
 │   ├── installer/       # Installer binary
 │   └── shared/          # Code shared by the app and the installer
 ├── config/              # Default shortcuts
-├── DECISION.md          # Technical decision log
-├── ROADMAP.md           # Roadmap
-└── TASKS.md             # Operational tasks
+└── ROADMAP.md           # Roadmap
 ```
 
 ### Requirements
