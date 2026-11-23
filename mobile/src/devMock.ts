@@ -214,6 +214,8 @@ mockConvertFileSrc("windows");
 // ?mock=pairing starts unpaired (pairing never answers); ?mock=pairing-ok answers after 3 s.
 const unpaired = location.search.includes("mock=pairing");
 const answers = location.search.includes("pairing-ok");
+// ?mock&down: the link never comes up (ghost loader, then the link screen), to check them in a browser.
+const linkDown = location.search.includes("down");
 
 mockIPC(
   (cmd, args) => {
@@ -244,6 +246,10 @@ mockIPC(
       case "plugin:barcode-scanner|scan":
         return new Promise(() => {});
       case "connect":
+        if (linkDown) {
+          setTimeout(() => void emit("remote://state", { status: "offline", hostName: "Il mio PC", phase: "waiting", attempt: 2, retryAt: Date.now() + 9000, error: "dial timed out (mock)" }), 50);
+          return null;
+        }
         setTimeout(async () => {
           await emit("remote://state", { status: "online", hostName: "Il mio PC" });
           await chatHello();

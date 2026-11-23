@@ -250,3 +250,18 @@ export const EyeIcon = () => (
     <circle cx="12" cy="12" r="3" />
   </Svg>
 );
+
+/** Larger phone / computer glyphs for the link screen's hero. */
+export const PhoneTileIcon = () => (
+  <Svg size={26} strokeWidth={1.7}>
+    <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+    <path d="M11 18.5h2" />
+  </Svg>
+);
+
+export const MonitorTileIcon = () => (
+  <Svg size={26} strokeWidth={1.7}>
+    <rect x="3" y="4" width="18" height="12" rx="2.5" />
+    <path d="M9 20h6M12 16v4" />
+  </Svg>
+);

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flowcode mobile — caricamento home (3 varianti)</title>
+<style>
+  :root {
+    --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+    --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.2);
+    --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-2: #c9975a; --mag: #b48ead;
+    --warn: #e0b45a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0c0a; color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header.page { max-width: 1320px; margin: 0 auto; padding: 28px 24px 8px; }
+  header.page h1 { margin: 0 0 6px; font-size: 22px; }
+  header.page p { margin: 0; color: var(--muted); max-width: 820px; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+  .controls button { background: var(--surface-2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  .controls button.on { background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); border-color: var(--accent); }
+  .controls .clock { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; }
+  .grid { max-width: 1320px; margin: 0 auto; padding: 18px 24px 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 26px; }
+  .col h2 { font-size: 15px; margin: 0 0 4px; }
+  .col h2 small { color: var(--muted); font-weight: 500; }
+  .col .why { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; min-height: 52px; }
+  .col ul.notes { color: var(--muted); font-size: 12.5px; padding-left: 18px; margin: 12px 0 0; }
+  .col ul.notes b { color: var(--fg); font-weight: 600; }
+
+  /* ---------- phone ---------- */
+  .phone { width: 290px; height: 610px; border-radius: 38px; padding: 9px; background: #050403; box-shadow: 0 0 0 1px #2a241f, 0 20px 50px rgba(0,0,0,.55); margin: 0 auto; }
+  .scr { position: relative; width: 100%; height: 100%; border-radius: 30px; overflow: hidden; background: var(--bg); }
+  .aurora { position: absolute; inset: 0; opacity: .7; pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px); mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px);
+    background:
+      radial-gradient(ellipse 105% 44% at 8% -4%, color-mix(in srgb, var(--accent) 58%, transparent), transparent 72%),
+      radial-gradient(ellipse 88% 40% at 100% 10%, color-mix(in srgb, var(--accent-2) 50%, transparent), transparent 72%),
+      radial-gradient(ellipse 80% 26% at 46% 36%, color-mix(in srgb, var(--mag) 38%, transparent), transparent 74%);
+    transition: opacity .6s, filter .6s; }
+  .statusbar { position: absolute; top: 0; left: 0; right: 0; height: 26px; display: flex; justify-content: space-between; padding: 6px 20px 0; font-size: 11px; color: var(--fg); opacity: .85; z-index: 5; }
+  .page-in { position: absolute; inset: 26px 0 58px; overflow: hidden; padding: 0 12px; }
+  .top { height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 4px; position: relative; z-index: 3; }
+  .sel { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .sel .pc { font-weight: 650; font-size: 16px; }
+  .sel .chev { margin-left: auto; color: var(--muted); }
+  .sel .sub { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 58px; display: flex; justify-content: space-around; align-items: center; background: color-mix(in srgb, var(--surface) 92%, transparent); border-top: 1px solid var(--border); }
+  .nav i { width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--muted); opacity: .7; }
+  .nav i.act { border-color: var(--accent); opacity: 1; }
+
+  .card { background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border); border-radius: 16px; backdrop-filter: blur(14px); }
+  .launch { padding: 12px; margin-top: 6px; }
+  .launch .ph { color: var(--muted); font-size: 13.5px; height: 38px; }
+  .launch .row { display: flex; align-items: center; gap: 8px; }
+  .chip { font-size: 11.5px; padding: 4px 9px; border-radius: 999px; background: var(--surface-3); color: var(--fg); display: inline-flex; align-items: center; gap: 5px; }
+  .send { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; color: #1a1511; font-weight: 800; transition: opacity .3s, background .3s; }
+  .send.off { background: var(--surface-3); color: var(--muted); }
+  .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 4px 7px; font-size: 12.5px; }
+  .sec b { font-weight: 650; } .sec b.busy { color: var(--accent); } .sec span { color: var(--muted); }
+  .usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .usage .card { padding: 10px; }
+  .usage .n { font-size: 11px; color: var(--muted); }
+  .usage .v { font-size: 17px; font-weight: 700; margin: 2px 0 6px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .bar.w > span { background: var(--accent-2); }
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .rowi { display: flex; align-items: center; gap: 10px; padding: 9px 10px; }
+  .tile { width: 32px; height: 32px; border-radius: 10px; background: var(--surface-3); display: grid; place-items: center; font-size: 13px; position: relative; flex: none; }
+  .tile.busy::after { content: ""; position: absolute; inset: -3px; border-radius: 12px; border: 2px solid transparent; border-top-color: var(--accent); animation: spin 1.1s linear infinite; }
+  .txt { min-width: 0; flex: 1; }
+  .txt b { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .txt span { font-size: 11px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+  .when { font-size: 11px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 12px; padding: 10px 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* content reveal for all variants */
+  .live { transition: opacity .45s ease, transform .45s cubic-bezier(.2,.8,.2,1); }
+  [data-s="conn"] .live { opacity: 0; transform: translateY(8px); pointer-events: none; }
+  [data-s="on"] .live { opacity: 1; transform: none; }
+  [data-s="on"] .live.d1 { transition-delay: .05s; } [data-s="on"] .live.d2 { transition-delay: .12s; } [data-s="on"] .live.d3 { transition-delay: .19s; } [data-s="on"] .live.d4 { transition-delay: .26s; }
+
+  /* ---------- OGGI ---------- */
+  #p0[data-s="conn"] .live { transition: none; display: none; }
+  #p0[data-s="on"] .live { transition: none; }
+  #p0[data-s="on"] .now-empty { display: none; }
+
+  /* ---------- A: ghost skeleton ---------- */
+  .ghost { position: absolute; left: 12px; right: 12px; top: 52px; transition: opacity .35s ease; }
+  [data-s="on"] .ghost { opacity: 0; pointer-events: none; }
+  .g { background: linear-gradient(100deg, var(--surface-2) 30%, color-mix(in srgb, var(--surface-3) 90%, var(--fg) 6%) 50%, var(--surface-2) 70%); background-size: 300% 100%; animation: shimmer 1.6s ease-in-out infinite; border-radius: 8px; }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+  .ghost .card { border-color: transparent; }
+  .gline { height: 10px; margin: 6px 0; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); display: inline-block; }
+  .dot.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  .dot.ok { background: var(--accent); animation: none; }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(.75); } }
+  .subswap { position: relative; height: 15px; overflow: hidden; }
+  .subswap > span { position: absolute; left: 0; top: 0; display: flex; gap: 6px; align-items: center; white-space: nowrap; transition: transform .35s, opacity .35s; }
+  [data-s="conn"] .subswap .s-on, [data-s="on"] .subswap .s-conn { opacity: 0; transform: translateY(-100%); }
+  .slowtip { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 14px; opacity: 0; transition: opacity .4s; }
+  .slowtip a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .slow .slowtip { opacity: 1; }
+  [data-s="on"] .slowtip { opacity: 0 !important; }
+
+  /* ---------- B: last known state ---------- */
+  #p2 .snap { transition: opacity .5s, filter .5s; }
+  #p2[data-s="conn"] .snap { opacity: .5; filter: saturate(.25); pointer-events: none; }
+  #p2[data-s="conn"] .tile.busy::after { animation-play-state: paused; border-top-color: var(--muted); }
+  #p2[data-s="conn"] .aurora { opacity: .35; filter: saturate(.4); }
+  .syncpill { position: absolute; left: 50%; top: 82px; transform: translateX(-50%); z-index: 4; font-size: 11.5px; padding: 6px 12px 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--surface-3) 94%, transparent); border: 1px solid var(--border-strong); display: flex; align-items: center; gap: 7px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.35); transition: opacity .4s .9s, transform .4s .9s; }
+  .ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface-2); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+  #p2 .syncpill .ok { display: none; color: var(--accent); font-weight: 800; }
+  #p2[data-s="on"] .syncpill .ring { display: none; }
+  #p2[data-s="on"] .syncpill .ok { display: inline; }
+  #p2[data-s="on"] .syncpill { opacity: 0; transform: translate(-50%, -8px); }
+  #p2 .slowB { display: none; color: var(--accent); font-weight: 600; margin-left: 4px; }
+  #p2.slow[data-s="conn"] .slowB { display: inline; }
+  .chg { transition: color .4s; }
+  #p2[data-s="on"] .chg { color: var(--accent); }
+
+  /* ---------- C: connection hero ---------- */
+  .hero { position: absolute; inset: 52px 12px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; transition: opacity .4s, transform .5s cubic-bezier(.2,.8,.2,1); z-index: 2; }
+  #p3[data-s="on"] .hero { opacity: 0; transform: translateY(-40px) scale(.92); pointer-events: none; }
+  #p3[data-s="conn"] .aurora { animation: breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 1; filter: saturate(1.25); } }
+  .link { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .dev { width: 46px; height: 46px; border-radius: 14px; background: color-mix(in srgb, var(--surface) 80%, transparent); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 20px; }
+  .wire { position: relative; width: 82px; height: 2px; background: repeating-linear-gradient(90deg, var(--border-strong) 0 5px, transparent 5px 10px); }
+  .wire::after { content: ""; position: absolute; top: -3px; left: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: travel 1.4s ease-in-out infinite; }
+  @keyframes travel { 0% { left: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { left: 74px; opacity: 0; } }
+  .hero h3 { margin: 0 0 4px; font-size: 17px; }
+  .hero .hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; min-height: 17px; }
+  .steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+  .steps li { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--muted); transition: color .3s; }
+  .steps li i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--surface-3); flex: none; position: relative; transition: background .3s, border-color .3s; }
+  .steps li.busy { color: var(--fg); } .steps li.busy i { border-color: var(--surface-3); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+  .steps li.ok { color: var(--fg); } .steps li.ok i { background: var(--accent); border-color: var(--accent); }
+  .steps li.ok i::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 7px; border: solid #1a1511; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .retry { margin-top: 18px; display: flex; gap: 8px; opacity: 0; transform: translateY(6px); transition: opacity .35s, transform .35s; pointer-events: none; }
+  .slow .retry { opacity: 1; transform: none; pointer-events: auto; }
+  .btn { font: inherit; font-size: 12.5px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg); }
+  .btn.pri { background: var(--accent); color: #1a1511; border-color: var(--accent); font-weight: 650; }
+  #p3[data-s="conn"] .sel { opacity: 0; } #p3 .sel { transition: opacity .4s .2s; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Home mobile — apertura dell'app</h1>
+  <p>Oggi, finché il telefono non è collegato al PC (<code>status="connecting"</code>, <code>tabs=null</code>), la home mostra il launcher e "Nessun terminale" su una pagina vuota, poi tutto compare di colpo. Tre modi per rendere chiaro che sta caricando. Premi <b>Riproduci</b>; con <b>Connessione lenta</b> vedi come ciascuna gestisce un'attesa lunga (il caso che capita a volte).</p>
+  <div class="controls">
+    <button id="play">▶ Riproduci</button>
+    <button id="fast" class="on">Connessione veloce · 2,2 s</button>
+    <button id="slowb">Connessione lenta · 8 s</button>
+    <span class="clock" id="clock">0,0 s</span>
+  </div>
+</header>
+
+<div class="grid">
+
+<!-- ================= OGGI ================= -->
+<section class="col">
+  <h2>Oggi <small>— riferimento</small></h2>
+  <p class="why">Pagina "mezza vuota": non si capisce se sta caricando o se sul PC non c'è niente. Il contenuto poi salta dentro senza transizione.</p>
+  <div class="phone"><div class="scr" id="p0" data-s="conn">
+    <div class="aurora"></div><div class="statusbar"><span>9:41</span><span>●●● 82%</span></div>
+    <div class="page-in">
+      <div class="top"><div class="sel"><span class="pc">MAX-PC</span><span class="chev">▾</span></div></div>
+      <div class="card launch"><div class="ph">Cosa vuoi fare?</div><div class="row"><span class="chip">✳ Claude</span><span class="chip">flowcode</span><span class="send">↑</span></div></div>
+      <div class="live">__CONTENT__</div>
+      <div class="sec now-empty"><b>Terminali</b><span>+ Nuovo</span></div>
+      <div class="empty now-empty">Nessun terminale</div>
+    </div>
+    <div class="nav"><i class="act"></i><i></i><i></i></div>
+  </div></div>
+</section>
+
+<!-- ================= A ================= -->
+<section class="col">
+  <h2>A · Ghost loader</h2>
+  <p class="why">Scheletro della home con shimmer al posto di uso e sessioni; sotto il nome del PC "Connessione…" con puntino che pulsa. Al collegamento lo scheletro sfuma e i blocchi veri salgono in cascata.</p>
+  <div class="phone"><div class="scr" id="p1" data-s="conn">
+    <div class="aurora"></div><div class="statusbar"><span>9:41</span><span>●●● 82%</span></div>
+    <div class="page-in">
+      <div class="top"><div class="sel"><div><div class="pc">MAX-PC</div><div class="sub subswap"><span class="s-conn"><i class="dot pulse"></i>Connessione…</span><span class="s-on"><i class="dot ok"></i>Connesso</span></div></div><span class="chev">▾</span></div></div>
+      <div class="card launch"><div class="ph">Cosa vuoi fare?</div><div class="row"><span class="chip">✳ Claude</span><span class="chip">flowcode</span><span class="send off sendA">↑</span></div></div>
+      <div style="position:relative">
+        <div class="ghost" style="top:0;left:0;right:0">
+          <div class="usage"><div class="card" style="padding:10px"><div class="g gline" style="width:50%"></div><div class="g" style="height:16px;width:70%;margin:6px 0 8px"></div><div class="g" style="height:5px"></div></div><div class="card" style="padding:10px"><div class="g gline" style="width:45%"></div><div class="g" style="height:16px;width:60%;margin:6px 0 8px"></div><div class="g" style="height:5px"></div></div></div>
+          <div class="sec"><div class="g" style="width:70px;height:10px"></div></div>
+          <div class="list">
+            <div class="card rowi"><div class="g" style="width:32px;height:32px;border-radius:10px"></div><div class="txt"><div class="g gline" style="width:68%"></div><div class="g gline" style="width:42%;height:8px"></div></div></div>
+            <div class="card rowi"><div class="g" style="width:32px;height:32px;border-radius:10px"></div><div class="txt"><div class="g gline" style="width:55%"></div><div class="g gline" style="width:48%;height:8px"></div></div></div>
+            <div class="card rowi"><div class="g" style="width:32px;height:32px;border-radius:10px"></div><div class="txt"><div class="g gline" style="width:62%"></div><div class="g gline" style="width:36%;height:8px"></div></div></div>
+          </div>
+          <div class="slowtip">Ci sta mettendo un po'… <a href="#">Riprova ora</a></div>
+        </div>
+        __CONTENT_STAGGER__
+      </div>
+    </div>
+    <div class="nav"><i class="act"></i><i></i><i></i></div>
+  </div></div>
+  <ul class="notes">
+    <li><b>Costo:</b> basso, solo frontend (<code>Home.tsx</code> + CSS) quando <code>tabs===null</code>.</li>
+    <li>Launcher visibile ma invio spento finché non connesso.</li>
+    <li>Dopo ~5 s compare "Riprova ora" (usa <code>retryNow()</code>).</li>
+  </ul>
+</section>
+
+<!-- ================= B ================= -->
+<section class="col">
+  <h2>B · Ultimo stato noto</h2>
+  <p class="why">La home appare subito con le sessioni dell'ultima volta, spente e in grigio, con la pillola "Sincronizzo con MAX-PC…". Al collegamento si accende e i dati si aggiornano sul posto.</p>
+  <div class="phone"><div class="scr" id="p2" data-s="conn">
+    <div class="aurora"></div><div class="statusbar"><span>9:41</span><span>●●● 82%</span></div>
+    <div class="page-in">
+      <div class="top"><div class="sel"><span class="pc">MAX-PC</span><span class="chev">▾</span></div></div>
+      <div class="snap">
+        <div class="card launch"><div class="ph">Cosa vuoi fare?</div><div class="row"><span class="chip">✳ Claude</span><span class="chip">flowcode</span><span class="send">↑</span></div></div>
+        <div class="usage">
+          <div class="card"><div class="n">Claude · 5 h</div><div class="v chg" data-a="38%" data-b="41%">38%</div><div class="bar"><span class="bw" data-a="38" data-b="41" style="width:38%"></span></div></div>
+          <div class="card"><div class="n">Codex · settimana</div><div class="v">72%</div><div class="bar w"><span style="width:72%"></span></div></div>
+        </div>
+        <div class="sec"><b class="busy">In lavoro</b><span>1</span></div>
+        <div class="list">
+          <div class="card rowi"><span class="tile busy">✳</span><div class="txt"><b>Refactor remote.rs</b><span>~/flowcode</span></div><span class="when chg" data-a="4 min" data-b="6 min">4 min</span></div>
+        </div>
+        <div class="sec"><b>Inattive</b><span>2</span></div>
+        <div class="list">
+          <div class="card rowi"><span class="tile">◎</span><div class="txt"><b>Fix login mobile</b><span>~/flowcode/mobile</span></div><span class="when">22 min</span></div>
+          <div class="card rowi"><span class="tile">▣</span><div class="txt"><b>Sito release 0.39</b><span>~/flowcode/site</span></div><span class="when">1 h</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="syncpill"><span class="ring"></span><span class="ok">✓</span><span class="pilltxt">Sincronizzo con MAX-PC…</span><a class="slowB">Riprova</a></div>
+    <div class="nav"><i class="act"></i><i></i><i></i></div>
+  </div></div>
+  <ul class="notes">
+    <li><b>Sensazione:</b> la più istantanea, si legge subito cosa c'era.</li>
+    <li><b>Costo:</b> medio, serve salvare l'ultimo snapshot (tab, chat, usage) per PC in localStorage.</li>
+    <li>Tap disattivati finché è grigio: non si apre una chat che magari non esiste più.</li>
+  </ul>
+</section>
+
+<!-- ================= C ================= -->
+<section class="col">
+  <h2>C · Schermata di collegamento</h2>
+  <p class="why">Al posto della home vuota: telefono ⇄ PC con un puntino che viaggia e i tre passi reali della connessione (<code>waiting → dialing → handshake</code>). Poi l'animazione sale nella barra e la home entra.</p>
+  <div class="phone"><div class="scr" id="p3" data-s="conn">
+    <div class="aurora"></div><div class="statusbar"><span>9:41</span><span>●●● 82%</span></div>
+    <div class="page-in">
+      <div class="top"><div class="sel"><span class="pc">MAX-PC</span><span class="chev">▾</span></div></div>
+      <div class="hero">
+        <div class="link"><div class="dev">📱</div><div class="wire"></div><div class="dev">🖥</div></div>
+        <h3>Mi collego a MAX-PC</h3>
+        <p class="hint" id="hintC">Di solito ci vuole un attimo</p>
+        <ul class="steps">
+          <li data-k="0"><i></i>Cerco il PC in rete</li>
+          <li data-k="1"><i></i>Apro il collegamento cifrato</li>
+          <li data-k="2"><i></i>Sincronizzo sessioni</li>
+        </ul>
+        <div class="retry"><button class="btn pri">Riprova ora</button><button class="btn">Dettagli</button></div>
+      </div>
+      <div class="card launch live d1"><div class="ph">Cosa vuoi fare?</div><div class="row"><span class="chip">✳ Claude</span><span class="chip">flowcode</span><span class="send">↑</span></div></div>
+      __CONTENT_STAGGER__
+    </div>
+    <div class="nav"><i class="act"></i><i></i><i></i></div>
+  </div></div>
+  <ul class="notes">
+    <li><b>Pro:</b> rende visibile <i>dove</i> si blocca, utile proprio con le connessioni lente di adesso.</li>
+    <li><b>Costo:</b> basso-medio, usa <code>phase</code> già esposto da <code>remote.ts</code>.</li>
+    <li>Contro: anche col collegamento istantaneo si vede un breve passaggio (min ~400 ms per non lampeggiare).</li>
+  </ul>
+</section>
+
+</div>
+
+<template id="content">
+  <div class="usage live d1">
+    <div class="card"><div class="n">Claude · 5 h</div><div class="v">41%</div><div class="bar"><span class="bw" data-a="0" data-b="41" style="width:0"></span></div></div>
+    <div class="card"><div class="n">Codex · settimana</div><div class="v">72%</div><div class="bar w"><span class="bw" data-a="0" data-b="72" style="width:0"></span></div></div>
+  </div>
+  <div class="live d2"><div class="sec"><b class="busy">In lavoro</b><span>1</span></div>
+    <div class="list"><div class="card rowi"><span class="tile busy">✳</span><div class="txt"><b>Refactor remote.rs</b><span>~/flowcode</span></div><span class="when">6 min</span></div></div></div>
+  <div class="live d3"><div class="sec"><b>Inattive</b><span>2</span></div>
+    <div class="list">
+      <div class="card rowi"><span class="tile">◎</span><div class="txt"><b>Fix login mobile</b><span>~/flowcode/mobile</span></div><span class="when">22 min</span></div>
+      <div class="card rowi"><span class="tile">▣</span><div class="txt"><b>Sito release 0.39</b><span>~/flowcode/site</span></div><span class="when">1 h</span></div>
+    </div></div>
+</template>
+
+<script>
+  const tpl = document.getElementById("content").innerHTML;
+  document.querySelectorAll(".scr").forEach((s) => {
+    s.innerHTML = s.innerHTML.replace("__CONTENT_STAGGER__", tpl).replace("__CONTENT__", tpl.replace(/live d\d/g, ""));
+  });
+  // A: content sits in the same box as the ghost
+  const p1 = document.getElementById("p1");
+
+  let total = 2200, timers = [], t0 = 0, raf = 0;
+  const phones = [...document.querySelectorAll(".scr")];
+  const clock = document.getElementById("clock");
+
+  function setBars(on) {
+    document.querySelectorAll(".bw").forEach((b) => (b.style.width = (on ? b.dataset.b : b.dataset.a) + "%"));
+    document.querySelectorAll("#p2 .chg").forEach((c) => (c.textContent = on ? c.dataset.b : c.dataset.a));
+  }
+  function stepsC(k) {
+    document.querySelectorAll("#p3 .steps li").forEach((li) => {
+      const i = +li.dataset.k;
+      li.className = i < k ? "ok" : i === k ? "busy" : "";
+    });
+  }
+  function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
+
+  function play() {
+    timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf);
+    phones.forEach((p) => { p.dataset.s = "conn"; p.classList.remove("slow"); });
+    setBars(false); stepsC(0);
+    document.getElementById("hintC").textContent = "Di solito ci vuole un attimo";
+    document.querySelector("#p2 .pilltxt").textContent = "Sincronizzo con MAX-PC…";
+    document.querySelector("#p1 .sendA").classList.add("off");
+    const slow = total > 4000;
+    // C: phases spread over the wait, handshake near the end
+    at(Math.min(total * 0.35, slow ? 5600 : 900), () => stepsC(1));
+    at(total - Math.min(500, total * 0.2), () => stepsC(2));
+    if (slow) {
+      at(4500, () => {
+        phones.forEach((p) => p.classList.add("slow"));
+        document.getElementById("hintC").textContent = "Ci sta mettendo più del solito";
+        document.querySelector("#p2 .pilltxt").textContent = "Ancora in collegamento…";
+      });
+    }
+    at(total, () => {
+      phones.forEach((p) => { p.dataset.s = "on"; p.classList.remove("slow"); });
+      stepsC(3);
+      document.querySelector("#p1 .sendA").classList.remove("off");
+      document.querySelector("#p2 .pilltxt").textContent = "Aggiornato";
+      requestAnimationFrame(() => setBars(true));
+    });
+    t0 = performance.now();
+    const tick = () => {
+      const e = Math.min(performance.now() - t0, total);
+      clock.textContent = (e / 1000).toFixed(1).replace(".", ",") + " s" + (e >= total ? " · connesso" : "");
+      if (e < total) raf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+  document.getElementById("play").onclick = play;
+  document.getElementById("fast").onclick = (e) => { total = 2200; e.target.classList.add("on"); document.getElementById("slowb").classList.remove("on"); play(); };
+  document.getElementById("slowb").onclick = (e) => { total = 8000; e.target.classList.add("on"); document.getElementById("fast").classList.remove("on"); play(); };
+  setTimeout(play, 400);
+</script>
+</body>
+</html>

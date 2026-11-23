@@ -29,7 +29,7 @@ export function releaseVelocity(samples: Sample[], now: number): number {
 }
 
 const NO_DRAG = "input, textarea, select, [data-no-sheet-drag]";
-const SCRIM = ".tm-scrim, .nts-scrim, .rc-scrim, [data-sheet-scrim]";
+const SCRIM = ".tm-scrim, .nts-scrim, [data-sheet-scrim]";
 
 /** Whether `el` scrolls along the drag axis and can still scroll the way the finger pushes. */
 function scrollsAgainst(el: HTMLElement, edge: SheetEdge): boolean {

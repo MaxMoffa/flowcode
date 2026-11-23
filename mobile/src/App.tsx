@@ -13,6 +13,8 @@ import { ChatClearing } from "./ChatClearing";
 import { NewChatWatcher, clearOpenRequest, consumeClear, requestOpenChat, useChatHandoff, useClearing, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
+import { LinkScreen } from "./LinkScreen";
+import { useLinkDown } from "./linkDown";
 import { WidgetSync, useWidgetActions } from "./widgets";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { FilesScreen } from "./Files";
@@ -134,6 +136,7 @@ function AppContent() {
     setLink(null);
   }, []);
   const paired = status !== "unpaired" && status !== "loading";
+  const linkDown = useLinkDown();
   const lock = useLock();
   useViewportHeight();
   useSystemInsets();
@@ -280,6 +283,11 @@ function AppContent() {
     else if (tabs && tabs.length === 0 && chats && chats.length > 0) requestOpenChat(chats[0].chatId);
   });
 
+  // The link screen replaces Home and Files while the link is down (Settings keeps working offline); the nav slides away meanwhile.
+  const linkScreen = linkDown && page !== "settings";
+  // Where the compact "reconnecting" pill goes: terminals, Settings and the wide layout. Chats have their own offline strip.
+  let pillHere = false;
+
   let content: ReactNode;
   if (!lock.checked) {
     // Avoids a flash of content before the first lock probe.
@@ -295,6 +303,7 @@ function AppContent() {
   } else if (compat.level === "blocked" && host) {
     content = <IncompatibleScreen host={host} hostName={hostName} />;
   } else if (wide) {
+    pillHere = true;
     content = (
       <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} activeChat={openChat} onTerminal={toTerminal} onChat={toChat} onOpenChat={(id) => { if (chats?.some((c) => c.chatId === id)) openChatTab(id); }} onAddComputer={() => setAdding(true)} />
     );
@@ -317,24 +326,27 @@ function AppContent() {
       </Suspense>
     );
   } else if (tab) {
+    pillHere = true;
     content = (
       <Suspense fallback={<div className="screen" />}>
         <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} onChat={toChat} onOpenChat={(id) => { if (chats?.some((c) => c.chatId === id)) openChatTab(id); }} />
       </Suspense>
     );
   } else {
+    pillHere = page === "settings";
     content = (
       <div className="screen">
         <main className={"page" + (page === "files" ? " files-page" : "")}>
-          {page === "agents" && <HomeScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
-          {page === "files" && <FilesScreen hostName={hostName} tabs={tabs} onOpen={open} />}
+          {linkScreen && <LinkScreen hostName={hostName} onAddComputer={() => setAdding(true)} />}
+          {!linkScreen && page === "agents" && <HomeScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
+          {!linkScreen && page === "files" && <FilesScreen hostName={hostName} tabs={tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
               <SettingsScreen hostName={hostName} settings={settings} />
             </Suspense>
           )}
         </main>
-        <BottomNav page={page} onChange={setPage} updateAvailable={!!update.info} />
+        <BottomNav page={page} onChange={setPage} updateAvailable={!!update.info} hidden={linkScreen} />
       </div>
     );
   }
@@ -346,7 +358,7 @@ function AppContent() {
       {content}
       {paired && !adding && !lock.locked && <ProviderAuthHost />}
       {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
-      {paired && !pairing && !firstConnect && !adding && <Reconnect />}
+      {paired && !pairing && !firstConnect && !adding && !lock.locked && pillHere && <Reconnect />}
       {paired && !adding && <NewChatWatcher />}
       {paired && !adding && <WidgetSync />}
       {update.sheetPending && updatesReady && !pairing && !adding && compat.level !== "blocked" && <UpdateSheet />}
@@ -379,14 +391,15 @@ function Toast() {
   );
 }
 
-function BottomNav({ page, onChange, updateAvailable }: { page: Page; onChange: (p: Page) => void; updateAvailable: boolean }) {
+/** `hidden`: slid out of view (and out of reach) while the link screen shows. */
+function BottomNav({ page, onChange, updateAvailable, hidden }: { page: Page; onChange: (p: Page) => void; updateAvailable: boolean; hidden?: boolean }) {
   const items: { id: Page; label: string; icon: ReactElement }[] = [
     { id: "agents", label: t("navAgents"), icon: <AgentsIcon /> },
     { id: "files", label: t("files"), icon: <FolderIcon /> },
     { id: "settings", label: t("navSettings"), icon: <SlidersIcon /> },
   ];
   return (
-    <nav className="nav" aria-label={t("navMain")}>
+    <nav className={"nav" + (hidden ? " is-hidden" : "")} aria-label={t("navMain")} aria-hidden={hidden || undefined} inert={hidden}>
       {items.map((it) => (
         <button key={it.id} type="button" className={page === it.id ? "on" : ""} aria-current={page === it.id ? "page" : undefined} onClick={() => {
             tapFeedback();

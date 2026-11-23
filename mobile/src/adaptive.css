@@ -3,11 +3,6 @@
    (it must not sit in a transformed page), so it carries its own tokens: the theme's globals and
    --as-zoom, the UI size the wide layout zooms its chrome by. Narrow screens never see these rules. */
 
-/* "Connection lost" has no layer of its own on the phone: its scrim and sheet are fixed on their own. */
-.rc-layer {
-  display: contents;
-}
-
 /* Above the docked and floating panels (30) and header menus (60), below the new-terminal pickers (80) and toasts. */
 .as-layer {
   position: fixed;
@@ -42,8 +37,7 @@
 /* The phone's grabbers and handles mean nothing here. */
 .as-layer .tm-grabber,
 .as-layer .nts-grab,
-.as-layer .ps-grabber,
-.as-layer .rc-handle {
+.as-layer .ps-grabber {
   display: none;
 }
 
@@ -142,17 +136,6 @@
 
 .as-layer.as-dialog .ps-head {
   padding-left: 0;
-}
-
-.as-layer.as-dialog .rc-sheet {
-  overflow-y: auto;
-}
-
-/* "Connection lost" fades out like the phone's, but without sliding. */
-.as-layer .rc-sheet.is-leaving,
-.as-layer .rc-scrim.is-leaving {
-  opacity: 0;
-  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

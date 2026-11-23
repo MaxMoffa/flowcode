@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flowcode mobile — caricamento + ricollegamento</title>
+<style>
+  :root {
+    --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+    --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.2);
+    --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-2: #c9975a; --mag: #b48ead;
+    --warn: #e0b45a; --bad: #d9796b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0c0a; color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; display: grid; grid-template-columns: 1fr 330px; gap: 36px; align-items: start; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .scen { display: flex; flex-direction: column; gap: 10px; }
+  .scen button { text-align: left; background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px 14px; font: inherit; cursor: pointer; }
+  .scen button b { display: block; font-size: 14px; }
+  .scen button span { color: var(--muted); font-size: 12.5px; }
+  .scen button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+  .log { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; color: var(--muted); min-height: 46px; }
+  .log b { color: var(--fg); }
+  .rules { margin-top: 22px; font-size: 13px; color: var(--muted); }
+  .rules h3 { color: var(--fg); font-size: 14px; margin: 0 0 6px; }
+  .rules ul { margin: 0; padding-left: 18px; } .rules li { margin: 3px 0; } .rules li b { color: var(--fg); }
+  code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+
+  /* ---------- phone ---------- */
+  .phone { width: 330px; height: 690px; border-radius: 42px; padding: 10px; background: #050403; box-shadow: 0 0 0 1px #2a241f, 0 24px 60px rgba(0,0,0,.6); position: sticky; top: 20px; }
+  .scr { position: relative; width: 100%; height: 100%; border-radius: 33px; overflow: hidden; background: var(--bg); }
+  .aurora { position: absolute; inset: 0; opacity: .7; pointer-events: none; transition: opacity .6s, filter .6s;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px); mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px);
+    background:
+      radial-gradient(ellipse 105% 44% at 8% -4%, color-mix(in srgb, var(--accent) 58%, transparent), transparent 72%),
+      radial-gradient(ellipse 88% 40% at 100% 10%, color-mix(in srgb, var(--accent-2) 50%, transparent), transparent 72%),
+      radial-gradient(ellipse 80% 26% at 46% 36%, color-mix(in srgb, var(--mag) 38%, transparent), transparent 74%); }
+  [data-v="link"] .aurora { animation: breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 1; filter: saturate(1.25); } }
+  .statusbar { position: absolute; top: 0; left: 0; right: 0; height: 28px; display: flex; justify-content: space-between; padding: 7px 22px 0; font-size: 11px; opacity: .85; z-index: 9; }
+  .pagein { position: absolute; inset: 28px 0 0; padding: 0 13px; }
+  .top { height: 56px; display: flex; align-items: center; padding: 0 4px; position: relative; z-index: 7; }
+  .sel { flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; border-radius: 12px; padding: 4px 6px; margin: 0 -6px; }
+  .sel:hover { background: rgba(255,255,255,.03); }
+  .sel.tap { background: rgba(255,255,255,.08); }
+  .sel .pc { font-weight: 650; font-size: 17px; }
+  .sel .chev { margin-left: auto; color: var(--muted); transition: transform .3s; }
+  .open .sel .chev { transform: rotate(180deg); }
+  .sub { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; height: 15px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; flex: none; }
+  .dot.warn { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+  .dot.bad { background: var(--bad); } .dot.off { background: var(--surface-3); }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(.75); } }
+
+  /* bottom nav: hidden while relinking, slides up on reconnect */
+  .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 62px; display: flex; justify-content: space-around; align-items: center; background: color-mix(in srgb, var(--surface) 94%, transparent); border-top: 1px solid var(--border); transition: transform .45s cubic-bezier(.2,.8,.2,1); z-index: 6; }
+  .nav i { width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--muted); opacity: .7; }
+  .nav i.act { border-color: var(--accent); opacity: 1; }
+  [data-v="link"] .nav { transform: translateY(100%); }
+
+  .layer { position: absolute; left: 13px; right: 13px; top: 84px; bottom: 62px; overflow: hidden; transition: opacity .4s ease; }
+  .card { background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border); border-radius: 16px; backdrop-filter: blur(14px); }
+  .launch { padding: 12px; }
+  .launch .ph { color: var(--muted); font-size: 13.5px; height: 38px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .chip { font-size: 11.5px; padding: 4px 9px; border-radius: 999px; background: var(--surface-3); }
+  .send { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; color: #1a1511; font-weight: 800; }
+  .send.off { background: var(--surface-3); color: var(--muted); }
+  .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 4px 7px; font-size: 12.5px; }
+  .sec b { font-weight: 650; } .sec b.busy { color: var(--accent); } .sec span { color: var(--muted); }
+  .usage { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .usage .card { padding: 10px; } .usage .n { font-size: 11px; color: var(--muted); } .usage .val { font-size: 17px; font-weight: 700; margin: 2px 0 6px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar.w span { background: var(--accent-2); }
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .ri { display: flex; align-items: center; gap: 10px; padding: 9px 10px; }
+  .tile { width: 32px; height: 32px; border-radius: 10px; background: var(--surface-3); display: grid; place-items: center; font-size: 13px; position: relative; flex: none; }
+  .tile.busy::after { content: ""; position: absolute; inset: -3px; border-radius: 12px; border: 2px solid transparent; border-top-color: var(--accent); animation: spin 1.1s linear infinite; }
+  .txt { flex: 1; min-width: 0; } .txt b { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .txt span { font-size: 11px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+  .when { font-size: 11px; color: var(--muted); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* home reveal */
+  #home > * { transition: opacity .45s ease, transform .45s cubic-bezier(.2,.8,.2,1); }
+  .scr:not([data-v="home"]) #home { opacity: 0; pointer-events: none; }
+  .scr:not([data-v="home"]) #home > * { opacity: 0; transform: translateY(8px); transition: none; }
+  #home > :nth-child(2) { transition-delay: .06s; } #home > :nth-child(3) { transition-delay: .12s; } #home > :nth-child(4) { transition-delay: .18s; }
+
+  /* ghost: deliberately plain */
+  #ghost { opacity: 0; pointer-events: none; }
+  [data-v="ghost"] #ghost { opacity: 1; }
+  .g { background: var(--surface-2); border-radius: 8px; animation: gpulse 1.4s ease-in-out infinite; }
+  @keyframes gpulse { 50% { opacity: .55; } }
+  .ghost-card { border-radius: 16px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 10px; }
+
+  /* link screen (variant C) */
+  #link { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .4s, transform .5s cubic-bezier(.2,.8,.2,1); bottom: 0; }
+  [data-v="link"] #link { opacity: 1; pointer-events: auto; transform: none; }
+  .devs { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .dev { width: 48px; height: 48px; border-radius: 14px; background: color-mix(in srgb, var(--surface) 80%, transparent); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 21px; }
+  .wire { position: relative; width: 86px; height: 2px; background: repeating-linear-gradient(90deg, var(--border-strong) 0 5px, transparent 5px 10px); }
+  .wire::after { content: ""; position: absolute; top: -3px; left: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: travel 1.4s ease-in-out infinite; }
+  @keyframes travel { 0% { left: 0; opacity: 0; } 15%, 85% { opacity: 1; } 100% { left: 78px; opacity: 0; } }
+  #link h3 { margin: 0 0 4px; font-size: 18px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; min-height: 18px; }
+  .steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 9px; text-align: left; }
+  .steps li { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); }
+  .steps li i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--surface-3); flex: none; position: relative; }
+  .steps li.busy { color: var(--fg); } .steps li.busy i { border-top-color: var(--accent); animation: spin .9s linear infinite; }
+  .steps li.ok { color: var(--fg); } .steps li.ok i { background: var(--accent); border-color: var(--accent); }
+  .steps li.ok i::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 7px; border: solid #1a1511; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .steps li.fail { color: var(--fg); } .steps li.fail i { border-color: var(--bad); background: var(--bad); }
+  .acts { margin-top: 20px; display: flex; gap: 8px; opacity: 0; transform: translateY(6px); transition: opacity .35s, transform .35s; pointer-events: none; }
+  .slow .acts { opacity: 1; transform: none; pointer-events: auto; }
+  .btn { font: inherit; font-size: 13px; padding: 9px 14px; border-radius: 11px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg); cursor: pointer; }
+  .btn.pri { background: var(--accent); color: #1a1511; border-color: var(--accent); font-weight: 650; }
+  .det { margin-top: 12px; font-size: 11.5px; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .3s; }
+  .slow .det { opacity: 1; }
+  .det pre { display: none; text-align: left; margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font: 11px/1.5 ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; }
+  .det.open pre { display: block; }
+
+  /* computer drawer (top, like ComputerSwitcher .cd) */
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 10; }
+  .drawer { position: absolute; left: 0; right: 0; top: 0; z-index: 11; background: var(--surface); border-radius: 0 0 24px 24px; padding: 40px 14px 12px; transform: translateY(-102%); transition: transform .38s cubic-bezier(.2,.8,.2,1); box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+  .open .scrim { opacity: 1; pointer-events: auto; } .open .drawer { transform: none; }
+  .drawer h4 { margin: 0 4px 10px; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .pcrow { display: flex; align-items: center; gap: 11px; padding: 10px; border-radius: 13px; cursor: pointer; }
+  .pcrow:hover { background: var(--surface-2); } .pcrow.tap { background: var(--surface-3); }
+  .pcrow.cur { background: var(--surface-2); }
+  .pcrow .ic { width: 36px; height: 36px; border-radius: 11px; background: var(--surface-3); display: grid; place-items: center; }
+  .pcrow b { display: block; font-size: 14px; } .pcrow small { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .pcrow .chk { margin-left: auto; color: var(--accent); font-weight: 800; }
+  .addpc { margin-top: 6px; padding: 11px 10px; color: var(--accent); font-size: 13px; font-weight: 600; border-top: 1px solid var(--border); }
+  .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--surface-3); margin: 10px auto 0; }
+  .fingertap { position: absolute; width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.25); border: 2px solid rgba(255,255,255,.6); pointer-events: none; z-index: 20; opacity: 0; transform: scale(.6); transition: opacity .2s, transform .2s; }
+  .fingertap.on { opacity: 1; transform: scale(1); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Caricamento + ricollegamento</h1>
+    <p class="lead">Ghost loader semplice all'apertura. La schermata di collegamento (ex variante C) sostituisce il drawer "Connessione persa" quando il link cade: la navbar si nasconde e risale dal basso a collegamento fatto. Il selettore del computer in alto resta sempre toccabile, anche durante il tentativo.</p>
+    <div class="scen">
+      <button data-sc="open"><b>1 · Apertura app</b><span>Connessione rapida: solo ghost loader, poi la home entra.</span></button>
+      <button data-sc="slow"><b>2 · Apertura lenta</b><span>Ghost per 3 s, poi passa alla schermata di collegamento con i passi.</span></button>
+      <button data-sc="drop"><b>3 · Disconnessione</b><span>Dalla home: il link cade, si ricollega dopo un tentativo fallito.</span></button>
+      <button data-sc="switch"><b>4 · Cambio PC durante il tentativo</b><span>MAX-PC è spento: dal selettore passo a UFFICIO-PC senza aspettare.</span></button>
+    </div>
+    <div class="log" id="log">Scegli uno scenario. Puoi anche toccare il nome del PC nel telefono in qualsiasi momento.</div>
+    <div class="rules">
+      <h3>Regole</h3>
+      <ul>
+        <li><b>Ghost</b> solo quando non c'è ancora niente da mostrare (prima connessione dell'avvio, <code>tabs===null</code>). Grigio piatto con pulsazione lieve, nessuno shimmer.</li>
+        <li><b>Ghost → collegamento</b> se dopo ~3 s non è ancora online: niente scheletro infinito.</li>
+        <li><b>Link caduto</b> (dopo la soglia anti-blip di 1,5 s che c'è già): schermata di collegamento al posto della home. Il drawer <code>Reconnect.tsx</code> si elimina.</li>
+        <li><b>Navbar</b> nascosta durante il collegamento, risale quando si torna online.</li>
+        <li><b>Riprova ora</b> e <b>Altro computer</b> dopo ~4 s; "Dettagli" mostra fase, tentativo ed errore (quello che oggi ha il drawer).</li>
+        <li><b>Selettore PC</b> sempre attivo. Un altro PC interrompe il tentativo in corso e ricomincia sul nuovo.</li>
+        <li>Chat o terminale aperti quando cade il link: restano dove sono, come oggi. La schermata vale per la home e le altre pagine principali (da confermare).</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phone"><div class="scr" id="scr" data-v="ghost">
+    <div class="aurora"></div>
+    <div class="statusbar"><span>9:41</span><span>●●● 82%</span></div>
+    <div class="pagein">
+      <div class="top"><div class="sel" id="sel"><div><div class="pc" id="pcname">MAX-PC</div><div class="sub" id="sub"><i class="dot warn"></i>Connessione…</div></div><span class="chev">▾</span></div></div>
+    </div>
+
+    <div class="layer" id="ghost">
+      <div class="ghost-card"><div class="g" style="height:14px;width:55%;margin:4px 0 16px"></div><div class="row"><div class="g" style="width:64px;height:20px;border-radius:10px"></div><div class="g" style="width:64px;height:20px;border-radius:10px"></div><div class="g" style="margin-left:auto;width:32px;height:32px;border-radius:50%"></div></div></div>
+      <div class="usage"><div class="ghost-card"><div class="g" style="height:9px;width:50%"></div><div class="g" style="height:15px;width:65%;margin:8px 0 9px"></div><div class="g" style="height:5px"></div></div><div class="ghost-card"><div class="g" style="height:9px;width:45%"></div><div class="g" style="height:15px;width:55%;margin:8px 0 9px"></div><div class="g" style="height:5px"></div></div></div>
+      <div class="g" style="height:10px;width:72px;margin:20px 4px 10px"></div>
+      <div class="list">
+        <div class="ghost-card row"><div class="g" style="width:32px;height:32px;border-radius:10px"></div><div style="flex:1"><div class="g" style="height:10px;width:65%;margin-bottom:7px"></div><div class="g" style="height:8px;width:40%"></div></div></div>
+        <div class="ghost-card row"><div class="g" style="width:32px;height:32px;border-radius:10px"></div><div style="flex:1"><div class="g" style="height:10px;width:55%;margin-bottom:7px"></div><div class="g" style="height:8px;width:46%"></div></div></div>
+      </div>
+    </div>
+
+    <div class="layer" id="home"></div>
+
+    <div class="layer" id="link">
+      <div class="devs"><div class="dev">📱</div><div class="wire"></div><div class="dev">🖥</div></div>
+      <h3 id="ltitle">Mi ricollego a MAX-PC</h3>
+      <p class="hint" id="lhint">Il collegamento si è interrotto</p>
+      <ul class="steps" id="steps">
+        <li><i></i>Cerco il PC in rete</li>
+        <li><i></i>Apro il collegamento cifrato</li>
+        <li><i></i>Sincronizzo sessioni</li>
+      </ul>
+      <div class="acts"><button class="btn pri" id="retry">Riprova ora</button><button class="btn" id="other">Altro computer</button></div>
+      <div class="det" id="det">Dettagli ▾<pre id="detpre"></pre></div>
+    </div>
+
+    <div class="nav"><i class="act"></i><i></i><i></i></div>
+
+    <div class="scrim" id="scrim"></div>
+    <div class="drawer" id="drawer">
+      <h4>Computer</h4>
+      <div id="pclist"></div>
+      <div class="addpc">+ Aggiungi computer</div>
+      <div class="grab"></div>
+    </div>
+    <div class="fingertap" id="finger"></div>
+  </div></div>
+</div>
+
+<script>
+const PCS = {
+  "MAX-PC": { icon: "🖥", sessions: [["✳", "Refactor remote.rs", "~/flowcode", "6 min", true], ["◎", "Fix login mobile", "~/flowcode/mobile", "22 min"], ["▣", "Sito release 0.39", "~/flowcode/site", "1 h"]], u: [41, 72] },
+  "UFFICIO-PC": { icon: "🏢", sessions: [["◎", "Report trimestrale", "~/lavoro/report", "3 min", true], ["✳", "API clienti", "~/lavoro/api", "40 min"]], u: [12, 30] },
+  "PORTATILE": { icon: "💻", sessions: [], u: [0, 0] },
+};
+const reach = { "MAX-PC": "online", "UFFICIO-PC": "online", "PORTATILE": "off" };
+const $ = (id) => document.getElementById(id);
+const scr = $("scr");
+let cur = "MAX-PC", timers = [], token = 0;
+
+function at(ms, fn) { const t = token; timers.push(setTimeout(() => t === token && fn(), ms)); }
+function reset() { timers.forEach(clearTimeout); timers = []; token++; closeDrawer(); }
+function log(html) { $("log").innerHTML = html; }
+
+function renderHome() {
+  const p = PCS[cur];
+  const busy = p.sessions.filter((s) => s[4]), idle = p.sessions.filter((s) => !s[4]);
+  const row = (s) => `<div class="card ri"><span class="tile${s[4] ? " busy" : ""}">${s[0]}</span><div class="txt"><b>${s[1]}</b><span>${s[2]}</span></div><span class="when">${s[3]}</span></div>`;
+  $("home").innerHTML =
+    `<div class="card launch"><div class="ph">Cosa vuoi fare?</div><div class="row"><span class="chip">✳ Claude</span><span class="chip">${cur === "MAX-PC" ? "flowcode" : "lavoro"}</span><span class="send">↑</span></div></div>` +
+    `<div class="usage"><div class="card"><div class="n">Claude · 5 h</div><div class="val">${p.u[0]}%</div><div class="bar"><span style="width:${p.u[0]}%"></span></div></div><div class="card"><div class="n">Codex · settimana</div><div class="val">${p.u[1]}%</div><div class="bar w"><span style="width:${p.u[1]}%"></span></div></div></div>` +
+    (busy.length ? `<div><div class="sec"><b class="busy">In lavoro</b><span>${busy.length}</span></div><div class="list">${busy.map(row).join("")}</div></div>` : "") +
+    (idle.length ? `<div><div class="sec"><b>Inattive</b><span>${idle.length}</span></div><div class="list">${idle.map(row).join("")}</div></div>` : "");
+}
+function sub(kind) {
+  const m = { ok: ['', "Connesso"], conn: ["warn", "Connessione…"], re: ["warn", "Riconnessione…"], down: ["bad", "Non raggiungibile"] }[kind];
+  $("sub").innerHTML = `<i class="dot ${m[0]}"></i>${m[1]}`;
+}
+function steps(k, fail) {
+  [...$("steps").children].forEach((li, i) => (li.className = i < k ? "ok" : i === k ? (fail ? "fail" : "busy") : ""));
+}
+function view(v) { scr.dataset.v = v; if (v !== "link") scr.classList.remove("slow"); }
+function online() {
+  renderHome(); steps(3); sub("ok");
+  view("home");
+}
+function linkScreen(title, hint) {
+  $("ltitle").textContent = title; $("lhint").textContent = hint;
+  scr.classList.remove("slow"); $("det").classList.remove("open");
+  view("link");
+}
+function details(lines) { $("detpre").textContent = lines; }
+
+// ---- drawer ----
+function renderPcs() {
+  $("pclist").innerHTML = Object.keys(PCS).map((n) => {
+    const st = n === cur && scr.dataset.v !== "home" ? ["warn", "In collegamento…"] : reach[n] === "online" ? (n === cur ? ["", "Connesso"] : ["", "Acceso"]) : reach[n] === "down" ? ["bad", "Non risponde"] : ["off", "Spento · visto 2 g fa"];
+    return `<div class="pcrow${n === cur ? " cur" : ""}" data-pc="${n}"><span class="ic">${PCS[n].icon}</span><div><b>${n}</b><small><i class="dot ${st[0]}"></i>${st[1]}</small></div>${n === cur ? '<span class="chk">✓</span>' : ""}</div>`;
+  }).join("");
+  [...$("pclist").children].forEach((r) => (r.onclick = () => pick(r.dataset.pc)));
+}
+function openDrawer() { renderPcs(); scr.classList.add("open"); }
+function closeDrawer() { scr.classList.remove("open"); }
+$("sel").onclick = () => (scr.classList.contains("open") ? closeDrawer() : openDrawer());
+$("scrim").onclick = closeDrawer;
+$("other").onclick = openDrawer;
+$("det").onclick = () => $("det").classList.toggle("open");
+$("retry").onclick = () => { const n = cur; reset(); connectTo(n, true); };
+
+function pick(name) {
+  closeDrawer();
+  if (name === cur && scr.dataset.v === "home") return;
+  reset();
+  cur = name; $("pcname").textContent = name;
+  connectTo(name, false);
+}
+// generic attempt on the current PC, honours reachability
+function connectTo(name, manual) {
+  linkScreen(`Mi collego a ${name}`, manual ? "Nuovo tentativo" : "Di solito ci vuole un attimo");
+  sub("conn"); steps(0);
+  if (reach[name] !== "online") {
+    at(2600, () => { steps(0, true); sub("down"); $("lhint").textContent = "Il PC sembra spento o fuori rete"; scr.classList.add("slow");
+      details(`fase: waiting\ntentativo: 1 · prossimo tra 4 s\nultimo errore: dial timed out`); });
+    return;
+  }
+  at(700, () => steps(1));
+  at(1500, () => steps(2));
+  at(2000, () => { online(); log(`<b>${name}</b> collegato: la navbar risale dal basso.`); });
+}
+
+function tap(el, then) {
+  const r = el.getBoundingClientRect(), s = scr.getBoundingClientRect(), f = $("finger");
+  f.style.left = r.left - s.left + r.width / 2 - 17 + "px"; f.style.top = r.top - s.top + r.height / 2 - 17 + "px";
+  f.classList.add("on"); el.classList.add("tap");
+  setTimeout(() => { f.classList.remove("on"); el.classList.remove("tap"); then(); }, 380);
+}
+
+const SC = {
+  open() {
+    cur = "MAX-PC"; $("pcname").textContent = cur; reach["MAX-PC"] = "online";
+    view("ghost"); sub("conn");
+    log("Avvio: <b>ghost loader</b> finché arrivano tab e chat.");
+    at(1400, () => { online(); log("Online in 1,4 s: la home sostituisce lo scheletro. Nessuna schermata di collegamento."); });
+  },
+  slow() {
+    cur = "MAX-PC"; $("pcname").textContent = cur; reach["MAX-PC"] = "online";
+    view("ghost"); sub("conn");
+    log("Avvio: ghost loader…");
+    at(3000, () => { linkScreen("Mi collego a MAX-PC", "Ci sta mettendo più del solito"); steps(1);
+      log("3 s senza risposta: lo scheletro lascia il posto alla <b>schermata di collegamento</b>, con i passi reali."); });
+    at(4600, () => { scr.classList.add("slow"); details("fase: dialing\ntentativo: 1 · 4,6 s\nrelay: euc1-1.relay.iroh"); log("Dopo ~4 s: <b>Riprova ora</b>, <b>Altro computer</b> e Dettagli."); });
+    at(6800, () => steps(2));
+    at(7400, () => { online(); log("Collegato: home in cascata, la navbar risale."); });
+  },
+  drop() {
+    cur = "MAX-PC"; $("pcname").textContent = cur; reach["MAX-PC"] = "online";
+    renderHome(); view("home"); sub("ok");
+    log("Home online su <b>MAX-PC</b>…");
+    at(1600, () => { sub("re"); linkScreen("Mi ricollego a MAX-PC", "Il collegamento si è interrotto"); steps(0);
+      log("Link caduto (oltre la soglia di 1,5 s): <b>niente drawer</b>. La home lascia il posto alla schermata e la navbar scende."); });
+    at(3200, () => steps(1));
+    at(4600, () => { steps(1, true); scr.classList.add("slow"); $("lhint").textContent = "Tentativo 1 fallito · riprovo tra 2 s";
+      details("fase: dialing\ntentativo: 1 · fallito\nultimo errore: dial timed out\nprossimo: 2 s"); log("Primo tentativo fallito: compaiono le azioni."); });
+    at(6200, () => { steps(1); $("lhint").textContent = "Tentativo 2"; });
+    at(7000, () => steps(2));
+    at(7500, () => { online(); log("Ricollegato: la home torna e la <b>navbar risale dal basso</b>."); });
+  },
+  switch() {
+    cur = "MAX-PC"; $("pcname").textContent = cur; reach["MAX-PC"] = "off";
+    renderHome(); view("home"); sub("ok");
+    log("Home su <b>MAX-PC</b>…");
+    at(1200, () => { sub("re"); linkScreen("Mi ricollego a MAX-PC", "Il collegamento si è interrotto"); steps(0); log("MAX-PC si spegne: schermata di collegamento."); });
+    at(3600, () => { steps(0, true); sub("down"); scr.classList.add("slow"); $("lhint").textContent = "Il PC sembra spento o fuori rete";
+      details("fase: waiting\ntentativo: 2 · prossimo tra 4 s\nultimo errore: no route to endpoint"); });
+    at(4800, () => { log("Tocco il nome del PC in alto: il selettore funziona <b>anche durante il tentativo</b>."); tap($("sel"), openDrawer); });
+    at(6400, () => { const r = $("pclist").querySelector('[data-pc="UFFICIO-PC"]'); log("Scelgo <b>UFFICIO-PC</b> (acceso): il tentativo su MAX-PC si interrompe."); tap(r, () => { const t = token; pick("UFFICIO-PC"); }); });
+  },
+};
+document.querySelectorAll("[data-sc]").forEach((b) => (b.onclick = () => {
+  document.querySelectorAll("[data-sc]").forEach((x) => x.classList.toggle("on", x === b));
+  reset(); SC[b.dataset.sc]();
+}));
+renderHome();
+setTimeout(() => document.querySelector('[data-sc="open"]').click(), 300);
+</script>
+</body>
+</html>

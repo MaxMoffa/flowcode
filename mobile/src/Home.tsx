@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import "./home.css";
+import "./link-screen.css";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { FolderPicker } from "./FolderPicker";
 import { launchPath } from "./explorerPaths";
@@ -459,7 +460,8 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
     onScroll();
     page.addEventListener("scroll", onScroll, { passive: true });
     return () => page.removeEventListener("scroll", onScroll);
-  }, []);
+    // The ref only exists once the ghost has given way to the real page.
+  }, [tabs === null]);
 
   const list: [string, string, Session[]][] = [
     [t("homeWorking"), "busy", groups.working],
@@ -467,6 +469,51 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
     [t("homeExited"), "", byRecent(groups.exited, since)],
   ];
   const ago = (s: Session) => Math.max(0, now - since(s.key));
+
+  // Nothing has arrived yet: a plain skeleton (flat blocks, no shimmer); the link screen takes over if it drags on.
+  if (tabs === null) {
+    const bar = (w: string, h: number, extra?: CSSProperties) => <div className="gh-block" style={{ width: w, height: h, ...extra }} />;
+    const sessionRow = (a: string, b: string) => (
+      <div className="gh-card gh-row">
+        {bar("34px", 34, { borderRadius: 11, flex: "none" })}
+        <div style={{ flex: 1 }}>
+          {bar(a, 11, { marginBottom: 8 })}
+          {bar(b, 9)}
+        </div>
+      </div>
+    );
+    return (
+      <>
+        <div className="hm-aurora" aria-hidden="true" />
+        <header className="hm-top">
+          <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
+        </header>
+        <div className="hm-top-space" />
+        <div className="gh-list" aria-busy="true">
+          <div className="gh-card">
+            {bar("55%", 14, { margin: "4px 0 22px" })}
+            <div className="gh-row">
+              {bar("70px", 28, { borderRadius: 14 })}
+              {bar("70px", 28, { borderRadius: 14 })}
+              {bar("36px", 36, { borderRadius: "50%", marginLeft: "auto" })}
+            </div>
+          </div>
+          <div className="gh-usage">
+            {[["50%", "65%"], ["45%", "55%"]].map(([a, b]) => (
+              <div className="gh-card" key={a}>
+                {bar(a, 9)}
+                {bar(b, 16, { margin: "9px 0 10px" })}
+                {bar("100%", 5)}
+              </div>
+            ))}
+          </div>
+          {bar("76px", 10, { margin: "14px 2px 2px" })}
+          {sessionRow("65%", "40%")}
+          {sessionRow("55%", "46%")}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

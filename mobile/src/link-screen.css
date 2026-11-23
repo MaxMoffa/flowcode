@@ -1,0 +1,316 @@
+/* The link screen (LinkScreen.tsx), from docs/design/mobile-connection-flow.html: the home's aurora
+   breathing, a phone and a computer joined by a wire a dot travels along, three steps, then actions. */
+
+.ls-aurora {
+  animation: ls-breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes ls-breathe {
+  50% {
+    opacity: 1;
+    filter: saturate(1.25);
+  }
+}
+
+.ls-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  /* The nav is hidden here, so the hero sits a little above the middle. */
+  padding-bottom: 40px;
+  animation: ls-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes ls-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.ls-devs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.ls-dev {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+}
+
+.ls-wire {
+  position: relative;
+  width: 86px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--border-strong) 0 5px, transparent 5px 10px);
+}
+
+.ls-wire::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  animation: ls-travel 1.4s ease-in-out infinite;
+}
+
+@keyframes ls-travel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 78px;
+    opacity: 0;
+  }
+}
+
+.ls-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.ls-hint {
+  min-height: 20px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.ls-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.ls-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.ls-step.is-ok,
+.ls-step.is-busy,
+.ls-step.is-fail {
+  color: var(--fg);
+}
+
+.ls-bubble {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+}
+
+.ls-step.is-ok .ls-bubble {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.ls-step.is-fail .ls-bubble {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-accent);
+}
+
+.ls-step.is-busy .ls-bubble {
+  border-top-color: var(--accent);
+  animation: ls-spin 0.9s linear infinite;
+}
+
+@keyframes ls-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ls-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 0.35s,
+    transform 0.35s;
+  pointer-events: none;
+}
+
+.ls-acts.is-on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.ls-acts .btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+}
+
+.ls-acts .btn.primary:disabled {
+  opacity: 0.55;
+}
+
+.ls-det {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.ls-det.is-on {
+  opacity: 1;
+}
+
+.ls-det-toggle {
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.ls-det-pre {
+  max-width: 100%;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: 11px/1.5 var(--mono);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The nav slides out while the link screen shows and back up when the link returns. */
+.nav {
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.nav.is-hidden {
+  transform: translate(-50%, calc(100% + 24px + var(--safe-b)));
+  pointer-events: none;
+}
+
+/* The home's sections come in one after the other once the link is back. */
+.page > .hm-launch,
+.page > .hm-group,
+.page > .hm-wait,
+.page > .hm-usage {
+  animation: ls-rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.page > :nth-child(5) {
+  animation-delay: 0.06s;
+}
+.page > :nth-child(6) {
+  animation-delay: 0.12s;
+}
+.page > :nth-child(n + 7) {
+  animation-delay: 0.18s;
+}
+
+@keyframes ls-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ---- ghost loader (Home while nothing has arrived yet): flat blocks, no shimmer ---- */
+
+.gh-block {
+  background: var(--surface-2);
+  border-radius: 8px;
+  animation: gh-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes gh-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.gh-card {
+  padding: 14px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--border);
+}
+
+.gh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gh-usage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ls-aurora,
+  .ls-wire::after,
+  .ls-body,
+  .page > .hm-launch,
+  .page > .hm-group,
+  .page > .hm-wait,
+  .page > .hm-usage,
+  .gh-block {
+    animation: none;
+  }
+  .ls-wire::after {
+    left: 39px;
+  }
+  .nav,
+  .ls-acts,
+  .ls-det {
+    transition: none;
+  }
+}

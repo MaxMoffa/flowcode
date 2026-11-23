@@ -6,14 +6,13 @@ import { useUiZoom } from "./uiScale";
 import { useSheetDrag } from "./useSheetDrag";
 import { useWide } from "./wide";
 
-/** The phone CSS a sheet keeps on narrow screens: the session/actions sheets (tm), "Nuovo terminale" and the update sheet (nts), the profile sheets (ps), "connection lost" (rc). */
-type SheetFamily = "tm" | "nts" | "ps" | "rc";
+/** The phone CSS a sheet keeps on narrow screens: the session/actions sheets (tm), "Nuovo terminale" and the update sheet (nts) and the profile sheets (ps). */
+type SheetFamily = "tm" | "nts" | "ps";
 
 const FAMILY: Record<SheetFamily, { layer: string; scrim: string; panel: string; drawer: string; openClass: boolean }> = {
   tm: { layer: "tm-layer", scrim: "tm-scrim", panel: "tm-sheet", drawer: "tm-drawer", openClass: true },
   nts: { layer: "nts-layer", scrim: "nts-scrim", panel: "nts", drawer: "nts", openClass: false },
   ps: { layer: "ps-layer", scrim: "ps-scrim", panel: "ps-sheet", drawer: "ps-sheet", openClass: true },
-  rc: { layer: "rc-layer", scrim: "rc-scrim", panel: "rc-sheet", drawer: "rc-sheet", openClass: false },
 };
 
 const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])';
