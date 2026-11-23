@@ -17,7 +17,7 @@ pub(crate) const FOREGROUND_DEAD_AFTER: Duration = Duration::from_secs(15);
 pub(crate) const STABLE_AFTER: Duration = Duration::from_secs(10);
 /// After this many consecutive failed dials the iroh endpoint is rebuilt:
 /// its sockets may be bound to a network that no longer exists.
-pub(crate) const REBUILD_ENDPOINT_EVERY: u32 = 4;
+pub(crate) const REBUILD_ENDPOINT_EVERY: u32 = 2;
 
 /// Reconnect delay after `failures` consecutive failures (>= 1): 1, 2, 4, 8 s
 /// and then 8 s. Kept low on purpose: someone is looking at the phone. With

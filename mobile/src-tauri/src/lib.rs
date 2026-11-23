@@ -69,6 +69,7 @@ pub fn run() {
                 cap_task: Mutex::new(None),
                 hidden_at: Mutex::new(None),
                 rx_count: AtomicU64::new(0),
+                dial_started: Mutex::new(None),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]

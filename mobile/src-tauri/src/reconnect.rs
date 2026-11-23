@@ -106,15 +106,18 @@ pub(crate) async fn connect_once(app: &AppHandle, remote: &Remote, pairing: &Pai
         remote.reset_endpoint().await;
     }
     remote.emit(app, StateEvent::new(Status::Connecting).host(host.clone()).phase(Phase::Dialing, failures, None));
+    *remote.dial_started.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
     let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
     // Cheap and harmless when nothing changed; cures stale paths when it did.
-    if failures > 0 {
-        remote.log.push("network change signalled to iroh before dialing");
-        endpoint.network_change().await;
-    }
+    // Also on the first attempt: after a cold start or an Android suspend the
+    // reused endpoint may still hold paths from before.
+    remote.log.push(format!("network change signalled to iroh before dialing (attempt {failures})"));
+    endpoint.network_change().await;
+    let dial_timeout = if failures == 0 { link::FIRST_DIAL_TIMEOUT } else { link::DIAL_TIMEOUT };
     link::handshake_with(
         &endpoint,
         &pairing.node,
+        dial_timeout,
         ClientMsg::Auth { token: pairing.token.clone() },
         || remote.emit(app, StateEvent::new(Status::Connecting).host(host.clone()).phase(Phase::Handshake, failures, None)),
         |line| remote.log.push(line),

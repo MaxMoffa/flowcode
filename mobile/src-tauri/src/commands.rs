@@ -16,6 +16,10 @@ use tokio::sync::mpsc;
 
 /// Upper bound for the background cap (a day).
 const MAX_CAP_MINUTES: u32 = 24 * 60;
+/// Resume and network-online usually fire together on Android; a restart would
+/// throw away a dial that has just started (and `network_change` already
+/// re-probes its paths).
+const FRESH_DIAL: Duration = Duration::from_secs(3);
 
 #[tauri::command]
 pub fn platform() -> &'static str {
@@ -98,7 +102,7 @@ pub async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String
         r = async {
             let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
             remote.log.push("pairing started");
-            link::handshake_with(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |line| remote.log.push(line)).await
+            link::handshake_with(&endpoint, &parsed.node, link::DIAL_TIMEOUT, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |line| remote.log.push(line)).await
         } => Some(r),
         _ = &mut cancelled => None,
     };
@@ -368,7 +372,15 @@ async fn recover_link(app: &AppHandle, remote: &Arc<Remote>, restart_running: bo
     let running = remote.lock().task.is_some();
     if running {
         if restart_running {
-            remote.restart.send_replace(());
+            let phase = remote.lock().state.phase;
+            let age = remote.dial_started.lock().unwrap_or_else(|e| e.into_inner()).map(|t| t.elapsed());
+            let dialing = matches!(phase, Some(Phase::Dialing) | Some(Phase::Handshake));
+            match age {
+                Some(age) if dialing && age < FRESH_DIAL => {
+                    remote.log.push(format!("recovery: dial in progress for {} ms, left running", age.as_millis()));
+                }
+                _ => remote.restart.send_replace(()),
+            }
         }
     } else if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
         remote.ensure_task(app);

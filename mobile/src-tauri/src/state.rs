@@ -156,6 +156,8 @@ pub(crate) struct Remote {
     pub(crate) hidden_at: Mutex<Option<Instant>>,
     /// Messages received from the desktop on any link: a resume ping is answered when it grows.
     pub(crate) rx_count: AtomicU64,
+    /// When the current dial began; recovery events leave a dial younger than `FRESH_DIAL` alone.
+    pub(crate) dial_started: Mutex<Option<Instant>>,
 }
 
 /// Messages waiting for the link; `send` refuses more instead of growing

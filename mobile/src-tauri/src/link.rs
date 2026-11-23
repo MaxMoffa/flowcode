@@ -11,7 +11,11 @@ use std::time::{Duration, Instant};
 
 /// A phone user is watching the spinner: 12 s is enough for a relay round trip
 /// plus hole punching, and failing sooner lets the (short) backoff retry.
-const DIAL_TIMEOUT: Duration = Duration::from_secs(12);
+pub(crate) const DIAL_TIMEOUT: Duration = Duration::from_secs(12);
+/// The first dial after a start or recovery often hangs on stale paths from the
+/// stored address; giving up sooner lets the retry (with a network change
+/// signalled) go out while the user is still looking.
+pub(crate) const FIRST_DIAL_TIMEOUT: Duration = Duration::from_secs(6);
 /// QUIC idle timeout. iroh sends keep-alives every 5 s by default, so this only
 /// fires when the path is really dead; it must stay above the app's 60 s
 /// silence timer (`DEAD_AFTER`), otherwise QUIC would drop a link the app
@@ -85,15 +89,17 @@ pub async fn bind(key: SecretKey) -> Result<Endpoint, String> {
 /// Opens the stream and runs the handshake with `first` (a `pair` or `auth`
 /// message), returning once the desktop says `ready`.
 pub async fn handshake(endpoint: &Endpoint, node: &str, first: ClientMsg) -> Result<Session, LinkError> {
-    handshake_with(endpoint, node, first, || {}, |_| {}).await
+    handshake_with(endpoint, node, DIAL_TIMEOUT, first, || {}, |_| {}).await
 }
 
 /// Like [`handshake`], calling `on_connected` once the dial succeeded and the
 /// auth exchange begins (lets the UI tell "searching" from "authenticating").
 /// `log` receives one short line per step, for the diagnostics list.
+/// `dial_timeout` bounds the dial alone (see `FIRST_DIAL_TIMEOUT`).
 pub async fn handshake_with(
     endpoint: &Endpoint,
     node: &str,
+    dial_timeout: Duration,
     first: ClientMsg,
     on_connected: impl FnOnce(),
     log: impl Fn(String),
@@ -110,9 +116,9 @@ pub async fn handshake_with(
         addr.relay_urls().count()
     ));
     let started = Instant::now();
-    let conn = match tokio::time::timeout(DIAL_TIMEOUT, endpoint.connect(addr.clone(), ALPN)).await {
+    let conn = match tokio::time::timeout(dial_timeout, endpoint.connect(addr.clone(), ALPN)).await {
         Err(_) => {
-            log(format!("dial timed out after {} s", DIAL_TIMEOUT.as_secs()));
+            log(format!("dial timed out after {} s", dial_timeout.as_secs()));
             return Err(LinkError::Transient("the desktop did not answer".into()));
         }
         Ok(Err(e)) => {
