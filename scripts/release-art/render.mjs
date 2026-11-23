@@ -191,6 +191,38 @@ const COVERS = {
     for (const [x, y] of [[22, 38], [130, 44], [143, 56], [52, 30]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.39.1 "No more waiting after /clear": a phone on a pad shows a fresh, empty chat
+   * with `/clear` sent and a green tick; the frog, done waiting, hops off the screen. */
+  "v0.39.1"() {
+    const c = nightPond(391);
+    wordmark(c, "0.39.1");
+    reeds(c, 6, 86, 14, 1); reeds(c, 148, 85, 12, -1);
+    lilyPad(c, 95, 84, 24, 5);
+    lilyPad(c, 134, 73, 13, 4);
+    // the phone (x 82..107, y 38..81), right of the version number
+    const L = 82, T = 38, R = 107, B = 81;
+    c.rect(L - 1, T - 1, R - L + 3, B - T + 3, C.shadow);
+    c.rect(L, T, R - L + 1, B - T + 1, C.screenEdgeDark);
+    c.rect(L + 2, T + 4, R - L - 3, B - T - 8, C.screen);
+    c.hline(L + 11, L + 16, T + 2, C.screenEdge); // speaker
+    c.hline(L + 10, L + 17, B - 2, C.screenEdge); // home bar
+    // the sent `/clear` bubble, top right
+    c.rect(L + 10, T + 7, 14, 5, "#3b6ea8");
+    for (let k = 0; k < 3; k++) c.set(L + 14 - k, T + 8 + k, C.ink); // "/"
+    c.hline(L + 16, L + 22, T + 9, C.ink);
+    // a fresh, empty conversation: a tick where the old chat was
+    const tx = L + 13, ty = T + 26;
+    for (const [dx, dy] of [[0, 0], [1, 1], [2, 2], [3, 1], [4, 0], [5, -1], [6, -2], [7, -3]]) c.rect(tx + dx, ty + dy, 2, 2, C.prompt);
+    // empty composer at the bottom
+    c.rect(L + 4, B - 10, R - L - 7, 4, C.screenEdgeDark);
+    c.set(L + 6, B - 9, C.prompt); c.set(L + 6, B - 8, C.prompt);
+    // the frog leaps off the phone toward the side pad, a dotted arc behind it
+    c.dots(curve(R - 1, T + 18, 116, T - 6, 124, T + 4), 2, C.moss);
+    frog(c, 122, 46, { cols: 20, rows: 16 });
+    for (const [x, y] of [[24, 44], [60, 40], [150, 50], [66, 64]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
