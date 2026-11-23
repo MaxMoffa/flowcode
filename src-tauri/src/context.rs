@@ -56,15 +56,68 @@ fn parse_claude_context(line: &serde_json::Value) -> Option<(u64, String)> {
     Some((used, model.to_string()))
 }
 
-/// Claude Code never logs the window, so: 1M when the model id or the
-/// user's configured model says so (`opus[1m]`), or when the session has
-/// already outgrown 200K (which only a 1M window allows); 200K otherwise.
+/// Claude models whose context window is 200K: the Claude 3 family, Haiku 4.5
+/// and the Opus/Sonnet 4 releases before 4.6 (`claude-sonnet-4-5`, dated ids
+/// like `claude-sonnet-4-20250514`). Every later model has 1M.
+fn short_window_model(model: &str) -> bool {
+    let m = model.to_lowercase();
+    if m.contains("claude-3") || m.contains("haiku-4") {
+        return true;
+    }
+    ["opus-4", "sonnet-4"].iter().any(|family| {
+        m.split(family).nth(1).is_some_and(|rest| {
+            // `-6`, `-7`, `-8`: the 1M releases; `-5`, `-1`, `-0`, a date or nothing: 200K.
+            let minor = rest.strip_prefix('-').unwrap_or("");
+            let minor = minor.split(|c: char| !c.is_ascii_digit()).next().unwrap_or("");
+            !(minor.len() == 1 && minor >= "6")
+        })
+    })
+}
+
+/// Claude Code never logs the window, so it's inferred from the model: 1M
+/// unless it's one of the older 200K models - and even then 1M when the model
+/// id or the user's configured model says so (`sonnet[1m]`), or when the
+/// session has already outgrown 200K (which only a 1M window allows).
 fn claude_window(model: &str, configured: Option<&str>, used: u64) -> u64 {
     let long = |m: &str| m.to_lowercase().contains("[1m]");
-    if long(model) || configured.is_some_and(long) || used > CLAUDE_DEFAULT_WINDOW {
+    if !short_window_model(model) || long(model) || configured.is_some_and(long) || used > CLAUDE_DEFAULT_WINDOW {
         CLAUDE_LONG_WINDOW
     } else {
         CLAUDE_DEFAULT_WINDOW
+    }
+}
+
+/// The window an agent itself reported for a chat session (ACP `usage_update`
+/// `size`, e.g. claude-agent-acp's from the SDK's `contextWindow`): exact, so
+/// it wins over any estimate. Keyed by session id.
+static AGENT_WINDOWS: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(Default::default);
+
+/// Remembers the window of a main-session `usage_update` (child sessions'
+/// usage is dropped before it gets here).
+pub(crate) fn note_agent_window(session_id: &str, update: &serde_json::Value) {
+    if update.get("sessionUpdate").and_then(|k| k.as_str()) != Some("usage_update") || !plain_id(session_id) {
+        return;
+    }
+    if let Some(size) = update.get("size").and_then(|v| v.as_u64()).filter(|s| *s > 0) {
+        crate::util::insert_bounded(&mut lock(&AGENT_WINDOWS), session_id.to_string(), size);
+    }
+}
+
+/// `ctx` with the agent-reported window of its session, when there is one.
+fn with_agent_window(session_id: &str, ctx: Option<AgentContext>) -> Option<AgentContext> {
+    let window = lock(&AGENT_WINDOWS).get(session_id).copied();
+    ctx.map(|c| match window {
+        Some(window) => AgentContext { window, window_estimated: false, ..c },
+        None => c,
+    })
+}
+
+/// The estimated window of a model with no known one: Claude's by model,
+/// 200K for anything else.
+fn estimated_window(model: Option<&str>, used: u64) -> u64 {
+    match model {
+        Some(m) if m.to_lowercase().contains("claude") => claude_window(m, None, used),
+        _ => CLAUDE_DEFAULT_WINDOW,
     }
 }
 
@@ -137,15 +190,15 @@ fn opencode_context(db: &Path, session_id: &str) -> Option<AgentContext> {
         .as_deref()
         .zip(read.model.as_deref())
         .and_then(|(provider, model)| crate::opencode_db::context_limit(db, provider, model));
-    Some(AgentContext { used: read.used, window: limit.unwrap_or(CLAUDE_DEFAULT_WINDOW), window_estimated: limit.is_none(), model: read.model })
+    Some(AgentContext { used: read.used, window: limit.unwrap_or_else(|| estimated_window(read.model.as_deref(), read.used)), window_estimated: limit.is_none(), model: read.model })
 }
 
 /// Cline's `messages.json` has per-call token metrics but its models carry no
 /// context window on disk (no catalog is cached), so the window is estimated
-/// at 200K.
+/// from the model.
 fn cline_context(home: &Path, session_id: &str) -> Option<AgentContext> {
     let read = crate::cline_db::latest_context(home, session_id)?;
-    Some(AgentContext { used: read.used, window: CLAUDE_DEFAULT_WINDOW, window_estimated: true, model: read.model })
+    Some(AgentContext { used: read.used, window: estimated_window(read.model.as_deref(), read.used), window_estimated: true, model: read.model })
 }
 
 pub(crate) fn plain_id(id: &str) -> bool {
@@ -205,6 +258,16 @@ pub async fn agent_context(
 /// (remote.rs) can show the same figure per tab; it does file I/O, so call
 /// it from a blocking task.
 pub(crate) fn read_context(
+    app: &tauri::AppHandle,
+    cli: &str,
+    session_id: &str,
+    profile: Option<String>,
+) -> Result<Option<AgentContext>, String> {
+    read_context_estimated(app, cli, session_id, profile).map(|ctx| with_agent_window(session_id, ctx))
+}
+
+/// `read_context` with the window as the transcript or database gives it.
+fn read_context_estimated(
     app: &tauri::AppHandle,
     cli: &str,
     session_id: &str,
@@ -292,12 +355,39 @@ mod tests {
     }
 
     #[test]
-    fn claude_window_is_long_only_when_indicated() {
-        assert_eq!(claude_window("claude-opus-4-6", None, 85_000), 200_000);
-        assert_eq!(claude_window("claude-opus-4-6", Some("opus"), 85_000), 200_000);
-        assert_eq!(claude_window("claude-opus-4-6", Some("opus[1m]"), 85_000), 1_000_000);
-        assert_eq!(claude_window("claude-opus-4-6[1m]", None, 10), 1_000_000);
-        assert_eq!(claude_window("claude-opus-4-6", None, 250_000), 1_000_000);
+    fn claude_window_follows_the_model() {
+        // Current models: 1M whatever the configuration says.
+        for m in ["claude-opus-5-5", "claude-opus-4-6", "claude-opus-4-8", "claude-sonnet-4-6", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"] {
+            assert_eq!(claude_window(m, Some("opus"), 85_000), 1_000_000, "{m}");
+        }
+        // Older 200K models.
+        for m in ["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-5", "claude-sonnet-4-20250514", "claude-opus-4-1", "claude-opus-4-5-20251101", "claude-3-7-sonnet-20250219"] {
+            assert_eq!(claude_window(m, None, 85_000), 200_000, "{m}");
+        }
+        // ... unless the 1M window is configured or already in use.
+        assert_eq!(claude_window("claude-sonnet-4-5", Some("sonnet[1m]"), 85_000), 1_000_000);
+        assert_eq!(claude_window("claude-sonnet-4-5[1m]", None, 10), 1_000_000);
+        assert_eq!(claude_window("claude-sonnet-4-5", None, 250_000), 1_000_000);
+    }
+
+    #[test]
+    fn the_agent_reported_window_wins() {
+        let ctx = || Some(AgentContext { used: 10, window: 200_000, window_estimated: true, model: None });
+        assert_eq!(with_agent_window("ses-ctx-unknown", ctx()), ctx());
+        note_agent_window("ses-ctx-a", &json(r#"{"sessionUpdate":"usage_update","used":10,"size":1000000}"#));
+        note_agent_window("ses-ctx-a", &json(r#"{"sessionUpdate":"agent_message_chunk","size":5}"#));
+        note_agent_window("ses-ctx-a", &json(r#"{"sessionUpdate":"usage_update","used":10,"size":0}"#));
+        assert_eq!(
+            with_agent_window("ses-ctx-a", ctx()),
+            Some(AgentContext { used: 10, window: 1_000_000, window_estimated: false, model: None })
+        );
+    }
+
+    #[test]
+    fn non_claude_models_keep_the_200k_estimate() {
+        assert_eq!(estimated_window(Some("anthropic/claude-opus-4-7"), 10), 1_000_000);
+        assert_eq!(estimated_window(Some("qwen3-coder"), 10), 200_000);
+        assert_eq!(estimated_window(None, 10), 200_000);
     }
 
     #[test]

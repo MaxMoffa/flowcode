@@ -658,6 +658,9 @@ impl Chat {
                         if !route_child_update(&mut lock(&self.children), &params, &mut update) {
                             return;
                         }
+                        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+                            crate::context::note_agent_window(session, &update);
+                        }
                         crate::chat_images::stash_images(&mut update);
                         let _ = self.emit_when(ChatBody::Update { update }, stale);
                     }
