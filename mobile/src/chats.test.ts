@@ -373,6 +373,24 @@ describe("/clear", () => {
     expect(chatsModule.recentClearTab()).toBeNull();
   });
 
+  it("ends the wait when a renewed chat leaves the list and comes back under its id with a new session", () => {
+    vi.useFakeTimers();
+    try {
+      ready();
+      chats([info("idle", { sessionId: "s1" })]);
+      chatsModule.clearChat("c1");
+      // The desktop drops the chat while the new session starts (nothing on screen holds it: the wait screen shows).
+      chats([]);
+      expect(chatsModule.recentClearTab()).toBe("t1");
+      chats([info("idle", { sessionId: "s2" })]);
+      expect(chatsModule.recentClearTab()).toBeNull();
+      vi.advanceTimersByTime(60_000);
+      expect(link.toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives up with a toast when the desktop never brings the chat back", () => {
     vi.useFakeTimers();
     try {

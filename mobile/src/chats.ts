@@ -245,12 +245,17 @@ function onChatList(chats: ChatInfo[]) {
     } else if (sessions[chat.chatId]) kept[chat.chatId] = sessions[chat.chatId];
     if (chat.sessionId) sessionIds.set(chat.chatId, chat.sessionId);
   }
-  for (const id of Object.keys(sessions)) if (!live.has(id) && (refs.get(id) ?? 0) > 0) kept[id] = sessions[id];
-  for (const id of [...sessionIds.keys()]) if (!live.has(id)) sessionIds.delete(id);
-  // The same rule for the other per-chat caches: a chat that left the list and is not on screen is gone.
+  // A chat on screen, or one a `/clear` is waiting for, is held while it is out of the list: a renewed chat leaves it
+  // (no session id until the new one exists, then the window still reports the old one) and comes back under the same
+  // id, and its kept session id is what tells the return apart. The wait screen unmounts the chat, so refs alone miss it.
+  const clearingId = store.get().clearing?.chatId;
+  const held = (id: string) => (refs.get(id) ?? 0) > 0 || id === clearingId;
+  for (const id of Object.keys(sessions)) if (!live.has(id) && held(id)) kept[id] = sessions[id];
+  for (const id of [...sessionIds.keys()]) if (!live.has(id) && !held(id)) sessionIds.delete(id);
+  // The same rule for the other per-chat caches: a chat that left the list and is not held is gone.
   const known = new Set([...Object.keys(sessions), ...sessionIds.keys(), ...lastChatViews.keys(), ...seenChats]);
   seenChats = new Set(live);
-  for (const id of known) if (!live.has(id) && (refs.get(id) ?? 0) === 0) chatGone(id);
+  for (const id of known) if (!live.has(id) && !held(id)) chatGone(id);
   store.set({ sessions: kept });
   syncFollows();
   pumpAll();
