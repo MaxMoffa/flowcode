@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { hostRequest } from "./hostRequest";
 import { useHost } from "./remoteHosts";
+import { openRemoteFile } from "./remoteFiles";
 import type { LsEntry } from "../../shared/remote-types";
 import "../sidebar/sidebar.css";
 
@@ -79,7 +80,7 @@ export function RemoteExplorer({ hostId, cwd, visible }: { hostId: string; cwd: 
         {!error && !mine && <div className="file-tree-loading">{t("common.loading")}</div>}
         {mine &&
           entries.map((entry) => (
-            <div key={entry.name} className="file-tree-row" onClick={() => entry.dir && setPath(joinPath(mine.path, entry.name))} title={joinPath(mine.path, entry.name)}>
+            <div key={entry.name} className="file-tree-row" onClick={() => (entry.dir ? setPath(joinPath(mine.path, entry.name)) : openRemoteFile({ hostId, path: joinPath(mine.path, entry.name) }))} title={joinPath(mine.path, entry.name)}>
               {entry.dir ? (
                 <span className="file-tree-icon ft-folder">
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">

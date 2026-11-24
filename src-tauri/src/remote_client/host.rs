@@ -202,6 +202,7 @@ async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
     if let Some(conn) = clients.lock().get_mut(id) {
         conn.out = Some(out_tx.clone());
+        conn.quic = Some(session.conn.clone());
         // The server forgot every stream of the previous link.
         conn.clear_streams();
     }
@@ -327,6 +328,7 @@ async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog
     if let Some(conn) = clients.lock().get_mut(id) {
         if conn.out.as_ref().is_some_and(|o| o.same_channel(&out_tx)) {
             conn.out = None;
+            conn.quic = None;
             conn.clear_streams();
         }
     }

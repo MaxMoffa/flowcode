@@ -5,6 +5,10 @@ import { eventsActivity } from "../chat/cacheWarning";
 import { forgetCacheWarning } from "../chat/useCacheWarning";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
 import type { ChatSession } from "../chat/useChat";
+import type { ChatEvent } from "../chat/chatTypes";
+import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { loopbackPort, tunnelUrl } from "./remoteTunnel";
 import { claimBusyRefusal, expectNewTab, onHostMessages, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
 
 /** Follows a chat of another PC and hands it to the desktop's agent views as if it ran here: the same
@@ -37,6 +41,14 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   onlineRef.current = online;
   // This view among the window's senders to the host: an `agent_busy` refusal names no chat, so it is ours only while our prompt is the window's one in flight (see `claimBusyRefusal`).
   const sender = `${chatId}#${useId()}`;
+  // What the agent opens (a page, its dev server) lands in this PC's Browser panel, its localhost addresses through a tunnel.
+  const confirmOpen = useConfirmDialog();
+  const confirmOpenRef = useRef(confirmOpen);
+  confirmOpenRef.current = confirmOpen;
+  const infoCwdForOpen = info?.cwd ?? "";
+  const trackOpen = useMemo(() => createAgentOpenTracker(infoCwdForOpen), [infoCwdForOpen]);
+  const trackOpenRef = useRef(trackOpen);
+  trackOpenRef.current = trackOpen;
 
   /** Changes the session synchronously (the queue is read right after), then renders it. */
   const update = useCallback(
@@ -125,6 +137,15 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             const next = applyEvents(s, events, { replay: m.replay, busy: status === "busy" || status === "waiting", page });
             return m.replay && !promptReceipts && next.sentRequestId ? pauseUnconfirmedPrompt(next) : next;
           });
+          if (!m.replay) {
+            for (const ev of events) {
+              const open = trackOpenRef.current(ev as ChatEvent);
+              // Files stay on that PC: only addresses can be shown here.
+              if (!open || !/^https?:\/\//i.test(open.target)) continue;
+              const shown = loopbackPort(open.target) !== null ? tunnelUrl(hostId, open.target) : Promise.resolve(open.target);
+              void shown.then((target) => routeAgentOpen({ ...open, target }, null, confirmOpenRef.current), () => {});
+            }
+          }
           const pending = sessionRef.current;
           if (m.replay && promptReceipts && pending.sentText !== null && pending.sentRequestId) {
             void sendToHost(hostId, { t: "chatprompt", chatId, text: pending.sentText, requestId: pending.sentRequestId });

@@ -400,6 +400,8 @@ pub fn run() {
             remote_client::remote_host_forget,
             remote_client::remote_host_send,
             remote_client::remote_host_cached,
+            remote_client::tunnel::remote_host_tunnel,
+            remote_client::tunnel::remote_host_upload,
         ])
         .build({
             // The `devtools` cargo feature (browser_view.rs) enables devtools on

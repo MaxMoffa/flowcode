@@ -9,7 +9,7 @@ pub(crate) struct Attachment {
     pub(super) name: String,
     pub(super) mime: String,
     pub(super) data: Option<String>,
-    pub(super) path: Option<String>,
+    pub(crate) path: Option<String>,
     #[serde(default)]
     pub(super) upload: Option<String>,
 }

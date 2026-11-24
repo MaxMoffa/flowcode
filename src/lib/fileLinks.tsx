@@ -28,7 +28,12 @@ export interface FileLinkActions {
   browseFolder: (path: string) => void;
   /** Shows a file (html, svg, pdf, image...) in the Browser panel. */
   openInPreview: (path: string) => void;
+  /** The paths are on another PC: nothing can be opened, revealed or run through this one's OS, only viewed here. */
+  remote?: boolean;
 }
+
+/** How a chat finds out what a path in it is. Absent = this PC's disk; another PC's chat brings its own. */
+export const FileLinkResolverContext = createContext<((path: string, cwd: string | null) => Promise<PathTarget | null>) | null>(null);
 
 export const FileLinkActionsContext = createContext<FileLinkActions | null>(null);
 
@@ -136,10 +141,11 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
     },
     { label: "path-separator", separator: true },
   ];
+  const remote = !!actions?.remote;
   if (isFile && actions && isPreviewableFile(target.path)) {
     items.push({ label: t("pathLink.openInPreview"), icon: MenuIcons.globe, onSelect: () => actions.openInPreview(target.path) });
   }
-  if (isFile && isPreviewableFile(target.path) && !isExecutablePath(target.path)) {
+  if (!remote && isFile && isPreviewableFile(target.path) && !isExecutablePath(target.path)) {
     items.push({
       label: t("pathLink.openInSystemBrowser"),
       icon: MenuIcons.openExternal,
@@ -151,7 +157,7 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
   if (isFile && target.text && actions) {
     items.push({ label: t("pathLink.openFile"), icon: PathIcons.edit, onSelect: () => actions.openInEditor(target.path, line) });
   }
-  if (isFile && !isExecutablePath(target.path)) {
+  if (!remote && isFile && !isExecutablePath(target.path)) {
     items.push({
       label: t("pathLink.openDefault"),
       icon: MenuIcons.openExternal,
@@ -160,7 +166,7 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
       },
     });
   }
-  if (!isFile) {
+  if (!remote && !isFile) {
     items.push({
       label: t("pathLink.openFolder"),
       icon: MenuIcons.openExternal,
@@ -169,16 +175,18 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
       },
     });
   }
-  if (!isFile && actions) {
+  if (!isFile && actions && !remote) {
     items.push({ label: t("pathLink.openInExplorer"), icon: PathIcons.explorer, onSelect: () => actions.browseFolder(target.path) });
   }
-  items.push({
-    label: t("pathLink.reveal"),
-    icon: PathIcons.folder,
-    onSelect: () => {
-      revealItemInDir(target.path).catch(() => {});
-    },
-  });
+  if (!remote) {
+    items.push({
+      label: t("pathLink.reveal"),
+      icon: PathIcons.folder,
+      onSelect: () => {
+        revealItemInDir(target.path).catch(() => {});
+      },
+    });
+  }
   items.push({
     label: t("pathLink.copy"),
     icon: PathIcons.copy,
@@ -202,7 +210,7 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
           actions.openInPreview(target.path);
           return;
         }
-        if (artifacts === "system" && !isExecutablePath(target.path)) {
+        if (artifacts === "system" && !actions.remote && !isExecutablePath(target.path)) {
           invoke("open_in_system_browser", { target: target.path }).catch(() => {});
           return;
         }
@@ -228,6 +236,7 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
   const distro = useContext(FileLinkWslContext);
   const open = useOpenPath();
   const menu = usePathMenu();
+  const resolver = useContext(FileLinkResolverContext);
   // A WSL agent writes Linux paths (`/mnt/c/...`): map them to the Windows ones the disk check and the opener need.
   const path = distro && parsed.path.startsWith("/") ? toWindowsPath(distro, parsed.path) : parsed.path;
   const key = `${cwd ?? ""}\0${path}`;
@@ -239,7 +248,7 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
     if (cwd === null || !near) return;
     let live = true;
     const resolve = () => {
-      void checkPath(path, cwd).then((found) => {
+      void (resolver ?? checkPath)(path, cwd).then((found) => {
         if (live) setResolved({ key, target: found });
       });
     };
@@ -251,7 +260,7 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
       live = false;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [path, cwd, key, near]);
+  }, [path, cwd, key, near, resolver]);
   if (!target) return near ? <>{children}</> : <span ref={nearRef}>{children}</span>;
   // A span, not a <button>: a long path must wrap with the text around it.
   return (

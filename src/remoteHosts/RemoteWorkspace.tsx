@@ -3,6 +3,8 @@ import { t, useI18n } from "../i18n";
 import { rememberVisit, remoteEntries, useHost, useHostState } from "./remoteHosts";
 import { RemoteChatView } from "./RemoteChatView";
 import { RemoteTerminalView } from "./RemoteTerminalView";
+import { RemoteFileViewer } from "./RemoteFileViewer";
+import { RemoteLinks } from "./RemoteLinks";
 import "./remote-hosts.css";
 
 /** The content area while another PC is in front. Tabs already visited stay mounted (switching is instant); only the active one is shown.
@@ -24,11 +26,14 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
     <div className="remote-workspace">
       {mounted.map((entry) =>
         entry.kind === "pty" ? (
-          <RemoteTerminalView key={entry.key} hostId={hostId} ptyId={entry.tab.ptyId} visible={entry.key === activeKey} />
+          <RemoteLinks key={entry.key} hostId={hostId}>
+            <RemoteTerminalView hostId={hostId} ptyId={entry.tab.ptyId} visible={entry.key === activeKey} />
+          </RemoteLinks>
         ) : (
           <RemoteChatView key={entry.key} hostId={hostId} chatId={entry.chat.chatId} hidden={entry.key !== activeKey} />
         ),
       )}
+      <RemoteFileViewer hostId={hostId} />
       {!activeKey && (
         <div className="remote-empty">
           {host?.status === "online" ? t("remoteHosts.noTabs", { name: host.hostName }) : host?.status === "connecting" ? t("remoteHosts.status.connectingDots") : t("remoteHosts.offlineEmpty", { name: host?.hostName ?? "" })}

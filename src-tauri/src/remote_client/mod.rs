@@ -20,6 +20,7 @@ mod backoff;
 mod connlog;
 
 mod host;
+pub mod tunnel;
 
 use crate::remote::{keystore, RemoteState};
 use flowcode_remote_proto::{ClientMsg, PairingTicket, ServerMsg};
@@ -135,6 +136,8 @@ struct Conn {
     /// still the current one.
     generation: u64,
     out: Option<mpsc::Sender<ClientMsg>>,
+    /// The QUIC connection of the live link: extra streams (tunnels, uploads) open on it.
+    quic: Option<iroh::endpoint::Connection>,
     info: HostInfo,
     /// Cuts the backoff sleep short. Only `notify_waiters` is used, so a call
     /// with nobody waiting leaves no permit behind to skip a later backoff.
@@ -155,6 +158,7 @@ impl Conn {
             task: None,
             generation: 0,
             out: None,
+            quic: None,
             info,
             retry: Arc::new(Notify::new()),
             log: Arc::new(connlog::ConnLog::default()),
@@ -330,6 +334,8 @@ pub struct RemoteClients {
     /// One endpoint serves every host.
     endpoint: tokio::sync::Mutex<Option<Endpoint>>,
     conns: Mutex<HashMap<String, Conn>>,
+    /// Loopback listeners tunnelling to a port of a host (`remote_host_tunnel`).
+    tunnels: Mutex<HashMap<(String, String), tunnel::Tunnel>>,
     /// A `pair` is running; a second one is refused.
     pairing: AtomicBool,
     /// Wakes a running `pair` to abandon the wait for the other PC's confirmation.
@@ -355,6 +361,7 @@ impl RemoteClients {
             codec: Dpapi,
             endpoint: tokio::sync::Mutex::new(None),
             conns: Mutex::new(HashMap::new()),
+            tunnels: Mutex::new(HashMap::new()),
             pairing: AtomicBool::new(false),
             pair_cancel: Notify::new(),
             hosts_lock: Mutex::new(()),
@@ -481,6 +488,7 @@ impl RemoteClients {
         if let Some(conn) = conns.get_mut(id) {
             conn.generation += 1;
             conn.out = None;
+            conn.quic = None;
             conn.clear_streams();
             if let Some(task) = conn.task.take() {
                 task.abort();
@@ -512,6 +520,7 @@ impl RemoteClients {
             if let Some(conn) = conns.get_mut(&task_id).filter(|c| c.generation == generation) {
                 conn.task = None;
                 conn.out = None;
+                conn.quic = None;
                 conn.clear_streams();
             }
         }));

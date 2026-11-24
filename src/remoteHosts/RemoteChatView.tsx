@@ -12,6 +12,8 @@ import { agentView, resolveAcpView } from "../agentViews/registry";
 import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
 import { RemoteChatImageProvider } from "../chat/chatImages";
+import { RemoteLinks } from "./RemoteLinks";
+import { openRemoteFile } from "./remoteFiles";
 import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 
 const isAgentCli = (v: string): v is AgentCli => (AGENT_CLIS as readonly string[]).includes(v);
@@ -46,6 +48,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
 
   return (
     <RemoteChatImageProvider hostId={hostId} chatId={chatId}>
+      <RemoteLinks hostId={hostId} chatId={chatId} cwd={info.cwd}>
       <div className="chat-view" style={hidden ? { display: "none" } : undefined}>
         <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status} subagent={nav.sub ? subagentHeader(nav.sub, nav.back) : null}>
           {(close) => {
@@ -81,7 +84,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
         {chat.phase === "ready" ? (
           View && (
             <Suspense fallback={null}>
-              <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.sub} onOpenSubagent={nav.open} />
+              <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={(path) => openRemoteFile({ hostId, path })} openSubagent={nav.sub} onOpenSubagent={nav.open} />
             </Suspense>
           )
         ) : (
@@ -95,6 +98,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
           </div>
         )}
       </div>
+      </RemoteLinks>
     </RemoteChatImageProvider>
   );
 }
