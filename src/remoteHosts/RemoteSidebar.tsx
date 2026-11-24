@@ -1,9 +1,16 @@
+import { useMemo, useState } from "react";
 import { AGENT_CLIS, type AgentCli } from "../agents/cliInfo";
 import { useSidebarTab } from "../sidebar/Sidebar";
 import { SegmentedSwitch } from "../lib/SegmentedSwitch";
 import { useI18n } from "../i18n";
 import { remoteEntries, useHost, useHostState } from "./remoteHosts";
 import { RemoteExplorer } from "./RemoteExplorer";
+import { GitDock } from "../sidebar/GitDock";
+import { GitBackendContext, type GitStatus } from "../git/gitStatus";
+import { remoteGitBackend } from "./remoteGit";
+import { openRemoteFile } from "./remoteFiles";
+import { openRemoteDiff } from "./RemoteDiffViewer";
+import { RemoteAgentPanel } from "./RemoteAgentPanel";
 import { RemoteHistoryPanel, type RemoteAgentTab } from "./RemoteHistoryPanel";
 import "../sidebar/sidebar.css";
 
@@ -29,9 +36,23 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
   const caps = host?.caps ?? [];
   const hasHistory = !!agent && caps.includes("history");
   const hasExplorer = caps.includes("fileExplorer");
-  const [tab, setTab] = useSidebarTab(hasHistory);
-  const options = [...(hasHistory ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []), ...(hasExplorer ? [{ id: "explorer" as const, label: t("git.tab.explorer") }] : [])];
-  const shown: "history" | "explorer" = options.some((o) => o.id === tab) ? (tab as "history" | "explorer") : (options[0]?.id ?? "explorer");
+  const hasGit = caps.includes("git");
+  const insightTarget = agent && front && caps.includes("agentInsight") ? (front.kind === "chat" ? { chatId: front.chat.chatId } : { ptyId: front.tab.ptyId }) : null;
+  const [tab, setTab] = useSidebarTab(hasHistory || !!insightTarget);
+  const options = [
+    ...(hasHistory ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []),
+    ...(hasExplorer ? [{ id: "explorer" as const, label: t("git.tab.explorer") }] : []),
+    ...(insightTarget ? [{ id: "agent" as const, label: t("sidebar.tab.agent") }] : []),
+  ];
+  const shown: "history" | "explorer" | "agent" = options.some((o) => o.id === tab) ? (tab as "history" | "explorer" | "agent") : (options[0]?.id ?? "explorer");
+  // The other PC's repository, through its `git` messages; the drawer below the folders shows it.
+  const git = useMemo(() => remoteGitBackend(hostId), [hostId]);
+  const [status, setStatus] = useState<{ root: string; status: GitStatus } | null>(null);
+  const summary = useMemo(() => {
+    if (!status) return null;
+    const s = status.status;
+    return { branch: s.branch, ahead: s.ahead, behind: s.behind, count: s.staged.length + s.unstaged.length + s.untracked.length + s.conflicted.length };
+  }, [status]);
 
   return (
     <aside className="sidebar">
@@ -48,9 +69,26 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
       )}
       {hasExplorer && cwd && (
         <div className="sidebar-panel" role="tabpanel" hidden={shown !== "explorer"}>
-          <div className="sidebar-explorer-tree">
-            <RemoteExplorer hostId={hostId} cwd={cwd} visible={shown === "explorer"} />
-          </div>
+          <GitBackendContext.Provider value={git}>
+            <div className="sidebar-explorer-tree">
+              <RemoteExplorer hostId={hostId} cwd={cwd} visible={shown === "explorer"} />
+            </div>
+            {hasGit && (
+              <GitDock
+                cwd={cwd}
+                visible={shown === "explorer"}
+                onOpenFile={(path) => openRemoteFile({ hostId, path })}
+                onOpenDiff={(root, change, staged) => openRemoteDiff({ hostId, root, path: change.path, staged })}
+                onStatusChange={setStatus}
+                summary={summary}
+              />
+            )}
+          </GitBackendContext.Provider>
+        </div>
+      )}
+      {insightTarget && shown === "agent" && (
+        <div className="sidebar-panel" role="tabpanel">
+          <RemoteAgentPanel key={"chatId" in insightTarget ? insightTarget.chatId : insightTarget.ptyId} hostId={hostId} target={insightTarget} />
         </div>
       )}
     </aside>

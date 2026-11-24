@@ -4,6 +4,7 @@ import { rememberVisit, remoteEntries, useHost, useHostState } from "./remoteHos
 import { RemoteChatView } from "./RemoteChatView";
 import { RemoteTerminalView } from "./RemoteTerminalView";
 import { RemoteFileViewer } from "./RemoteFileViewer";
+import { RemoteDiffViewer } from "./RemoteDiffViewer";
 import { RemoteLinks } from "./RemoteLinks";
 import "./remote-hosts.css";
 
@@ -34,6 +35,7 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
         ),
       )}
       <RemoteFileViewer hostId={hostId} />
+      <RemoteDiffViewer hostId={hostId} />
       {!activeKey && (
         <div className="remote-empty">
           {host?.status === "online" ? t("remoteHosts.noTabs", { name: host.hostName }) : host?.status === "connecting" ? t("remoteHosts.status.connectingDots") : t("remoteHosts.offlineEmpty", { name: host?.hostName ?? "" })}

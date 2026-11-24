@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Compartment, EditorState } from "@codemirror/state";
@@ -10,7 +9,7 @@ import { languageFor } from "../editor/language";
 import { cmChromeTheme, cmHighlightStyle } from "../editor/cmTheme";
 import { basename, normalizeDir } from "../lib/path";
 import { useI18n } from "../i18n";
-import { gitShowFile, joinRepoPath } from "./gitStatus";
+import { joinRepoPath, useGitBackend } from "./gitStatus";
 import "../editor/editor.css";
 import "./diff-view.css";
 
@@ -34,6 +33,7 @@ const POLL_MS = 4000;
  * empty). */
 export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
   const { t } = useI18n();
+  const git = useGitBackend();
   const [sides, setSides] = useState<Sides | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -58,10 +58,10 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
     const load = () => {
       const id = ++requestRef.current;
       const read = staged
-        ? Promise.all([gitShowFile(root, path, "HEAD"), gitShowFile(root, path, "INDEX")])
+        ? Promise.all([git.showFile(root, path, "HEAD"), git.showFile(root, path, "INDEX")])
         : Promise.all([
-            gitShowFile(root, path, "INDEX"),
-            invoke<string>("read_text_file", { path: joinRepoPath(root, path) }).catch(() => ""),
+            git.showFile(root, path, "INDEX"),
+            git.readText(joinRepoPath(root, path)),
           ]);
       read
         .then(([original, modified]) => {
@@ -94,7 +94,7 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
       window.removeEventListener("focus", load);
       unlisten.then((fn) => fn());
     };
-  }, [root, path, staged, hidden]);
+  }, [root, path, staged, hidden, git]);
 
   // The view is rebuilt whenever the text changes (a poll that found an edit):
   // carry the scroll position over, but start at the top for another file.

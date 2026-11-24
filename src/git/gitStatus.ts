@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 /** Mirrors `GitChange` in src-tauri/src/git.rs. */
@@ -59,6 +60,37 @@ export const gitBranches = (root: string) => invoke<GitBranches>("git_branches",
  * overwritten). `createFromRemote`: `name` is `<remote>/<branch>`. */
 export const gitSwitchBranch = (root: string, name: string, createFromRemote: boolean) =>
   invoke<void>("git_switch_branch", { root, name, createFromRemote });
+
+/** What the Git panel, branch menu and diff view ask of a repository: this PC's by default, another PC's (through its `git` protocol messages) when the panel shows that one. */
+export interface GitBackend {
+  toplevel: (path: string) => Promise<string | null>;
+  status: (root: string) => Promise<GitStatus>;
+  stage: (root: string, paths: string[]) => Promise<void>;
+  unstage: (root: string, paths: string[]) => Promise<void>;
+  commit: (root: string, message: string) => Promise<string>;
+  showFile: (root: string, path: string, rev: "HEAD" | "INDEX") => Promise<string>;
+  discard: (root: string, paths: string[], untracked: boolean) => Promise<void>;
+  branches: (root: string) => Promise<GitBranches>;
+  switchBranch: (root: string, name: string, createFromRemote: boolean) => Promise<void>;
+  /** A file of the working tree; empty when it is gone. */
+  readText: (path: string) => Promise<string>;
+}
+
+export const localGit: GitBackend = {
+  toplevel: gitToplevel,
+  status: gitStatus,
+  stage: gitStage,
+  unstage: gitUnstage,
+  commit: gitCommit,
+  showFile: gitShowFile,
+  discard: gitDiscard,
+  branches: gitBranches,
+  switchBranch: gitSwitchBranch,
+  readText: (path) => invoke<string>("read_text_file", { path }).catch(() => ""),
+};
+
+export const GitBackendContext = createContext<GitBackend>(localGit);
+export const useGitBackend = () => useContext(GitBackendContext);
 
 /** Builds an absolute path from the repository root and git's forward-slashed
  * relative one, using the separator the root itself uses. */

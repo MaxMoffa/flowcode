@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { gitStatus, gitToplevel } from "./gitStatus";
+import { useGitBackend } from "./gitStatus";
 
 const POLL_MS = 15000;
 
 /** Changes in the repository `cwd` is in, polled only while `enabled` (the sidebar - whose Git drawer reports them itself - is hidden), for the dot on the sidebar button. 0 when disabled, not a repo or failing. */
 export function useGitChangeCount(cwd: string, enabled: boolean): number {
+  const git = useGitBackend();
   const [count, setCount] = useState(0);
   // The repository root of each folder asked about: it rarely changes, so it is looked up once.
   const toplevelRef = useRef(new Map<string, string | null>());
@@ -31,7 +32,7 @@ export function useGitChangeCount(cwd: string, enabled: boolean): number {
       try {
         let root = toplevelRef.current.get(cwd);
         if (root === undefined) {
-          root = await gitToplevel(cwd);
+          root = await git.toplevel(cwd);
           toplevelRef.current.set(cwd, root);
         }
         if (!stillCurrent()) return;
@@ -39,7 +40,7 @@ export function useGitChangeCount(cwd: string, enabled: boolean): number {
           setCount(0);
           return;
         }
-        const status = await gitStatus(root);
+        const status = await git.status(root);
         if (!stillCurrent()) return;
         setCount(status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length);
       } catch {
@@ -58,7 +59,7 @@ export function useGitChangeCount(cwd: string, enabled: boolean): number {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [cwd, enabled]);
+  }, [cwd, enabled, git]);
 
   return enabled && cwd ? count : 0;
 }

@@ -5,13 +5,8 @@ import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { useI18n } from "../i18n";
 import { basename, normalizeDir } from "../lib/path";
 import {
-  gitCommit,
-  gitDiscard,
-  gitStage,
-  gitStatus,
-  gitToplevel,
-  gitUnstage,
   joinRepoPath,
+  useGitBackend,
   type GitChange,
   type GitStatus,
 } from "./gitStatus";
@@ -108,6 +103,7 @@ export function GitPanel(props: GitPanelProps) {
 function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange }: GitPanelProps) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
+  const git = useGitBackend();
   // undefined: still resolving, null: not in a repository.
   const [root, setRoot] = useState<string | null | undefined>(undefined);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -139,7 +135,7 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
       const id = ++requestRef.current;
       let top: string | null = !force && topRef.current?.cwd === cwd ? topRef.current.top : null;
       if (!top) {
-        top = await gitToplevel(cwd).catch(() => null);
+        top = await git.toplevel(cwd).catch(() => null);
         if (id !== requestRef.current) return;
         topRef.current = top ? { cwd, top } : null;
         noRepoRef.current = top ? null : { cwd, at: Date.now() };
@@ -151,7 +147,7 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
         return;
       }
       try {
-        const next = await gitStatus(top);
+        const next = await git.status(top);
         if (id !== requestRef.current) return;
         failRef.current = 0;
         setStatusError(null);
@@ -169,7 +165,7 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
         if (++failRef.current >= FAIL_LIMIT) setStatusError(String(e));
       }
     },
-    [cwd],
+    [cwd, git],
   );
 
   // A different folder: forget the previous repository's state right away. The
@@ -258,10 +254,10 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
   }
 
   const stagePaths = (paths: string[]) => {
-    if (root) void run(() => gitStage(root, paths));
+    if (root) void run(() => git.stage(root, paths));
   };
   const unstagePaths = (paths: string[]) => {
-    if (root) void run(() => gitUnstage(root, paths));
+    if (root) void run(() => git.unstage(root, paths));
   };
 
   async function discard(rows: Row[]) {
@@ -293,14 +289,14 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
     if (!ok) return;
     await run(async () => {
       if (tracked.length > 0) {
-        await gitDiscard(
+        await git.discard(
           root,
           tracked.map((r) => r.change.path),
           false,
         );
       }
       if (untracked.length > 0) {
-        await gitDiscard(
+        await git.discard(
           root,
           untracked.map((r) => r.change.path),
           true,
@@ -318,8 +314,8 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
     setError(null);
     try {
       // "Commit all": nothing staged yet, so everything goes in (smart commit).
-      if (!hasStaged) await gitStage(root, ["."]);
-      await gitCommit(root, message);
+      if (!hasStaged) await git.stage(root, ["."]);
+      await git.commit(root, message);
       setMessage("");
     } catch (e) {
       setError(String(e));

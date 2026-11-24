@@ -70,3 +70,64 @@
   opacity: 0.7;
   border-top: 1px solid var(--border);
 }
+
+.remote-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+  font-size: 12.5px;
+}
+
+.remote-agent h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.remote-agent-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  overflow: hidden;
+}
+
+.remote-agent-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent, #7aa2f7);
+}
+
+.remote-agent-meter.is-warn > span {
+  background: #e0a030;
+}
+
+.remote-agent-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.remote-agent-row span:last-child {
+  opacity: 0.75;
+  text-align: right;
+}
+
+.remote-diff-panel {
+  height: min(80vh, 760px);
+}
+
+.remote-diff-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.remote-diff-body > * {
+  flex: 1;
+  min-width: 0;
+}

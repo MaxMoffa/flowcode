@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { relativeCommitTime } from "../lib/time";
-import { gitBranches, gitSwitchBranch, type GitBranch, type GitBranches } from "./gitStatus";
+import { useGitBackend, type GitBranch, type GitBranches } from "./gitStatus";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 
 interface BranchMenuProps {
@@ -46,6 +46,7 @@ function placeMenu(button: HTMLElement): MenuPos {
  * and remote branches to switch to. The list is fetched each time it opens. */
 export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
   const { t } = useI18n();
+  const git = useGitBackend();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<GitBranches | null>(null);
   const [query, setQuery] = useState("");
@@ -88,7 +89,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
     if (!open) return;
     let stale = false;
     setData(null);
-    gitBranches(root)
+    git.branches(root)
       .then((next) => {
         if (!stale) setData(next);
       })
@@ -133,7 +134,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
     setSwitching(true);
     setError(null);
     try {
-      await gitSwitchBranch(root, item.branch.name, item.remote);
+      await git.switchBranch(root, item.branch.name, item.remote);
       setOpen(false);
       onSwitched();
     } catch (e) {
