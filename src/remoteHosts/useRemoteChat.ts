@@ -211,6 +211,12 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void sendToHost(hostId, { t: "chatask", chatId, requestId, action, content }),
     [hostId, chatId],
   );
+  // A delegate's permission or question is answered in its own chat, which the host resolves by id.
+  const answerDelegatePermission = useCallback((childChatId: string, requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId: childChatId, requestId, optionId }), [hostId]);
+  const answerDelegateAsk = useCallback(
+    (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => sendToHost(hostId, { t: "chatask", chatId: childChatId, requestId, action, content }).then(() => {}),
+    [hostId],
+  );
   const setMode = useCallback((modeId: string) => void sendToHost(hostId, { t: "chatmode", chatId, modeId }), [hostId, chatId]);
   /** The remote says the outcome: its `_flowcode/model` event, or a refusal as a host error (shown as the window's notice, see `onRemoteNotice`, not in this chat). A link that refused the message gets a local error here. */
   const setModel = useCallback(
@@ -331,6 +337,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     cancel,
     answerPermission,
     answerAsk,
+    answerDelegatePermission,
+    answerDelegateAsk,
     setMode,
     setModel,
     setThought,

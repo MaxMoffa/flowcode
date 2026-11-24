@@ -9,7 +9,7 @@ import "../agentViews/builtins";
 import { AgentHeader } from "../agentViews/AgentHeader";
 import { ChatViewIcon, CopyIcon, SessionMenuHead, StopIcon, TerminalViewIcon, ViewSwitch } from "../agentViews/SessionMenu";
 import { agentView, resolveAcpView } from "../agentViews/registry";
-import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
+import { expectNewTab, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
 import { RemoteChatImageProvider } from "../chat/chatImages";
 import { RemoteLinks } from "./RemoteLinks";
@@ -22,7 +22,8 @@ const isAgentCli = (v: string): v is AgentCli => (AGENT_CLIS as readonly string[
 export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; chatId: string; hidden: boolean }) {
   const { t } = useI18n();
   const host = useHost(hostId);
-  const info = useHostState(hostId).chats.find((c) => c.chatId === chatId);
+  const hostChats = useHostState(hostId).chats;
+  const info = hostChats.find((c) => c.chatId === chatId);
   const chat = useRemoteChat(hostId, chatId);
   const View = resolveAcpView(undefined).component;
   const { model, sessionId } = chat;
@@ -39,6 +40,11 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
     // The chat turns into a terminal tab over there: bring that one to the front when it appears.
     expectNewTab(hostId);
     void sendToHost(hostId, { t: "chatterminal", chatId });
+  };
+
+  /** A delegate's card: its chat is a tab of that PC, brought to the front when it is there. */
+  const openDelegate = (delegate: { childChatId: string }) => {
+    if (hostChats.some((c) => c.chatId === delegate.childChatId)) selectRemoteKey(hostId, `chat:${delegate.childChatId}`);
   };
 
   /** A view asking for another one; the terminal is the other PC's own tab. */
@@ -84,7 +90,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
         {chat.phase === "ready" ? (
           View && (
             <Suspense fallback={null}>
-              <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={(path) => openRemoteFile({ hostId, path })} openSubagent={nav.sub} onOpenSubagent={nav.open} />
+              <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={(path) => openRemoteFile({ hostId, path })} openSubagent={nav.sub} onOpenSubagent={nav.open} onOpenDelegate={openDelegate} />
             </Suspense>
           )
         ) : (
