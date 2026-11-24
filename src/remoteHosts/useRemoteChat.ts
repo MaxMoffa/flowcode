@@ -177,6 +177,9 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
       }),
     [hostId, chatId, update],
   );
+  // Pause, resume or clear the goal: the host runs it.
+  const canGoal = !!host?.caps.includes("chatGoal");
+  const goalAction = useCallback((action: "pause" | "resume" | "clear") => sendToHost(hostId, { t: "chatgoal", chatId, action }).then(() => {}), [hostId, chatId]);
   // The host arms its own chats; only editing or cancelling its scheduled resume is forwarded (when it supports that).
   const canUpdateResume = !!host?.caps.includes("chatResume");
   const updateResume = useCallback((text: string | null) => void sendToHost(hostId, { t: "chatresume", chatId, text }), [hostId, chatId]);
@@ -285,6 +288,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     force,
     restart,
     clear: canClear ? clear : undefined,
+    goalAction: canGoal ? goalAction : undefined,
     newChat,
     loadCacheInfo,
     close,
