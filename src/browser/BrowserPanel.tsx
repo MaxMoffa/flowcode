@@ -13,6 +13,7 @@ import { portOfUrl } from "./statusPageModel";
 import {
   activatePage,
   closePage,
+  closePages,
   convertPageToPdf,
   dismissBlockedPage,
   getBrowser,
@@ -27,6 +28,7 @@ import {
   openUrlInPreview,
   pageLoadFinished,
   pageLoadStarted,
+  restorePages,
   setBrowserOpen,
   setPageError,
   setPageFavicon,
@@ -34,6 +36,7 @@ import {
   setServerAlive,
   syncPageUrl,
   useBrowser,
+  type ClosedPages,
   type PreviewPage,
 } from "./browserStore";
 import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView, useNativeThemeBackground } from "./nativeView";
@@ -57,6 +60,7 @@ const PDF_LOADING = -1;
 /** `loading` while a native page view loads (its own started / finished events). */
 const NATIVE_LOADING = -2;
 const TOAST_MS = 4000;
+const CLOSED_TOAST_MS = 6000;
 /** Strip at the bottom the native view leaves free while the toast shows. */
 const TOAST_INSET = 44;
 /** The freeze frame is dropped this long after the overlay left, whether or not the view reported back. */
@@ -236,9 +240,18 @@ function TabBadge({ page }: { page: PreviewPage }) {
 
 /** A popover next to its button closes on a click elsewhere, on Escape, and when a page frame takes focus
  * (a click inside a frame never reaches this document, it only blurs the window). */
-function usePopoverDismiss(open: boolean, close: () => void, popRef: RefObject<HTMLElement | null>, buttonRef: RefObject<HTMLElement | null>) {
+function usePopoverDismiss(
+  open: boolean,
+  close: () => void,
+  popRef: RefObject<HTMLElement | null>,
+  buttonRef: RefObject<HTMLElement | null>,
+  /** Escape goes here first: true when it was consumed (a nested menu closed), so `close` is skipped. */
+  escapeFirst?: () => boolean,
+) {
   const closeRef = useRef(close);
   closeRef.current = close;
+  const escapeRef = useRef(escapeFirst);
+  escapeRef.current = escapeFirst;
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: PointerEvent) => {
@@ -250,6 +263,7 @@ function usePopoverDismiss(open: boolean, close: () => void, popRef: RefObject<H
       if (e.key !== "Escape") return;
       // Escape also closes the panel when it is an overlay: this one is for the popover only.
       e.stopPropagation();
+      if (escapeRef.current?.()) return;
       closeRef.current();
       buttonRef.current?.focus();
     };
@@ -286,6 +300,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const [tabsOpen, setTabsOpen] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabsButtonRef = useRef<HTMLButtonElement>(null);
+  const [tabsFilter, setTabsFilter] = useState<"all" | "page" | "file" | "agent">("all");
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  // The last "close several" with its way back.
+  const [closedToast, setClosedToast] = useState<{ snapshot: ClosedPages; agents: number } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   // "Fai controllare all'agente": the list of agents to hand the page to is open.
@@ -315,7 +335,35 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   /** The page whose native view is hidden behind the freeze frame. */
   const suspendedFor = useRef<string | null>(null);
 
-  usePopoverDismiss(tabsOpen, () => setTabsOpen(false), tabsRef, tabsButtonRef);
+  const actionsOpenRef = useRef(false);
+  actionsOpenRef.current = actionsOpen;
+  usePopoverDismiss(tabsOpen, () => setTabsOpen(false), tabsRef, tabsButtonRef, () => {
+    if (!actionsOpenRef.current) return false;
+    setActionsOpen(false);
+    actionsButtonRef.current?.focus();
+    return true;
+  });
+  useEffect(() => {
+    if (!tabsOpen) {
+      setTabsFilter("all");
+      setActionsOpen(false);
+    }
+  }, [tabsOpen]);
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (actionsRef.current?.contains(target) || actionsButtonRef.current?.contains(target)) return;
+      setActionsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer, true);
+    return () => document.removeEventListener("pointerdown", onPointer, true);
+  }, [actionsOpen]);
+  useEffect(() => {
+    if (!closedToast) return;
+    const timer = setTimeout(() => setClosedToast(null), CLOSED_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [closedToast]);
   usePopoverDismiss(menuOpen, () => setMenuOpen(false), menuRef, menuButtonRef);
   usePopoverDismiss(dlShown, () => setDlOpen(false), dlRef, dlButtonRef);
   useEffect(() => {
@@ -556,6 +604,28 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   );
   const freeServers = servers.filter((s) => !openPorts.has(s.port));
 
+  // The tabs drawer: filters and the "close several" sets.
+  const agentsOn = controlSetting !== "off";
+  const isAgentPage = (p: PreviewPage) => p.kind === "url" && !!p.control;
+  const hasAgentPages = agentsOn && pages.some(isAgentPage);
+  // A filter whose chip is gone (its last agent page closed) falls back to all.
+  const filter = tabsFilter === "agent" && !hasAgentPages ? "all" : tabsFilter;
+  const shownPages = pages.filter((p) => (filter === "page" ? p.kind === "url" : filter === "file" ? p.kind !== "url" : filter === "agent" ? isAgentPage(p) : true));
+  const activeIndex = pages.findIndex((p) => p.id === activeId);
+  const closeSets = {
+    others: pages.filter((p) => p.id !== activeId).map((p) => p.id),
+    right: activeIndex < 0 ? [] : pages.slice(activeIndex + 1).map((p) => p.id),
+    agents: pages.filter(isAgentPage).map((p) => p.id),
+    files: pages.filter((p) => p.kind !== "url").map((p) => p.id),
+    all: pages.map((p) => p.id),
+  };
+  const closeMany = (ids: string[]) => {
+    setActionsOpen(false);
+    const snapshot = closePages(ids);
+    if (!snapshot) return;
+    setClosedToast({ snapshot, agents: snapshot.pages.filter((e) => isAgentPage(e.page)).length });
+  };
+
   const urlPage = page?.kind === "url" ? page : null;
   const urlId = urlPage?.id ?? null;
   const requestedUrl = urlPage?.requestedUrl ?? null;
@@ -593,7 +663,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
   // An agent drives this page: ring around the view and a bar under it (settings "off" turns the whole thing inert).
   const control = urlPage?.control && controlSetting !== "off" ? urlPage.control : null;
-  const toastInset = (toast || diagToast || openError) && urlPage ? TOAST_INSET : 0;
+  const toastInset = (toast || diagToast || openError || closedToast) && urlPage ? TOAST_INSET : 0;
   const insetBottom = toastInset + (control ? CONTROL_BAR_INSET : 0);
   const watching = !!control && !control.paused && pauseOnUser && nativeLive;
   useEffect(() => {
@@ -818,12 +888,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             </div>
           </div>
         )}
-        {openError && (
+        {openError && !closedToast && (
           <div className="browser-panel-toast" data-cover-ignore role="alert">
             <span>{t("browser.openExternalFailed", { error: openError })}</span>
           </div>
         )}
-        {diagToast && !openError && (
+        {diagToast && !openError && !closedToast && (
           <div className="browser-panel-toast" data-cover-ignore role="status">
             <PopupIcon />
             <span>{t("browser.toast.diagnosing", { agent: cliName(diagToast.agent), host: diagToast.host })}</span>
@@ -839,7 +909,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             </button>
           </div>
         )}
-        {toast && !diagToast && !openError && (
+        {toast && !diagToast && !openError && !closedToast && (
           <div className="browser-panel-toast" data-cover-ignore role="status">
             <PopupIcon />
             <span>{t("browser.toast.newTab", { host: toast.host })}</span>
@@ -943,11 +1013,66 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       {dlShown && <DownloadsPopover items={downloadItems} popRef={dlRef} close={() => setDlOpen(false)} />}
 
       {tabsOpen && (
-        <div ref={tabsRef} className="browser-tabs-pop" role="dialog" aria-label={t("browser.tabs")}>
-          {pages.length > 0 && (
-            <>
-              <div className="browser-tabs-heading">{`${t("browser.tabs")} · ${pages.length}`}</div>
-              {pages.map((p) => (
+        <>
+          <div className="browser-tabs-scrim" onClick={() => setTabsOpen(false)} />
+          <div ref={tabsRef} className="browser-tabs-drawer" role="dialog" aria-label={t("browser.tabs")}>
+            <div className="browser-tabs-drawer-head">
+              <span className="browser-tabs-drawer-title">{t("browser.tabs")}</span>
+              <span className="browser-tabs-drawer-count">{`· ${pages.length}`}</span>
+              <span className="browser-tabs-drawer-spacer" />
+              <button
+                ref={actionsButtonRef}
+                type="button"
+                className={"icon-button sm" + (actionsOpen ? " is-open" : "")}
+                onClick={() => setActionsOpen((o) => !o)}
+                title={t("browser.tabs.actions")}
+                aria-label={t("browser.tabs.actions")}
+                aria-haspopup="true"
+                aria-expanded={actionsOpen}
+              >
+                <MoreIcon />
+              </button>
+              {actionsOpen && (
+                <div ref={actionsRef} className="browser-tabs-pop browser-tabs-actions" role="menu" aria-label={t("browser.tabs.actions")}>
+                  <button type="button" role="menuitem" className="browser-menu-item" disabled={closeSets.others.length === 0} onClick={() => closeMany(closeSets.others)}>
+                    {t("browser.tabs.closeOthers")}
+                    <span className="browser-menu-key">{closeSets.others.length}</span>
+                  </button>
+                  <button type="button" role="menuitem" className="browser-menu-item" disabled={closeSets.right.length === 0} onClick={() => closeMany(closeSets.right)}>
+                    {t("browser.tabs.closeRight")}
+                    <span className="browser-menu-key">{closeSets.right.length}</span>
+                  </button>
+                  {agentsOn && (
+                    <button type="button" role="menuitem" className="browser-menu-item" disabled={closeSets.agents.length === 0} onClick={() => closeMany(closeSets.agents)}>
+                      {t("browser.tabs.closeAgents")}
+                      <span className="browser-menu-key">{closeSets.agents.length}</span>
+                    </button>
+                  )}
+                  <button type="button" role="menuitem" className="browser-menu-item" disabled={closeSets.files.length === 0} onClick={() => closeMany(closeSets.files)}>
+                    {t("browser.tabs.closeFiles")}
+                    <span className="browser-menu-key">{closeSets.files.length}</span>
+                  </button>
+                  <div className="browser-tabs-sep" />
+                  <button type="button" role="menuitem" className="browser-menu-item is-danger" disabled={closeSets.all.length === 0} onClick={() => closeMany(closeSets.all)}>
+                    {t("browser.tabs.closeAll")}
+                    <span className="browser-menu-key">{closeSets.all.length}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            {pages.length > 1 && (
+              <div className="browser-tabs-chips" role="group">
+                {(["all", "page", "file", ...(hasAgentPages ? (["agent"] as const) : [])] as const).map((f) => (
+                  <button key={f} type="button" className={"browser-tabs-chip" + (filter === f ? " is-on" : "")} aria-pressed={filter === f} onClick={() => setTabsFilter(f)}>
+                    {f === "agent" && "✦ "}
+                    {t(f === "all" ? "browser.tabs.filter.all" : f === "page" ? "browser.tabs.filter.pages" : f === "file" ? "browser.tabs.filter.files" : "browser.tabs.filter.agents")}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="browser-tabs-drawer-body">
+              {pages.length === 0 && <div className="browser-menu-note">{t("browser.tabs.empty")}</div>}
+              {shownPages.map((p) => (
                 <div key={p.id} className={"browser-tabs-row" + (p.id === activeId ? " is-active" : "")}>
                   <button
                     type="button"
@@ -971,42 +1096,61 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
                   </button>
                 </div>
               ))}
-            </>
-          )}
-          {freeServers.length > 0 && (
-            <>
-              {pages.length > 0 && <div className="browser-tabs-sep" />}
-              <div className="browser-tabs-heading">{t("browser.tabs.servers")}</div>
-              {freeServers.map((s) => (
-                <div key={s.port} className="browser-tabs-row">
-                  <span className="browser-tabs-row-main is-static">
-                    <span className="browser-tabs-badge is-server">
-                      <span className={"browser-panel-dot" + (s.alive ? " is-alive" : "")} />
-                    </span>
-                    <span className="browser-tabs-row-text">
-                      <span className="browser-tabs-row-title">{`localhost:${s.port}`}</span>
-                      <span className="browser-tabs-row-sub">{t(s.alive ? "browser.tabs.serverAlive" : "browser.tabs.serverDown")}</span>
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    className="browser-tabs-open"
-                    onClick={() => {
-                      openUrlInPreview(s.url);
-                      setTabsOpen(false);
-                    }}
-                    title={s.url}
-                  >
-                    {t("browser.tabs.openServer")}
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
-          {(pages.length > 0 || freeServers.length > 0) && <div className="browser-tabs-sep" />}
-          <button type="button" className="browser-tabs-new" onClick={startNewTab}>
-            <PlusIcon />
-            {t("browser.tabs.new")}
+              {freeServers.length > 0 && (
+                <>
+                  {pages.length > 0 && <div className="browser-tabs-sep" />}
+                  <div className="browser-tabs-heading">{t("browser.tabs.servers")}</div>
+                  {freeServers.map((s) => (
+                    <div key={s.port} className="browser-tabs-row">
+                      <span className="browser-tabs-row-main is-static">
+                        <span className="browser-tabs-badge is-server">
+                          <span className={"browser-panel-dot" + (s.alive ? " is-alive" : "")} />
+                        </span>
+                        <span className="browser-tabs-row-text">
+                          <span className="browser-tabs-row-title">{`localhost:${s.port}`}</span>
+                          <span className="browser-tabs-row-sub">{t(s.alive ? "browser.tabs.serverAlive" : "browser.tabs.serverDown")}</span>
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="browser-tabs-open"
+                        onClick={() => {
+                          openUrlInPreview(s.url);
+                          setTabsOpen(false);
+                        }}
+                        title={s.url}
+                      >
+                        {t("browser.tabs.openServer")}
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div className="browser-tabs-sep" />
+              <button type="button" className="browser-tabs-new" onClick={startNewTab}>
+                <PlusIcon />
+                {t("browser.tabs.new")}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {closedToast && (
+        <div className="browser-panel-toast is-over-drawer" data-cover-ignore role="status">
+          <span>
+            {closedToast.snapshot.pages.length === 1 ? t("browser.toast.closedOne") : t("browser.toast.closed", { n: closedToast.snapshot.pages.length })}
+            {closedToast.agents > 0 && ` · ${t("browser.toast.closedAgents", { n: closedToast.agents })}`}
+          </span>
+          <button
+            type="button"
+            className="browser-panel-toast-link"
+            onClick={() => {
+              restorePages(closedToast.snapshot);
+              setClosedToast(null);
+            }}
+          >
+            {t("browser.toast.undo")}
           </button>
         </div>
       )}

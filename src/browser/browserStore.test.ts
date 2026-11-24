@@ -6,6 +6,9 @@ import {
   askFromAway,
   clearPageError,
   closePage,
+  closePages,
+  restorePages,
+  setPageControl,
   convertPageToPdf,
   dismissBlockedPage,
   extractLocalServers,
@@ -517,5 +520,63 @@ describe("pages opened for a tab", () => {
     openUrlInPreview("http://localhost:7001/", "tab-z");
     const page = getBrowser().pages[0];
     expect(page?.kind === "url" && page.fromTabId).toBe("tab-z");
+  });
+});
+
+describe("closePages / restorePages", () => {
+  beforeEach(() => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+  });
+
+  function openFour() {
+    for (const n of [1, 2, 3, 4]) openUrlInPreview(`http://localhost:${n}`);
+    return getBrowser().pages.map((p) => p.id);
+  }
+
+  it("returns null for unknown ids", () => {
+    openFour();
+    expect(closePages(["nope"])).toBeNull();
+    expect(getBrowser().pages).toHaveLength(4);
+  });
+
+  it("picks the first survivor at or after the active page, else the last", () => {
+    const ids = openFour();
+    activatePage(ids[1]);
+    closePages([ids[1], ids[2]]);
+    expect(getBrowser().activeId).toBe(ids[3]);
+    activatePage(ids[3]);
+    closePages([ids[3]]);
+    expect(getBrowser().activeId).toBe(ids[0]);
+    closePages([ids[0]]);
+    expect(getBrowser().activeId).toBeNull();
+  });
+
+  it("restores order and active page, dropping control and history", () => {
+    const ids = openFour();
+    activatePage(ids[1]);
+    setPageControl(ids[2], { owner: { kind: "chat", id: "c1" }, paused: false });
+    syncPageUrl(ids[1], "http://localhost:22");
+    const closed = closePages([ids[1], ids[2]])!;
+    expect(closed.pages.map((e) => e.index)).toEqual([1, 2]);
+    restorePages(closed);
+    const pages = getBrowser().pages;
+    expect(pages.map((p) => p.id)).toEqual(ids);
+    expect(getBrowser().activeId).toBe(ids[1]);
+    for (const p of pages.slice(1, 3)) {
+      if (p.kind !== "url") throw new Error("url expected");
+      expect(p.control).toBeUndefined();
+      expect(p.back).toEqual([]);
+      expect(p.forward).toEqual([]);
+      expect(p.requestedUrl).toBe(p.url);
+    }
+  });
+
+  it("skips pages already open", () => {
+    const ids = openFour();
+    const closed = closePages([ids[0]])!;
+    openUrlInPreview("http://localhost:1");
+    const before = getBrowser().pages.length;
+    restorePages(closed);
+    expect(getBrowser().pages).toHaveLength(before);
   });
 });

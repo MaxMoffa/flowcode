@@ -439,6 +439,109 @@
   color: var(--muted);
 }
 
+.br-tabs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+}
+
+.br-tabs .br-tabs-more {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.br-tabs .br-tabs-more[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.br-tabs-menu-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.br-tabs-menu {
+  position: absolute;
+  top: 46px;
+  right: 8px;
+  z-index: 2;
+  min-width: 230px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow), 0 0 0 1px var(--border-strong);
+  animation: br-tabs-pop 0.14s ease-out;
+}
+
+.br-tabs-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.br-tabs .br-tabs-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.br-tabs-menu button b {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.br-tabs .br-tabs-menu button.is-danger {
+  color: var(--danger);
+}
+
+.br-tabs-menu button:disabled {
+  opacity: 0.4;
+}
+
+.br-undo {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 6px 0 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow), 0 0 0 1px var(--border-strong);
+  font-size: 14px;
+  animation: br-tabs-pop 0.16s ease-out;
+}
+
+.br-undo button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+
 .br-tabs button {
   border: 0;
   background: none;
@@ -647,7 +750,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .br-tabs {
+  .br-tabs,
+  .br-tabs-menu,
+  .br-undo {
     animation: none;
   }
 }

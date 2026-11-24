@@ -391,6 +391,78 @@ export function closePage(id: string) {
   });
 }
 
+export interface ClosedPages {
+  pages: { page: PreviewPage; index: number }[];
+  activeId: string | null;
+}
+
+/** Closes several pages at once. Returns what was closed (for restorePages), or null when nothing was. */
+export function closePages(ids: string[]): ClosedPages | null {
+  const wanted = new Set(ids);
+  const before = store.get();
+  const removed = before.pages.map((page, index) => ({ page, index })).filter((e) => wanted.has(e.page.id));
+  if (removed.length === 0) return null;
+  for (const { page } of removed) {
+    native(() => nativeView.close(page.id));
+    forgetErrorTiming(page.id);
+  }
+  store.update((s) => {
+    const pages = s.pages.filter((p) => !wanted.has(p.id));
+    let activeId = s.activeId;
+    if (activeId && wanted.has(activeId)) {
+      const oldIndex = s.pages.findIndex((p) => p.id === activeId);
+      const next = s.pages.slice(oldIndex + 1).find((p) => !wanted.has(p.id));
+      activeId = next?.id ?? pages[pages.length - 1]?.id ?? null;
+    }
+    return { ...s, pages, activeId };
+  });
+  return { pages: removed, activeId: before.activeId };
+}
+
+function isAlreadyOpen(pages: PreviewPage[], page: PreviewPage): boolean {
+  return pages.some((p) => {
+    if (p.id === page.id) return true;
+    if (p.kind !== page.kind) return false;
+    if (p.kind === "url" && page.kind === "url") return p.url === page.url || p.requestedUrl === page.url || p.url === page.requestedUrl;
+    if (p.kind === "file" && page.kind === "file") return p.path === page.path;
+    if (p.kind === "pdf" && page.kind === "pdf") return p.src === page.src;
+    return false;
+  });
+}
+
+/** Undo of closePages: reopens the addresses (history, agent control and errors are lost). */
+export function restorePages(closed: ClosedPages) {
+  store.update((s) => {
+    const pages = [...s.pages];
+    const restored: string[] = [];
+    const sorted = [...closed.pages].sort((a, b) => a.index - b.index);
+    for (const { page, index } of sorted) {
+      if (isAlreadyOpen(pages, page)) continue;
+      const fresh: PreviewPage =
+        page.kind === "url"
+          ? {
+              id: page.id,
+              kind: "url",
+              url: page.url,
+              requestedUrl: page.url,
+              back: [],
+              forward: [],
+              title: page.title,
+              favicon: page.favicon,
+              fromTabId: page.fromTabId,
+            }
+          : page;
+      pages.splice(Math.min(index, pages.length), 0, fresh);
+      restored.push(fresh.id);
+    }
+    if (restored.length === 0) return s;
+    let activeId = s.activeId;
+    if (closed.activeId && pages.some((p) => p.id === closed.activeId)) activeId = closed.activeId;
+    else if (!activeId || !pages.some((p) => p.id === activeId)) activeId = restored[0];
+    return { ...s, pages, activeId };
+  });
+}
+
 function updateUrlPage(id: string, fn: (page: Extract<PreviewPage, { kind: "url" }>) => PreviewPage) {
   store.update((s) => ({
     ...s,

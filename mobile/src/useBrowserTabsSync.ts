@@ -1,7 +1,7 @@
 // The in-app browser on the desktop's tabs: which tab this phone shows (never sent), and the
 // requests that open, navigate or close shared tabs. See docs/design/mobile-browser-tabs-plan.md.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BrowserTabPage } from "../../shared/remote-types";
+import type { BrowserOp, BrowserTabPage } from "../../shared/remote-types";
 import { deskPageToPage, pageToOp, type Page } from "./browserUrl";
 import { sendBrowserOp, useBrowserTabs, useSupports } from "./remote";
 
@@ -30,11 +30,29 @@ export interface BrowserTabsSync {
   /** Loads an address in the active url tab. */
   navigate: (id: string, page: Page & { kind: "port" }) => void;
   close: (id: string) => void;
+  /** Closes several tabs (one `close` each, so older desktops work); returns the closed pages in list order, for `reopen`. */
+  closeMany: (ids: string[]) => BrowserTabPage[];
+  /**
+   * Opens closed pages again without switching what this phone shows (no `waiting`, no `local`).
+   * They come back at the end of the desktop's list, and without their history. Files and local PDFs
+   * can't be restored (see `reopenOp`); returns how many were.
+   */
+  reopen: (pages: BrowserTabPage[]) => number;
   step: (id: string, dir: "back" | "forward") => void;
 }
 
 let nonceCount = 0;
 const newNonce = () => `${Date.now().toString(36)}${(nonceCount++).toString(36)}`;
+
+/**
+ * The request that brings a closed tab back. Only addresses can be restored: the `openFile` op
+ * needs a chat/terminal root and a path relative to it, which a closed file or local PDF no longer has.
+ */
+export function reopenOp(p: BrowserTabPage, nonce: string): BrowserOp | null {
+  if (p.kind === "url") return { op: "openUrl", url: p.url, nonce };
+  if (p.kind === "pdf" && /^https?:\/\//i.test(p.src)) return { op: "openUrl", url: p.src, nonce };
+  return null;
+}
 
 export function useBrowserTabsSync(): BrowserTabsSync {
   const cap = useSupports("browserTabs");
@@ -118,6 +136,22 @@ export function useBrowserTabsSync(): BrowserTabsSync {
     visit,
     navigate,
     close: (id) => sendBrowserOp({ op: "close", id }),
+    closeMany: (ids) => {
+      const set = new Set(ids);
+      const closed = tabs.filter((p) => set.has(p.id));
+      for (const p of closed) sendBrowserOp({ op: "close", id: p.id });
+      return closed;
+    },
+    reopen: (pages) => {
+      let n = 0;
+      for (const p of pages) {
+        const op = reopenOp(p, newNonce());
+        if (!op) continue;
+        sendBrowserOp(op);
+        n++;
+      }
+      return n;
+    },
     step: (id, dir) => sendBrowserOp({ op: dir, id }),
   };
 }

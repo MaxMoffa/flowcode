@@ -7,7 +7,8 @@ import { useBrowserDrag, type Detent } from "./browserDrag";
 import { BrowserTabs, shownLabel, TabPlaceholder } from "./BrowserTabs";
 import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 import { openLink } from "./TermLink";
-import { useBrowserTabsSync, type Shown } from "./useBrowserTabsSync";
+import type { BrowserTabPage } from "../../shared/remote-types";
+import { reopenOp, useBrowserTabsSync, type Shown } from "./useBrowserTabsSync";
 import { t } from "./i18n";
 import { BackIcon, ChevronIcon, CloseIcon, CopyIcon, FileIcon, GlobeIcon, MonitorIcon, RefreshIcon } from "./icons";
 import { showToast } from "./remote";
@@ -17,6 +18,8 @@ import { useWide } from "./wide";
 const LOAD_TIMEOUT_MS = 20_000;
 /** Duration of the close animation before the layer is removed. */
 const CLOSE_MS = 220;
+/** How long the "tabs closed" undo stays on screen. */
+const UNDO_MS = 6000;
 
 /** The small icon of a page's kind: desktop server, file, or none yet. */
 function KindIcon({ page }: { page: Shown | undefined }) {
@@ -93,6 +96,23 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
     return () => cancelAnimationFrame(id);
   }, []);
   useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  // The tabs a group action just closed, offered back for a few seconds.
+  const [undo, setUndo] = useState<BrowserTabPage[] | null>(null);
+  const undoTimer = useRef(0);
+  const clearUndo = () => {
+    window.clearTimeout(undoTimer.current);
+    setUndo(null);
+  };
+  useEffect(() => () => window.clearTimeout(undoTimer.current), []);
+  function closeMany(ids: string[]) {
+    const closed = sync.closeMany(ids);
+    if (closed.length === 0) return;
+    if (closed.length >= sync.tabs.length) setTabsOpen(false);
+    setUndo(closed);
+    window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setUndo(null), UNDO_MS);
+  }
 
   function requestClose() {
     if (closing) return;
@@ -311,10 +331,27 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
               setReload((n) => n + 1);
             }}
             onClose={sync.close}
+            onCloseMany={closeMany}
             onOpenServer={(port) => visit({ kind: "port", port, path: "/" })}
             onNew={startNewPage}
             onDismiss={() => setTabsOpen(false)}
           />
+        )}
+        {synced && undo && (
+          <div className="br-undo" role="status">
+            <span>{undo.length === 1 ? t("browser.closedOne") : t("browser.closedMany", { n: undo.length })}</span>
+            {undo.some((p) => reopenOp(p, "") !== null) && (
+              <button
+                type="button"
+                onClick={() => {
+                  sync.reopen(undo);
+                  clearUndo();
+                }}
+              >
+                {t("browser.undo")}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
