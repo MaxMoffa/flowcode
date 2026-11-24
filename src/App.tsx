@@ -19,7 +19,7 @@ import { forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
-import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
+import { HostSelector, MonitorIcon, openHostMenu } from "./remoteHosts/HostSelector";
 import { PairHostDialog } from "./remoteHosts/PairHostDialog";
 import { CrashReportDialog } from "./crash/CrashReportDialog";
 import { useDiagnosisTabEvents, type ChatDiagnosis } from "./crash/diagnosis";
@@ -2684,7 +2684,9 @@ function Shell() {
       },
       { separator: true, label: "sep-zoom" },
       { label: t("menu.newTerminal"), icon: Icons.newTerminal, onSelect: () => openNewTab() },
-      ...(noPairedHosts ? [{ label: t("remoteHosts.connectAnother"), icon: <MonitorIcon size={14} />, onSelect: () => setPairingHost(true) }] : []),
+      ...(noPairedHosts
+        ? [{ label: t("remoteHosts.connectAnother"), icon: <MonitorIcon size={14} />, onSelect: () => setPairingHost(true) }]
+        : [{ label: t("remoteHosts.switchPc"), icon: <MonitorIcon size={14} />, onSelect: openHostMenu }]),
       {
         label: isFullscreen ? t("menu.exitFullscreen") : t("menu.fullscreen"),
         icon: isFullscreen ? Icons.fullscreenExit : Icons.fullscreen,
@@ -2883,6 +2885,7 @@ function Shell() {
         className="icon-button"
         aria-label={t("app.moreOptions")}
         title={t("app.moreOptions")}
+        data-host-menu-anchor
         onClick={(e) => openMenu(e, moreMenuItems())}
       >
         {Icons.kebab}

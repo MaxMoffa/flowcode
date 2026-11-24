@@ -1,39 +1,66 @@
-/* Header selector for the PC in front: an icon button, plus a chip naming the other PC while one is in front. */
+/* Header selector for the PC in front: one pill (monitor + status dot, name, chevron); tinted with the "remote" blue while another PC is in front. */
 .host-selector {
+  --host: var(--ansi-blue);
   -webkit-app-region: no-drag;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
   flex: 0 0 auto;
   min-width: 0;
-}
-
-.host-selector-chip {
-  -webkit-app-region: no-drag;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 8px;
-  min-width: 0;
-  border: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--fg);
-  font-size: 12px;
+  height: 28px;
+  padding: 0 8px 0 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
-.host-selector-chip:hover {
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
+.host-selector:hover {
+  background: var(--hover);
+}
+
+.host-selector.is-remote {
+  background: color-mix(in srgb, var(--host) 14%, transparent);
+  border-color: color-mix(in srgb, var(--host) 35%, transparent);
+  color: var(--fg);
+}
+
+.host-selector.is-remote:hover {
+  background: color-mix(in srgb, var(--host) 22%, transparent);
+}
+
+.host-selector-mon {
+  position: relative;
+  display: inline-flex;
+}
+
+.host-selector-mon .host-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -1px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px var(--surface, var(--bg));
+}
+
+.host-selector.is-remote .host-selector-mon .host-dot {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--host) 14%, var(--surface, var(--bg)));
 }
 
 .host-selector-name {
-  max-width: 120px;
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.host-selector-chev {
+  flex: 0 0 auto;
+  opacity: 0.7;
 }
 
 /* Connection state of a PC: green online, amber connecting, grey offline. */

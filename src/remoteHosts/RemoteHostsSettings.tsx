@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { t, useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
-import { SettingRow, SettingsGroup } from "../settings/SettingsControls";
+import { SettingRow, SettingsGroup, Switch } from "../settings/SettingsControls";
+import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { StatusDot, statusLabel } from "./HostSelector";
 import { PairHostDialog } from "./PairHostDialog";
 import { connectHost, disconnectHost, forgetHost, useHosts } from "./remoteHosts";
@@ -13,6 +14,7 @@ export function RemoteHostsSettings() {
   const confirm = useConfirmDialog();
   const hosts = useHosts();
   const [pairing, setPairing] = useState(false);
+  const { hostSelectorAlways, setHostSelectorAlways } = useTerminalSettings();
 
   async function remove(id: string, name: string) {
     const ok = await confirm({
@@ -65,6 +67,14 @@ export function RemoteHostsSettings() {
           ))}
         </div>
         {pairing && <PairHostDialog onClose={() => setPairing(false)} />}
+      </SettingRow>
+      <SettingRow id="hostSelectorAlways" label={t("remoteHosts.always.label")} desc={t("remoteHosts.always.desc")}>
+        <Switch
+          checked={hostSelectorAlways}
+          onChange={setHostSelectorAlways}
+          label={t("remoteHosts.always.label")}
+          stateLabels={[t("settings.on"), t("settings.off")]}
+        />
       </SettingRow>
     </SettingsGroup>
   );
