@@ -131,3 +131,65 @@
   flex: 1;
   min-width: 0;
 }
+
+.remote-newtab {
+  --modal-w: 560px;
+  --modal-pad: 0;
+  display: flex;
+  flex-direction: column;
+  height: min(70vh, 520px);
+}
+
+.remote-newtab-path {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+.remote-newtab-path input {
+  flex: 1;
+  min-width: 0;
+}
+
+.remote-newtab-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.remote-newtab-row {
+  text-align: left;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-newtab-row:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.remote-newtab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.remote-newtab-logo {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}

@@ -7,6 +7,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
 import { closeRemoteEntry, connectHost, expectNewTab, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
+import { RemoteNewTabDialog } from "./RemoteNewTabDialog";
 import "../terminal/tabstrip.css";
 import "./remote-hosts.css";
 
@@ -49,6 +50,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   const { tabs, chats, activeKey } = useHostState(hostId);
   const entries = remoteEntries(tabs, chats);
   const caps = host?.caps ?? [];
+  const [newDialog, setNewDialog] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +121,8 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
         },
       },
     ];
+    // Any folder of that PC, not just its default one.
+    if (caps.includes("fileExplorer")) items.push({ label: t("remoteHosts.newOtherFolder"), onSelect: () => setNewDialog(true) });
     if (caps.includes("chat")) {
       items.push({ label: "remote-new-sep", separator: true });
       for (const cli of AGENT_CLIS) {
@@ -136,6 +140,8 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   }
 
   const online = host?.status === "online";
+  const front = entries.find((e) => e.key === activeKey);
+  const frontCwd = front ? (front.kind === "pty" ? front.tab.cwd : front.chat.cwd) : null;
 
   return (
     <div className="tab-strip remote-tab-strip" data-tauri-drag-region>
@@ -208,6 +214,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
+      {newDialog && <RemoteNewTabDialog hostId={hostId} startAt={frontCwd} onClose={() => setNewDialog(false)} />}
       {host && !online && (
         <span className={"host-chip is-" + host.status} title={host.error ?? statusLabel(host)}>
           {host.status === "connecting" ? (host.error ? t("remoteHosts.status.retrying", { error: host.error }) : t("remoteHosts.status.connectingDots")) : host.error ? t("remoteHosts.status.refused", { error: host.error }) : t("remoteHosts.status.offlineDash")}
