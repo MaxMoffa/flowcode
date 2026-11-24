@@ -12,7 +12,7 @@ import type { ChatAttachmentRef } from "../../shared/remote-types";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { loopbackPort, tunnelUrl } from "./remoteTunnel";
-import { claimBusyRefusal, expectNewTab, onHostMessages, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
+import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
 
 /** Follows a chat of another PC and hands it to the desktop's agent views as if it ran here: the same
  * `ChatSession` `useChat` gives. The conversation is the remote's own event stream, folded by the
@@ -84,6 +84,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     replayBuf.current = [];
     olderBuf.current = [];
     forgetCacheWarning(chatId);
+    // The agent replaced its session in place: no new tab is coming for the /clear that did it.
+    cancelExpectedTab(hostId, chatId);
     // Nothing of the old history applies, but a message still on its way must not vanish: it queues again in the fresh session.
     update((old) => {
       const inFlight = old.sentText !== null ? [{ text: old.sentText, files: old.sentFiles }] : [];
@@ -91,7 +93,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     });
     setClearCount((n) => n + 1);
     setGeneration((g) => g + 1);
-  }, [sessionKey, chatId, update]);
+  }, [sessionKey, hostId, chatId, update]);
 
   // Follow the chat while this view is mounted and the link is up; a new link forgot every stream, so ask again from where we are.
   useEffect(() => {
@@ -257,21 +259,22 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const infoProfile = info?.profile;
   const restart = useCallback(() => {
     if (!canResume || !sessionKey || !infoAgent || !infoCwd) return;
-    expectNewTab(hostId);
+    expectNewTab(hostId, chatLike(infoAgent, infoCwd, chatId));
     void sendToHost(hostId, { t: "resume", cwd: infoCwd, sessionId: sessionKey, cli: infoAgent, ...(infoProfile ? { profile: infoProfile } : {}), view: "chat" });
   }, [hostId, canResume, sessionKey, infoAgent, infoCwd, infoProfile]);
   // A fresh conversation: "/clear" in that chat's tab, or (once it ended) a new chat of the same agent and folder.
   const canClear = !!host?.caps.includes("chatClear");
   const clear = useCallback(() => {
     update((s) => ({ ...s, queued: [] }));
-    expectNewTab(hostId);
+    // Most agents keep the tab and just start a new session; the others get a new chat in its place.
+    if (infoAgent && infoCwd) expectNewTab(hostId, chatLike(infoAgent, infoCwd, chatId), chatId);
     void sendToHost(hostId, { t: "chatclear", chatId });
-  }, [hostId, chatId, update]);
+  }, [hostId, chatId, update, infoAgent, infoCwd]);
   const newChat = useCallback(() => {
     if (!infoAgent || !infoCwd) return;
-    expectNewTab(hostId);
+    expectNewTab(hostId, chatLike(infoAgent, infoCwd, chatId));
     void sendToHost(hostId, { t: "newchat", cli: infoAgent, cwd: infoCwd, ...(infoProfile != null ? { profile: infoProfile } : {}) });
-  }, [hostId, infoAgent, infoCwd, infoProfile]);
+  }, [hostId, chatId, infoAgent, infoCwd, infoProfile]);
   // The cache lifetime comes from the transcript, which only the host can read.
   const canCacheInfo = !!host?.caps.includes("chatCacheInfo");
   const loadCacheInfo = useMemo(
@@ -345,7 +348,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     updateResume: canUpdateResume ? updateResume : undefined,
     unqueue,
     force,
-    restart,
+    restart: canResume ? restart : undefined,
     clear: canClear ? clear : undefined,
     goalAction: canGoal ? goalAction : undefined,
     newChat,

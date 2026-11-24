@@ -9,7 +9,7 @@ import "../agentViews/builtins";
 import { AgentHeader } from "../agentViews/AgentHeader";
 import { ChatViewIcon, CopyIcon, SessionMenuHead, StopIcon, TerminalViewIcon, ViewSwitch } from "../agentViews/SessionMenu";
 import { agentView, resolveAcpView } from "../agentViews/registry";
-import { expectNewTab, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
+import { expectNewTab, terminalLike, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
 import { RemoteChatImageProvider } from "../chat/chatImages";
 import { RemoteLinks } from "./RemoteLinks";
@@ -38,7 +38,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   const canTerminal = !!host?.caps.includes("chat");
   const toTerminal = () => {
     // The chat turns into a terminal tab over there: bring that one to the front when it appears.
-    expectNewTab(hostId);
+    expectNewTab(hostId, terminalLike(info?.cwd));
     void sendToHost(hostId, { t: "chatterminal", chatId });
   };
 

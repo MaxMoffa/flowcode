@@ -1162,11 +1162,13 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
           </div>
         ) : phase === "ready" && status === "exited" ? (
           <ChatPondEnd kind="ended" resetAt={null} hidden={hidden}>
-            <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
-              {t("chat.pond.ended.restart")}
-            </button>
+            {chat.restart && (
+              <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
+                {t("chat.pond.ended.restart")}
+              </button>
+            )}
             {chat.newChat && (
-              <button type="button" className="chat-btn" onClick={chat.newChat}>
+              <button type="button" className={"chat-btn" + (chat.restart ? "" : " is-primary")} onClick={chat.newChat}>
                 {t("chat.cache.clear")}
               </button>
             )}

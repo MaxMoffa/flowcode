@@ -5,7 +5,7 @@ import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
 import { ChatIcon } from "../app/icons";
 import { agentCliIcon } from "../plugins/icons";
 import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
-import { closeRemoteEntry, connectHost, expectNewTab, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
+import { chatLike, closeRemoteEntry, connectHost, expectNewTab, terminalLike, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
 import { RemoteNewTabDialog } from "./RemoteNewTabDialog";
 import "../terminal/tabstrip.css";
@@ -116,7 +116,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
       {
         label: t("menu.newTerminal"),
         onSelect: () => {
-          expectNewTab(hostId);
+          expectNewTab(hostId, terminalLike());
           void sendToHost(hostId, { t: "newtab" });
         },
       },
@@ -130,7 +130,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
           label: t("remoteHosts.newChatWith", { agent: CLI_INFO[cli].label }),
           icon: agentCliIcon(cli),
           onSelect: () => {
-            expectNewTab(hostId);
+            expectNewTab(hostId, chatLike(cli));
             void sendToHost(hostId, { t: "newchat", cli });
           },
         });

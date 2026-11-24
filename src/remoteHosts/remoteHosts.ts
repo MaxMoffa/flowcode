@@ -82,11 +82,16 @@ export function firstNewKey(before: ReadonlySet<string>, keys: string[]): string
   return keys.find((k) => !before.has(k)) ?? null;
 }
 
+/** The first entry that wasn't there before and, when the request said what it expects, looks like it: another tab opened by someone else meanwhile must not take the front. */
+export function firstNewEntry(before: ReadonlySet<string>, entries: RemoteEntry[], match?: (entry: RemoteEntry) => boolean): string | null {
+  return entries.find((e) => !before.has(e.key) && (!match || match(e)))?.key ?? null;
+}
+
 let snap: Snapshot = { hosts: {}, list: [], state: {}, activeHost: LOCAL_HOST };
 const subs = new Set<() => void>();
 const bus = new Map<string, Set<(msgs: ServerMsg[]) => void>>();
 /** Keys before a "new" request, per host, until the new tab shows up (or the wait ends). */
-const pendingNew = new Map<string, { before: Set<string>; until: number }>();
+const pendingNew = new Map<string, { before: Set<string>; until: number; match?: (entry: RemoteEntry) => boolean; owner?: string }>();
 
 function commit(next: Snapshot) {
   snap = next;
@@ -116,11 +121,12 @@ function applyMessages(hostId: string, msgs: ServerMsg[]) {
     patchState(hostId, (s) => {
       const next = m.t === "tabs" ? { ...s, tabs: m.tabs } : m.t === "chats" ? { ...s, chats: m.chats } : { ...s, settings: m.settings };
       if (m.t === "settings") return next;
-      const keys = remoteEntries(next.tabs, next.chats).map((e) => e.key);
+      const entries = remoteEntries(next.tabs, next.chats);
+      const keys = entries.map((e) => e.key);
       const previous = remoteEntries(s.tabs, s.chats).map((e) => e.key);
       const pending = pendingNew.get(hostId);
       if (pending && Date.now() > pending.until) pendingNew.delete(hostId);
-      const fresh = pending && Date.now() <= pending.until ? firstNewKey(pending.before, keys) : null;
+      const fresh = pending && Date.now() <= pending.until ? firstNewEntry(pending.before, entries, pending.match) : null;
       if (fresh) pendingNew.delete(hostId);
       return { ...next, activeKey: fresh ?? pickActiveKey(next.activeKey, keys, previous) };
     });
@@ -276,10 +282,29 @@ export function selectRemoteKey(hostId: string, key: string) {
   patchState(hostId, (s) => (s.activeKey === key ? s : { ...s, activeKey: key }));
 }
 
-/** Call right before asking a host for a new tab or chat: the first one to appear next is brought to the front. */
-export function expectNewTab(hostId: string) {
+/** Call right before asking a host for a new tab or chat: the first one to appear next is brought to the front.
+ * `match` says what the request should produce (its kind, agent, folder), so a tab someone else opens meanwhile is left alone;
+ * `owner` names who asked, to withdraw the wait with `cancelExpectedTab` once their request is known to have made no new tab. */
+export function expectNewTab(hostId: string, match?: (entry: RemoteEntry) => boolean, owner?: string) {
   const s = snap.state[hostId] ?? EMPTY_STATE;
-  pendingNew.set(hostId, { before: new Set(remoteEntries(s.tabs, s.chats).map((e) => e.key)), until: Date.now() + NEW_TAB_WAIT_MS });
+  pendingNew.set(hostId, { before: new Set(remoteEntries(s.tabs, s.chats).map((e) => e.key)), until: Date.now() + NEW_TAB_WAIT_MS, match, owner });
+}
+
+/** Withdraws `owner`'s wait for a new tab (its request ended without one, e.g. a `/clear` that kept the tab). */
+export function cancelExpectedTab(hostId: string, owner: string) {
+  if (pendingNew.get(hostId)?.owner === owner) pendingNew.delete(hostId);
+}
+
+const folderKey = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+/** A chat entry of this agent (in this folder, when given), other than `except`: what a new chat, a resume or a /clear that replaces the chat brings. */
+export function chatLike(agent: string, cwd?: string, except?: string): (entry: RemoteEntry) => boolean {
+  return (e) => e.kind === "chat" && e.chat.agent === agent && (!cwd || folderKey(e.chat.cwd) === folderKey(cwd)) && e.chat.chatId !== except;
+}
+
+/** A terminal entry (of this agent, in this folder, when given): what a new terminal, a resume as terminal or "open as terminal" brings. */
+export function terminalLike(cwd?: string, cli?: string): (entry: RemoteEntry) => boolean {
+  return (e) => e.kind === "pty" && (!cwd || folderKey(e.tab.cwd) === folderKey(cwd)) && (!cli || e.tab.cli === cli);
 }
 
 /** Closes a tab of a PC: a terminal or a chat, when that PC can. The remote refuses the last tab of a window. */
@@ -296,7 +321,7 @@ export function closeRemoteEntry(hostId: string, entry: RemoteEntry) {
 export const remoteShortcuts = {
   newTab(hostId: string) {
     if (snap.hosts[hostId]?.status !== "online") return;
-    expectNewTab(hostId);
+    expectNewTab(hostId, terminalLike());
     void sendToHost(hostId, { t: "newtab" });
   },
   closeTab(hostId: string) {

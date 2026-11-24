@@ -807,7 +807,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume" | "older" | "previewing"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume" | "older" | "previewing" | "restart"> & {
+  /** Starts the agent again; absent for a chat running on another PC whose host cannot resume sessions. */
+  restart?: () => void;
   /** Older events of the log not loaded yet: `has` says there are some, `load` fetches the previous page and puts it in front of the conversation. Absent for a chat running on another PC (it sends its whole history). */
   older?: { has: boolean; loading: boolean; load: () => Promise<void> };
   /** The items come from a saved preview (the last page of the previous run) while the agent loads the session. */

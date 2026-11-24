@@ -5,7 +5,7 @@ import { useI18n } from "../i18n";
 import { agentCliIcon } from "../plugins/icons";
 import { hostRequest } from "./hostRequest";
 import { joinRemote } from "./remoteFiles";
-import { expectNewTab, sendToHost, useHost } from "./remoteHosts";
+import { chatLike, expectNewTab, sendToHost, terminalLike, useHost } from "./remoteHosts";
 import type { LsEntry } from "../../shared/remote-types";
 import "../dialog/modal.css";
 import "./remote-files.css";
@@ -53,7 +53,7 @@ export function RemoteNewTabDialog({ hostId, startAt, onClose }: { hostId: strin
   const here = listing?.path || null;
   const start = (kind: "terminal" | string) => {
     if (!here) return;
-    expectNewTab(hostId);
+    expectNewTab(hostId, kind === "terminal" ? terminalLike(here) : chatLike(kind, here));
     void sendToHost(hostId, kind === "terminal" ? { t: "newtab", cwd: here } : { t: "newchat", cli: kind, cwd: here });
     onClose();
   };

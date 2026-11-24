@@ -7,7 +7,7 @@ import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { buildHistoryRows, filterRows, groupByDay, type HistoryEntries, type HistoryRow, type OpenSession } from "../agents/historyRows";
 import { chatKey, ptyKey } from "../../shared/remoteEntries";
 import { hostRequest } from "./hostRequest";
-import { expectNewTab, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
+import { chatLike, expectNewTab, terminalLike, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
 import "../agents/agent-history.css";
 
 const POLL_MS = 15_000;
@@ -104,12 +104,12 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
     // Open there: its tab comes to the front.
     if (row.tabId) return selectRemoteKey(hostId, row.tabId);
     if (!canResume || !row.sessionId) return;
-    expectNewTab(hostId);
+    expectNewTab(hostId, agent.view === "chat" ? chatLike(row.cli, row.cwd) : terminalLike(row.cwd, row.cli));
     void sendToHost(hostId, { t: "resume", cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, ...(row.profile ? { profile: row.profile } : {}), view: agent.view });
   };
 
   const newSession = (cli: AgentCli) => {
-    expectNewTab(hostId);
+    expectNewTab(hostId, chatLike(cli, cwd));
     void sendToHost(hostId, { t: "newchat", cli, cwd, ...(agent.profile != null ? { profile: agent.profile } : {}) });
   };
   const pickAgent = (e: React.MouseEvent<HTMLButtonElement>) => {

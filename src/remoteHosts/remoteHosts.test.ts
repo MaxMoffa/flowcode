@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatInfo, Tab } from "../../shared/remote-types";
-import { claimBusyRefusal, errorNotice, firstNewKey, pickActiveKey, rememberVisit, remoteEntries, setPromptInFlight } from "./remoteHosts";
+import { chatLike, claimBusyRefusal, errorNotice, firstNewEntry, firstNewKey, terminalLike, pickActiveKey, rememberVisit, remoteEntries, setPromptInFlight } from "./remoteHosts";
 
 const tab = (ptyId: string, window: string): Tab => ({ ptyId, tabId: "t" + ptyId, window, label: ptyId, cwd: "/", cols: 80, rows: 24 });
 const chat = (chatId: string, window: string): ChatInfo => ({ chatId, tabId: "t" + chatId, window, label: chatId, agent: "claude", cwd: "/" });
@@ -88,5 +88,25 @@ describe("claimBusyRefusal", () => {
     expect(claimBusyRefusal("h", "b")).toBe(true);
     setPromptInFlight("h", "b", false);
     expect(claimBusyRefusal("h", "b")).toBe(false);
+  });
+});
+
+describe("firstNewEntry", () => {
+  const entries = remoteEntries([{ ...tab("a", "w"), cwd: "C:\\Proj\\" }, { ...tab("n", "w"), cwd: "/other" }], [{ ...chat("c1", "w"), cwd: "/proj" }, { ...chat("c2", "w"), agent: "codex", cwd: "/proj" }]);
+  it("without a match it is the first new one", () => {
+    expect(firstNewEntry(new Set(["pty:a"]), entries)).toBe("pty:n");
+  });
+  it("skips a new tab that is not what was asked for", () => {
+    const before = new Set(["pty:a"]);
+    expect(firstNewEntry(before, entries, chatLike("codex", "/proj"))).toBe("chat:c2");
+    expect(firstNewEntry(before, entries, chatLike("codex", "/elsewhere"))).toBeNull();
+    expect(firstNewEntry(before, entries, chatLike("claude", "/proj", "chat:c1"))).toBe("chat:c1");
+  });
+  it("a clear that keeps the chat has no other chat to take the front", () => {
+    expect(firstNewEntry(new Set(["pty:a", "pty:n", "chat:c1"]), entries, chatLike("claude", "/proj", "c1"))).toBeNull();
+  });
+  it("compares folders loosely (separators, case, trailing slash)", () => {
+    expect(terminalLike("c:/proj")(entries[0])).toBe(true);
+    expect(terminalLike("c:/proj", "claude")(entries[0])).toBe(false);
   });
 });
