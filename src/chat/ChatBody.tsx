@@ -514,8 +514,9 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     sessionId: chat.sessionId,
     profileId: chat.profileId,
     wslDistro: chat.wslDistro,
-    local: !!chat.clear,
+    local: !chat.loadCacheInfo,
     chatId: chat.chatId ?? "",
+    loadInfo: chat.loadCacheInfo,
   });
   const showCacheCard = cacheWarning.show && !draft;
 
@@ -1164,6 +1165,11 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
               {t("chat.pond.ended.restart")}
             </button>
+            {chat.newChat && (
+              <button type="button" className="chat-btn" onClick={chat.newChat}>
+                {t("chat.cache.clear")}
+              </button>
+            )}
           </ChatPondEnd>
         ) : showLimit ? (
           <ChatPondEnd kind="limit" resetAt={limitResetAt} hidden={hidden} note={model.resume ? t("chat.resume.pondNote") : undefined}>

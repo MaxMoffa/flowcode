@@ -820,6 +820,10 @@ export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear"
   goalAction?: (action: GoalAction) => Promise<void>;
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
   clear?: () => void;
+  /** Opens a brand-new chat with the same agent and folder (a chat of another PC, whose own session can't be restarted from here). */
+  newChat?: () => void;
+  /** Reads the prompt cache's lifetime and last model call somewhere other than this PC's transcripts (a chat of another PC asks its host). Must be stable. */
+  loadCacheInfo?: (sessionId: string) => Promise<{ ttlMs: number; lastCallAt: string | null }>;
   /** Answer a permission request or question one of the chat's delegates asked (in the child's own chat); absent for a chat running on another PC, whose delegates are not shown. */
   answerDelegatePermission?: (childChatId: string, requestId: string, optionId: string | null) => void;
   answerDelegateAsk?: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
