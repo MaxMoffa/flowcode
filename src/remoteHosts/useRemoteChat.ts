@@ -5,7 +5,10 @@ import { eventsActivity } from "../chat/cacheWarning";
 import { forgetCacheWarning } from "../chat/useCacheWarning";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
 import type { ChatSession } from "../chat/useChat";
-import type { ChatEvent } from "../chat/chatTypes";
+import { invoke } from "@tauri-apps/api/core";
+import type { ChatAttachment, ChatEvent } from "../chat/chatTypes";
+import { discardAttachment } from "../chat/attachmentRelease";
+import type { ChatAttachmentRef } from "../../shared/remote-types";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { loopbackPort, tunnelUrl } from "./remoteTunnel";
@@ -69,7 +72,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     if (!taken) return;
     const sentAt = taken.session.sentAtSeq ?? -1;
     update(() => taken.session);
-    void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
+    void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.files.length > 0 ? { attachments: taken.files } : {}), ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
       if (!ok) update((cur) => putBack(cur, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
     });
   }, [hostId, chatId, update, promptReceipts]);
@@ -148,7 +151,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
           }
           const pending = sessionRef.current;
           if (m.replay && promptReceipts && pending.sentText !== null && pending.sentRequestId) {
-            void sendToHost(hostId, { t: "chatprompt", chatId, text: pending.sentText, requestId: pending.sentRequestId });
+            void sendToHost(hostId, { t: "chatprompt", chatId, text: pending.sentText, ...(pending.sentFiles.length > 0 ? { attachments: pending.sentFiles } : {}), requestId: pending.sentRequestId });
           }
           if (pending.deliveryUncertain && !wasUncertain) update((s) => ({ ...s, model: applyLocalError(s.model, t("chat.deliveryUncertain")) }));
         }
@@ -166,14 +169,41 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const models = useMemo(() => (canSetModel ? chatModels(info, model) : null), [canSetModel, info, model]);
   const thought = useMemo(() => chatThought(info, model), [info, model]);
 
+  // Files go to the host first (one stream each), then the message with their ids joins the queue. Messages typed meanwhile wait behind them.
+  const canAttach = !!host?.caps.includes("chatAttach");
+  const uploads = useRef({ pending: 0, tail: Promise.resolve() });
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments: ChatAttachment[] = []) => {
       const trimmed = text.trim();
-      if (!trimmed) return;
-      update((s) => ({ ...s, queued: [...s.queued, { text: trimmed, files: [] }] }));
-      pump();
+      if (!trimmed && attachments.length === 0) return;
+      const enqueue = (files: ChatAttachmentRef[]) => {
+        update((s) => ({ ...s, queued: [...s.queued, { text: trimmed, files }] }));
+        pump();
+      };
+      const lane = uploads.current;
+      if (attachments.length === 0 && lane.pending === 0) {
+        enqueue([]);
+        return;
+      }
+      lane.pending++;
+      lane.tail = lane.tail.then(async () => {
+        try {
+          const files: ChatAttachmentRef[] = [];
+          for (const a of attachments) {
+            if (!a.upload) throw new Error(a.name);
+            const id = await invoke<string>("remote_host_upload", { id: hostId, chatId, upload: a.upload, name: a.name, mime: a.mime });
+            files.push({ id, name: a.name, mime: a.mime });
+          }
+          enqueue(files);
+        } catch (e) {
+          update((s) => ({ ...s, model: applyLocalError(s.model, t("remoteHosts.attachFailed", { error: String(e) })) }));
+        } finally {
+          attachments.forEach(discardAttachment);
+          lane.pending--;
+        }
+      });
     },
-    [update, pump],
+    [hostId, chatId, update, pump],
   );
   const cancel = useCallback(() => void sendToHost(hostId, { t: "chatcancel", chatId }), [hostId, chatId]);
   const answerPermission = useCallback((requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId, requestId, optionId }), [hostId, chatId]);
@@ -287,9 +317,9 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     // A remote PC's agent runs on that PC, never in a WSL distro of this one.
     wslDistro: null,
     profileId: null,
-    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: [] })), [session.queued]),
-    // The remote protocol carries text only.
-    canAttach: false,
+    // A message's files are on the other PC once queued: the queue shows them as names only.
+    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: q.files.map((f) => ({ name: f.name, mime: f.mime })) })), [session.queued]),
+    canAttach,
     resumed: true,
     loaded: true,
     older,

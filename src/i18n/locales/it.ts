@@ -824,6 +824,7 @@ export const it = {
   "remoteHosts.file.offline": "Questo PC non è collegato.",
   "remoteHosts.file.failed": "Impossibile mostrare questo file: {error}",
   "remoteHosts.file.truncated": "Il file è più lungo di quanto mostrato.",
+  "remoteHosts.attachFailed": "Impossibile inviare il file all'altro PC: {error}",
   "remoteHosts.sidebar.unsupported": "Questo PC non condivide file o cronologia: aggiorna Flowcode su di esso.",
   "remoteHosts.loadingChat": "Caricamento della chat…",
   "remoteHosts.noTabs": "{name} non ha schede aperte.",

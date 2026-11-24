@@ -825,6 +825,7 @@ export const en: Record<MessageKey, string> = {
   "remoteHosts.file.offline": "This PC is not connected.",
   "remoteHosts.file.failed": "Cannot show this file: {error}",
   "remoteHosts.file.truncated": "The file is longer than what is shown.",
+  "remoteHosts.attachFailed": "The file could not be sent to the other PC: {error}",
   "remoteHosts.sidebar.unsupported": "This PC does not share its files or history: update Flowcode on it.",
   "remoteHosts.loadingChat": "Loading chat…",
   "remoteHosts.noTabs": "{name} has no open tabs.",
