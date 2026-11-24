@@ -593,7 +593,7 @@ pub async fn remote_host_pair(
         r = async {
             let endpoint = clients.endpoint().await.map_err(LinkError::Transient)?;
             let device_name = device_name.clone();
-            link::handshake_with(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |_| {}).await
+            link::handshake_with(&endpoint, &parsed.node, link::DIAL_TIMEOUT, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |_| {}).await
         } => Some(r),
         _ = &mut cancelled => None,
     };

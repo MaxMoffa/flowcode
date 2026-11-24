@@ -111,7 +111,7 @@ async fn connect_once(app: &AppHandle, clients: &RemoteClients, id: &str, log: &
     if failures > 0 {
         endpoint.network_change().await;
     }
-    link::handshake_with(&endpoint, &pairing.node, ClientMsg::Auth { token: pairing.token.clone() }, || {}, |line| log.push(line)).await
+    link::handshake_with(&endpoint, &pairing.node, link::DIAL_TIMEOUT, ClientMsg::Auth { token: pairing.token.clone() }, || {}, |line| log.push(line)).await
 }
 
 /// Connects, serves, and reconnects until the pairing is gone, the PC refuses
