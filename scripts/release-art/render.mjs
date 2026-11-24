@@ -223,6 +223,58 @@ const COVERS = {
     for (const [x, y] of [[24, 44], [60, 40], [150, 50], [66, 64]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.40.0 "Tidy tabs, quick reconnects": a tabs drawer on a big pad sheds a batch of
+   * tab cards into the pond, an amber undo arrow lifts one back; a phone on a side pad
+   * sends signal arcs to it; the frog watches from the right. */
+  "v0.40.0"() {
+    const c = nightPond(40);
+    wordmark(c, "0.40");
+    reeds(c, 4, 86, 14, 1); reeds(c, 151, 86, 12, -1);
+    lilyPad(c, 101, 84, 26, 5);
+    lilyPad(c, 34, 82, 14, 4);
+    lilyPad(c, 139, 70, 12, 4);
+    // the tabs drawer (x 86..117, y 34..79): header with filter chips, two tabs left
+    const L = 86, T = 34, R = 117, B = 79;
+    c.rect(L - 1, T - 1, R - L + 3, B - T + 3, C.shadow);
+    c.rect(L, T, R - L + 1, B - T + 1, C.screenEdge);
+    c.rect(L + 1, T + 1, R - L - 1, B - T - 1, C.screen);
+    c.rect(L + 3, T + 3, 7, 3, C.moss); c.rect(L + 12, T + 3, 7, 3, C.screenEdgeDark); c.rect(L + 21, T + 3, 7, 3, C.screenEdgeDark);
+    const tab = (x, y, fav) => {
+      c.rect(x, y, 26, 6, C.screenEdgeDark);
+      c.rect(x + 2, y + 2, 2, 2, fav);
+      c.hline(x + 6, x + 20, y + 3, C.inkDim);
+    };
+    tab(L + 3, T + 10, "#3b6ea8"); tab(L + 3, T + 18, C.amber);
+    // empty space where the closed tabs were, dotted outline
+    for (let x = L + 3; x <= L + 28; x += 2) { c.set(x, T + 27, C.screenEdgeDark); c.set(x, T + 41, C.screenEdgeDark); }
+    // the swept tabs falling into the pond, each one further down and to the left
+    for (const [x, y, fav] of [[62, 54, C.moss], [52, 66, "#e07a6a"], [64, 75, "#3b6ea8"]]) {
+      c.rect(x - 1, y - 1, 18, 7, C.shadow);
+      c.rect(x, y, 16, 5, C.screenEdge);
+      c.rect(x + 2, y + 1, 2, 2, fav);
+      c.hline(x + 6, x + 13, y + 2, C.screenEdgeDark);
+    }
+    c.hline(48, 60, 81, C.rippleHi); c.hline(44, 66, 83, C.ripple); c.hline(60, 82, 86, C.ripple);
+    // the undo arrow: amber arc from a falling card back up into the drawer
+    c.dots(curve(72, 52, 74, 32, L - 3, T + 33), 2, C.amber);
+    for (const [dx, dy] of [[0, 0], [-1, -1], [-2, -2], [-1, 1], [-2, 2]]) c.set(L - 2 + dx, T + 33 + dy, C.amber);
+    // the phone (x 27..41, y 48..79) with a ghost loader, signal arcs to the drawer
+    const pl = 27, pt = 48, pr = 41, pb = 79;
+    c.rect(pl - 1, pt - 1, pr - pl + 3, pb - pt + 3, C.shadow);
+    c.rect(pl, pt, pr - pl + 1, pb - pt + 1, C.screenEdgeDark);
+    c.rect(pl + 2, pt + 3, pr - pl - 3, pb - pt - 6, C.screen);
+    for (const [y, w] of [[pt + 6, 8], [pt + 10, 6], [pt + 14, 9], [pt + 18, 5]]) c.hline(pl + 3, pl + 3 + w, y, C.screenEdge);
+    c.hline(pl + 4, pl + 10, pb - 2, C.screenEdge);
+    for (const [k, col] of [[0, C.moss], [1, C.moss], [2, C.prompt]]) {
+      const r = 5 + k * 4;
+      c.dots(curve(pr + 2, pt - r + 4, pr + r, pt - r, pr + r + 2, pt + 4), 2, col);
+    }
+    // the frog on the right pad, looking at the tidy drawer
+    frog(c, 128, 52, { cols: 20, rows: 16 });
+    for (const [x, y] of [[20, 40], [74, 36], [150, 52], [124, 40]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
