@@ -12,6 +12,7 @@ import {
   CodexStatusError,
   codexDiagnostic,
   driveCodexStatus,
+  mayProbeCodexStatus,
   parseCodexLimits,
   screenTextOf,
 } from "./codexStatus";
@@ -257,7 +258,13 @@ function errorSections(e: unknown): Record<string, string | undefined> {
 async function fetchCodexUsage(profile?: string): Promise<UsageInfo> {
   // On an API key there's no plan limit for `/status` to show - and no
   // reason to start a hidden Codex session: the spend is read off disk.
-  if ((await billingMode("codex", profile)) === "api") return fetchCliSpend("codex", "Codex CLI", profile);
+  const mode = await billingMode("codex", profile);
+  if (mode === "api") return fetchCliSpend("codex", "Codex CLI", profile);
+  // Signed out (or unreadable): never start the interactive TUI from a poll - its
+  // sign-in screen can open the browser. Only an explicit sign-in does that.
+  if (!mayProbeCodexStatus(mode)) {
+    return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "loggedOut", command: "codex login" }] };
+  }
   let screen: string;
   try {
     screen = await readCodexStatusScreen(profile);

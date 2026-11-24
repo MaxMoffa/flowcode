@@ -67,3 +67,21 @@ describe("subscription usage", () => {
     expect(metricText(result.metrics[0]).label).toContain("cline auth");
   });
 });
+
+describe("mayProbeCodexStatus", () => {
+  it("probes only with a plan login", async () => {
+    const { mayProbeCodexStatus } = await import("./codexStatus");
+    expect(mayProbeCodexStatus("subscription")).toBe(true);
+    expect(mayProbeCodexStatus("unknown")).toBe(false);
+    expect(mayProbeCodexStatus("api")).toBe(false);
+  });
+});
+
+describe("codex usage poll when signed out", () => {
+  it("reports loggedOut without spawning a terminal", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => (cmd === "cli_billing_mode" ? "unknown" : undefined) as never);
+    const usage = await usageFetcherFor("codex-cli")!();
+    expect(usage.metrics[0].kind).toBe("loggedOut");
+    expect(mockInvoke.mock.calls.every(([cmd]) => cmd === "cli_billing_mode")).toBe(true);
+  });
+});

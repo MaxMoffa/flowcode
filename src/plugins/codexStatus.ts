@@ -86,6 +86,14 @@ export function codexDiagnostic(screen: string): string {
   return rows.length ? rows.join(" · ") : screenTail(screen);
 }
 
+/** Whether the background `/status` probe may start a hidden interactive `codex`.
+ * Only with a ChatGPT plan login (`codex login status`): signed out, that TUI
+ * lands on its sign-in screen, which can open the browser - a background poll
+ * must never do that, so a signed-out Codex is just reported as signed out. */
+export function mayProbeCodexStatus(billingMode: "subscription" | "api" | "unknown"): boolean {
+  return billingMode === "subscription";
+}
+
 /** Launch codex in the session (`launch` is the command line to type -
  * `codex` plus whatever flags the host needs), get past the startup prompts,
  * run `/status` and return the screen that holds the answer. */
