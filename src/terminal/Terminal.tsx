@@ -61,6 +61,15 @@ const TERMINAL_REPORT = /^(?:\x1b\[[\d;?>]*[Rcn]|\x1b\[[IO]|\x1b\][^\x07\x1b]*(?
 
 const SESSION_SCROLLBACK_LINES = 2000;
 
+/** "Clear terminal": wipes the shell's scrollback. A full-screen app (Codex,
+ * Claude, vim...) runs on the alternate screen, which has no scrollback, and
+ * xterm's clear() there blanks the screen behind the app's back - it keeps
+ * drawing on top of a screen it no longer matches. Leave it alone. */
+function clearTerminal(term: XTerm | null | undefined) {
+  if (!term || term.buffer.active.type === "alternate") return;
+  term.clear();
+}
+
 interface TerminalViewProps {
   /** This tab's own id - used only to look up its per-tab zoom override
    * (see TerminalSettingsContext's `getTabFontSize`), same idea as a
@@ -530,7 +539,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   }
 
   useImperativeHandle(ref, () => ({
-    clear: () => xtermRef.current?.clear(),
+    clear: () => clearTerminal(xtermRef.current),
     copySelection: () => {
       const selection = xtermRef.current?.getSelection();
       if (selection) navigator.clipboard.writeText(selection).catch(() => {});
@@ -1317,7 +1326,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           },
           { label: t("edit.selectAll"), icon: MenuIcons.selectAll, onSelect: () => term?.selectAll() },
           { label: "terminal-menu-separator", separator: true },
-          { label: t("plugin.clearTerminal"), icon: MenuIcons.clear, onSelect: () => term?.clear() },
+          { label: t("plugin.clearTerminal"), icon: MenuIcons.clear, onSelect: () => clearTerminal(term) },
         ]);
       }}
       style={{
