@@ -43,14 +43,6 @@ fn read_enabled() -> bool {
 /// otherwise pass, so wry's own default switches are repeated here, and any
 /// value already set by the user is kept in front.
 pub fn apply_at_startup() {
-    // WebKitGTK: animated 2D canvases (the new-tab frog) vanish with the
-    // DMA-BUF renderer on some GPU drivers. Fall back to the shared-memory
-    // path unless the user already chose a value.
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        // Runs before Tauri or any other thread reads the environment.
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
     #[cfg(target_os = "linux")]
     linux_env();
     if !cfg!(target_os = "windows") || read_enabled() {
@@ -71,20 +63,48 @@ pub fn apply_at_startup() {
 
 /// NVIDIA on Wayland: the driver's explicit sync (555+) makes WebKitGTK's
 /// transparent windows flicker and show garbage frames (seen on Omarchy /
-/// Hyprland). The "Hardware acceleration" switch turned off drops WebKit's
-/// accelerated compositing, the last resort for drivers that still glitch.
-/// Values the user already set are kept.
+/// Hyprland).
+///
+/// WebKit's DMA-BUF renderer stays on by default. Without it (or without
+/// accelerated compositing) WebKitGTK 2.54 hands the transparent window
+/// partial frames over an empty buffer: only the last repainted regions show
+/// and the desktop shows through everything else (Omarchy/Hyprland, Wayland
+/// and XWayland alike). The "Hardware acceleration" switch turned off falls
+/// back to the shared-memory path, the documented escape hatch for drivers
+/// whose DMA-BUF formats break WebKit (blank window). Animated 2D canvases,
+/// the reason that path was once forced for everyone, are handled per
+/// webview instead (`linux_webview_settings`). Values the user already set
+/// are kept.
 #[cfg(target_os = "linux")]
 fn linux_env() {
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
     let nvidia = std::path::Path::new("/proc/driver/nvidia/version").exists();
+    // Runs at the top of `run()`, before Tauri or any other thread reads the environment.
     if wayland && nvidia && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
     }
-    if !read_enabled() && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
-        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    if !read_enabled() && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
+}
+
+/// WebKitGTK: animated 2D canvases (the new-tab frog, the chat pond) vanish
+/// when WebKit draws them on the GPU next to the DMA-BUF renderer. Drawing
+/// them on the CPU keeps them; the page is still composited on the GPU.
+/// The property is looked up by name so a WebKit build without it is skipped
+/// instead of panicking.
+#[cfg(target_os = "linux")]
+pub fn linux_webview_settings(webview: &tauri::Webview) {
+    let _ = webview.with_webview(|pw| {
+        use webkit2gtk::glib::object::ObjectExt;
+        use webkit2gtk::WebViewExt;
+        let Some(settings) = WebViewExt::settings(&pw.inner()) else { return };
+        let name = "enable-accelerated-2d-canvas";
+        if settings.find_property(name).is_some() && settings.property::<bool>(name) {
+            settings.set_property(name, false);
+        }
+    });
 }
 
 #[tauri::command]

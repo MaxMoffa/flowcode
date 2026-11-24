@@ -94,6 +94,16 @@ pub fn run() {
         // because the two have opposite trust: a plugin is sandboxed from the
         // network, a preview artifact may load CDN scripts.
         .register_uri_scheme_protocol("flowcode-preview", |ctx, request| preview::serve(ctx.app_handle(), &request))
+        // Linux: every webview's 2D canvases drawn on the CPU (see gpu.rs).
+        // At load start, before the page's scripts create any canvas.
+        .on_page_load(|_webview, payload| {
+            #[cfg(target_os = "linux")]
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                gpu::linux_webview_settings(_webview);
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = payload;
+        })
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
