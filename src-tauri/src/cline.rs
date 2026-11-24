@@ -13,6 +13,8 @@ pub(crate) enum ClineUsage {
     MissingCredentials,
     RejectedCredentials,
     NoPlan,
+    /// The saved account token ran out and Cline renews it only when it next runs: not a sign-out.
+    Expired,
     Available { windows: Vec<UsageWindow> },
 }
 
@@ -50,6 +52,20 @@ fn settings_path(dir: &Path, default_profile: bool) -> PathBuf {
         }
     }
     dir.join("data").join("settings").join("providers.json")
+}
+
+/// Whether the Cline account token saved in `value` is past its `expiresAt` (milliseconds), at `now_ms`.
+/// The access token lives about three days; the CLI renews it when it runs (a chat, `cline auth`).
+fn token_expired(value: &Value, now_ms: u64) -> bool {
+    let auth = &value["providers"]["cline"]["settings"]["auth"];
+    auth["accessToken"].as_str().and_then(token).is_some() && auth["expiresAt"].as_u64().is_some_and(|at| at <= now_ms)
+}
+
+fn account_token_expired(dir: &Path, default_profile: bool) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    std::fs::read(settings_path(dir, default_profile)).ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| token_expired(&v, now))
 }
 
 fn credential(dir: &Path, default_profile: bool) -> Option<String> {
@@ -123,6 +139,7 @@ pub(crate) async fn cline_usage(app: tauri::AppHandle, profile: Option<String>) 
                 parse_usage(&value)
             }
             Ok(response) => Err(format!("ClinePass usage returned HTTP {}", response.status())),
+            Err(ureq::Error::Status(401 | 403, _)) if account_token_expired(&dirs.cline, profile.is_none()) => Ok(ClineUsage::Expired),
             Err(ureq::Error::Status(401 | 403, _)) => Ok(ClineUsage::RejectedCredentials),
             // `{"data":null,"error":"no plan history found for user","success":false}`
             Err(ureq::Error::Status(404, _)) => Ok(ClineUsage::NoPlan),
@@ -137,6 +154,19 @@ pub(crate) async fn cline_usage(app: tauri::AppHandle, profile: Option<String>) 
 pub(crate) fn has_login(dir: &Path) -> bool {
     let file = settings_path(dir, false);
     std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| any_login(&v))
+}
+
+/// Whether `dir` holds a login Cline's chat (ACP) accepts: only the Cline account (or the ChatGPT one) does;
+/// a key saved for OpenRouter, Anthropic... answers "Authentication required" (checked on cline 3.0.75).
+pub(crate) fn has_account_login(dir: &Path) -> bool {
+    std::fs::read(settings_path(dir, false)).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| account_login(&v))
+}
+
+fn account_login(value: &Value) -> bool {
+    ["cline", "openai-codex"].iter().any(|id| {
+        let settings = &value["providers"][*id]["settings"];
+        settings["auth"]["accessToken"].as_str().and_then(token).is_some() || settings["apiKey"].as_str().and_then(token).is_some()
+    })
 }
 
 /// Any provider (not only Cline's own) with an account token or an API key.
@@ -185,6 +215,24 @@ mod tests {
         assert!(any_login(&json!({"providers": {"cline": {"settings": {"auth": {"accessToken": "t"}}}}})));
         assert!(!any_login(&json!({"providers": {"cline": {"settings": {"model": "m"}}}})));
         assert!(!any_login(&json!({})));
+    }
+
+    #[test]
+    fn chat_login_is_the_cline_account_only() {
+        assert!(account_login(&json!({"providers": {"cline": {"settings": {"auth": {"accessToken": "t"}}}}})));
+        assert!(account_login(&json!({"providers": {"cline": {"settings": {"apiKey": "k"}}}})));
+        assert!(account_login(&json!({"providers": {"openai-codex": {"settings": {"auth": {"accessToken": "t"}}}}})));
+        assert!(!account_login(&json!({"providers": {"openrouter": {"settings": {"apiKey": "k"}}}})));
+        assert!(!account_login(&json!({"providers": {"cline": {"settings": {"model": "m"}}}})));
+    }
+
+    #[test]
+    fn token_expiry_reads_expires_at_in_milliseconds() {
+        let v = json!({"providers": {"cline": {"settings": {"auth": {"accessToken": "t", "expiresAt": 1000}}}}});
+        assert!(token_expired(&v, 1000));
+        assert!(!token_expired(&v, 999));
+        assert!(!token_expired(&json!({"providers": {"cline": {"settings": {"auth": {"accessToken": "t"}}}}}), 5));
+        assert!(!token_expired(&json!({"providers": {"cline": {"settings": {"apiKey": "k"}}}}), 5));
     }
 
     #[test]

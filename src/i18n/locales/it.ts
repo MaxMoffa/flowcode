@@ -542,6 +542,7 @@ export const it = {
   "usage.budget.detail": "{spent} di {limit}",
   "usage.opencodeWorkspace": "{name} · OpenCode Console",
   "usage.clineSignIn": "Accedi con «cline auth» per vedere le quote ClinePass.",
+  "usage.clineExpired": "Accesso scaduto: si rinnova alla prossima esecuzione di Cline, o esegui «cline auth cline».",
   "usage.clineRejected": "Rinnova l’accesso con «cline auth» o verifica la chiave API.",
   "usage.clineNoPlan": "Nessuna quota ClinePass per questo account",
   "usage.openConsole": "Apri pagina utilizzo",

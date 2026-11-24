@@ -3,6 +3,7 @@ mod agents;
 mod fs;
 mod git;
 mod gpu;
+mod path_env;
 mod attention;
 mod chat;
 mod chat_images;
@@ -79,6 +80,7 @@ pub fn run() {
     // next launch to report; see crash.rs.
     crash::install_panic_hook();
     gpu::apply_at_startup();
+    path_env::apply_at_startup();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // Serves installed agent view plugins to their sandboxed iframes (see

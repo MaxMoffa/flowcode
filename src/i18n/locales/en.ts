@@ -543,6 +543,7 @@ export const en: Record<MessageKey, string> = {
   "usage.budget.detail": "{spent} of {limit}",
   "usage.opencodeWorkspace": "{name} · OpenCode Console",
   "usage.clineSignIn": "Run “cline auth” to see ClinePass limits.",
+  "usage.clineExpired": "Sign-in expired: it renews the next time Cline runs, or run “cline auth cline”.",
   "usage.clineRejected": "Run “cline auth” again or check your API key.",
   "usage.clineNoPlan": "No ClinePass quota for this account",
   "usage.openConsole": "Open usage page",

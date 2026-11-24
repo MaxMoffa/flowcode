@@ -58,6 +58,14 @@ describe("subscription usage", () => {
     expect(metricText(result.metrics[0]).detail).toBeDefined();
   });
 
+  it("tells an expired account token from a rejected one", async () => {
+    mockInvoke.mockResolvedValue({ status: "expired" });
+    const result = await usageFetcherFor("cline")!();
+
+    expect(result.ok).toBe(false);
+    expect(metricText(result.metrics[0]).label).toContain("cline auth cline");
+  });
+
   it("leaves the ClinePass bar blank when the credentials are rejected", async () => {
     mockInvoke.mockResolvedValue({ status: "rejectedCredentials" });
     const result = await usageFetcherFor("cline")!();

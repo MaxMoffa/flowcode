@@ -588,7 +588,7 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
 
 type ClineUsage =
   | { status: "available"; windows: UsageWindow[] }
-  | { status: "missingCredentials" | "rejectedCredentials" | "noPlan" };
+  | { status: "missingCredentials" | "rejectedCredentials" | "expired" | "noPlan" };
 
 /** ClinePass quotas first, then the spend of local sessions (Cline records its own cost; free models show tokens, not $0). */
 async function withClineSpend(info: UsageInfo, profile?: string): Promise<UsageInfo> {
@@ -614,6 +614,8 @@ async function fetchClineQuota(profile?: string): Promise<UsageInfo> {
         return { fetchedAt, ok: false, metrics: [{ kind: "other", label: t("usage.clineSignIn") }], ...dashboard };
       case "rejectedCredentials":
         return { fetchedAt, ok: false, metrics: [{ kind: "other", label: t("usage.clineRejected") }], ...dashboard };
+      case "expired":
+        return { fetchedAt, ok: false, metrics: [{ kind: "other", label: t("usage.clineExpired") }], ...dashboard };
       case "noPlan":
         return { fetchedAt, ok: true, metrics: [{ kind: "other", label: t("usage.clineNoPlan") }], ...dashboard };
       case "available":

@@ -124,8 +124,9 @@ fn key_busy(cli: &str, profile: Option<&str>) -> bool {
 
 fn state_for(app: &AppHandle, cli: &str, profile: Option<&str>, probe: bool) -> AuthState {
     let installed = crate::plugins::cli_is_installed(cli);
-    let authenticated = probe && installed && (crate::provider_auth_keys::has_key(app, cli, profile)
-        || crate::plugins::cli_is_logged_in(app, cli, profile));
+    // Cline's chat (ACP) only accepts the Cline account: a key saved for another provider is not a sign-in here.
+    let signed_in = if cli == "cline" { crate::cline::has_account_login(&crate::profiles::dirs(app, profile).map(|d| d.cline).unwrap_or_default()) } else { crate::plugins::cli_is_logged_in(app, cli, profile) };
+    let authenticated = probe && installed && (crate::provider_auth_keys::has_key(app, cli, profile) || signed_in);
     AuthState {
         cli: cli.into(), profile: profile.map(str::to_owned),
         method: crate::provider_auth_keys::method(app, cli, profile), phase: "idle".into(), session_id: None,
@@ -436,7 +437,8 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
         #[cfg(target_os = "windows")]
         crate::pty::warmup_conpty();
         let pair = native_pty_system().openpty(PtySize { rows: 24, cols: PTY_COLS, pixel_width: 0, pixel_height: 0 }).map_err(|_| "auth_failed")?;
-        let line = match state.cli.as_str() { "claude" => "claude auth login".to_string(), "codex" if remote => "codex login --device-auth".to_string(), "codex" => "codex login".to_string(), "gemini" => "gemini".to_string(), "opencode" => crate::opencode::command_line(state.profile.is_some(), "auth login"), "cline" => "cline auth".to_string(), _ => return Err("unsupported_provider".into()) };
+        let line = match state.cli.as_str() { "claude" => "claude auth login".to_string(), "codex" if remote => "codex login --device-auth".to_string(), "codex" => "codex login".to_string(), "gemini" => "gemini".to_string(), "opencode" => crate::opencode::command_line(state.profile.is_some(), "auth login"), // Not the provider picker: only the Cline account works in chat (ACP), and this prints the sign-in link and code.
+ "cline" => "cline auth cline".to_string(), _ => return Err("unsupported_provider".into()) };
         let line = line.as_str();
         #[cfg(target_os = "windows")]
         let mut command = { let mut cmd = CommandBuilder::new("cmd.exe"); cmd.args(["/D", "/C", line]); cmd };
@@ -595,6 +597,11 @@ mod tests {
         assert!(safe_auth_url("cline", "https://auth.example.org/login").is_some());
         assert!(safe_auth_url("cline", "http://auth.example.org/login").is_none());
         for url in ["https://claude.ai.evil.com/login", "http://claude.ai/login", "https://evil@claude.ai/login", "https://claude.ai:8443/login", "javascript:alert(1)"] { assert!(safe_auth_url("claude", url).is_none()); }
+    }
+    #[test]
+    fn reads_the_cline_device_link() {
+        let out = "\u{1b}[2m[auth] Enter this code in your browser: DNTN-DNSJ\u{1b}[0m\r\n\u{1b}[2m[auth] https://authkit.cline.bot/device?user_code=DNTN-DNSJ\u{1b}[0m\r\n";
+        assert_eq!(parse_link("cline", out).as_deref(), Some("https://authkit.cline.bot/device?user_code=DNTN-DNSJ"));
     }
     #[test]
     fn extracts_ansi_links_and_device_codes_without_control_sequences() {
