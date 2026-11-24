@@ -27,6 +27,7 @@ import { useBrowserDiagnosisEvents } from "./browser/browserDiagnosis";
 import { useBrowserControlBridge } from "./browser/control";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
+import { RemoteSidebar } from "./remoteHosts/RemoteSidebar";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
@@ -2588,7 +2589,10 @@ function Shell() {
   // most broadly useful default.
   const activeTab = tabs.find((t) => t.id === activeTabId);
   let sidebarPanel: ReactNode;
-  if (activeTab?.kind === "settings") {
+  if (activeHost !== LOCAL_HOST) {
+    // Another PC in front: its history and folders, never this PC's.
+    sidebarPanel = <RemoteSidebar key={activeHost} hostId={activeHost} />;
+  } else if (activeTab?.kind === "settings") {
     sidebarPanel = <SettingsNav />;
   } else if (activeTab?.kind === "changelog") {
     sidebarPanel = <ChangelogNav view="changelog" />;
