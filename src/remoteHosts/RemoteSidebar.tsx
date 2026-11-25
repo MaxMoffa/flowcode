@@ -10,7 +10,7 @@ import { GitBackendContext, type GitStatus } from "../git/gitStatus";
 import { remoteGitBackend } from "./remoteGit";
 import { openRemoteFile } from "./remoteFiles";
 import { openRemoteDiff } from "./RemoteDiffViewer";
-import { RemoteAgentPanel } from "./RemoteAgentPanel";
+import { RemoteAgentPanel, type RemoteAgentTarget } from "./RemoteAgentPanel";
 import { RemoteHistoryPanel, type RemoteAgentTab } from "./RemoteHistoryPanel";
 import "../sidebar/sidebar.css";
 
@@ -37,7 +37,12 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
   const hasHistory = !!agent && caps.includes("history");
   const hasExplorer = caps.includes("fileExplorer");
   const hasGit = caps.includes("git");
-  const insightTarget = agent && front && caps.includes("agentInsight") ? (front.kind === "chat" ? { chatId: front.chat.chatId } : { ptyId: front.tab.ptyId }) : null;
+  const insightTarget: RemoteAgentTarget | null =
+    agent && front && caps.includes("agentInsight")
+      ? front.kind === "chat"
+        ? { chatId: front.chat.chatId, cli: agent.cli, profile: agent.profile, busy: front.chat.status === "busy" || front.chat.status === "waiting", label: front.chat.label }
+        : { ptyId: front.tab.ptyId, cli: agent.cli, profile: agent.profile, busy: front.tab.status === "busy", label: front.tab.label }
+      : null;
   const [tab, setTab] = useSidebarTab(hasHistory || !!insightTarget);
   const options = [
     ...(hasHistory ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []),
@@ -88,7 +93,7 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
       )}
       {insightTarget && shown === "agent" && (
         <div className="sidebar-panel" role="tabpanel">
-          <RemoteAgentPanel key={"chatId" in insightTarget ? insightTarget.chatId : insightTarget.ptyId} hostId={hostId} target={insightTarget} />
+          <RemoteAgentPanel key={insightTarget.chatId ?? insightTarget.ptyId} hostId={hostId} target={insightTarget} />
         </div>
       )}
     </aside>

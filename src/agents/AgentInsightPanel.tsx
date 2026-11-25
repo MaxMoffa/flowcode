@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
-import { formatTokens, metricText, modelDisplayName } from "../plugins/usage";
+import { formatTokens, metricText, modelDisplayName, type UsageMetric } from "../plugins/usage";
 import { useUsageState } from "../plugins/useUsageState";
 import { writePty } from "../terminal/ptyClient";
 import { agentCliIcon } from "../plugins/icons";
@@ -31,7 +31,7 @@ interface AgentContext {
 }
 
 const TABS = ["context", "usage"] as const;
-type Tab = (typeof TABS)[number];
+export type Tab = (typeof TABS)[number];
 const TAB_KEY = "flowcode.agentPanel.tab";
 const CONTEXT_POLL_MS = 5000;
 /** Pause between typing a slash command and its Enter, so the TUI doesn't take the burst for a paste. */
@@ -117,7 +117,7 @@ const RING_R = 15;
 const RING_C = 2 * Math.PI * RING_R;
 
 /** The context fill as a donut with its percentage in the middle. */
-function ContextRing({ percent, warn }: { percent: number | null; warn: boolean }) {
+export function ContextRing({ percent, warn }: { percent: number | null; warn: boolean }) {
   return (
     <div className={"agent-insight-donut" + (warn ? " is-warn" : "")}>
       <svg viewBox="0 0 36 36" aria-hidden="true">
@@ -139,7 +139,7 @@ function ContextRing({ percent, warn }: { percent: number | null; warn: boolean 
 }
 
 /** Underline tabs (a tablist with roving tabindex and arrow-key moves). */
-function InsightTabs({ value, onChange, options, ariaLabel }: { value: Tab; onChange: (t: Tab) => void; options: { id: Tab; label: string }[]; ariaLabel: string }) {
+export function InsightTabs({ value, onChange, options, ariaLabel }: { value: Tab; onChange: (t: Tab) => void; options: { id: Tab; label: string }[]; ariaLabel: string }) {
   const buttons = useRef(new Map<Tab, HTMLButtonElement>());
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -328,7 +328,7 @@ function ChevronIcon() {
   );
 }
 
-function ContextPane({
+export function ContextPane({
   ctx,
   tools,
   toolsSupported,
@@ -461,23 +461,12 @@ function ContextPane({
   );
 }
 
-function UsagePane({ agent }: { agent: ActiveAgent }) {
+/** A plan's limit rows (or a pay-per-token account's spend): the usage the agent's provider reports. `profile` set = the sign-in buttons act on this PC's profile; without it they are left out (the account is somewhere else). */
+export function PlanMetrics({ metrics, profile, canLogin = true }: { metrics: UsageMetric[]; profile?: string; canLogin?: boolean }) {
   const { t } = useI18n();
-  const cli = agent.cli as AgentCli;
-  const pluginId = CLI_INFO[cli]?.pluginId ?? "";
-  const profile = agent.profile ?? undefined;
-  const { fetcher, usage, loading } = useUsageState(pluginId, profile);
-  const kind = usage ? planKind(usage.metrics) : "other";
-  const session = useSessionUsage(agent, !agent.wsl);
   return (
     <>
-      {fetcher && (
-        <div className="agent-insight-section">
-          <div className="agent-insight-title">
-            {kind === "payg" ? t("agentPanel.payg.title") : kind === "plan" ? t("agentPanel.plan.title") : t("agentPanel.plan.generic")}
-          </div>
-          {loading && !usage && <div className="agent-insight-note">{t("common.checking")}</div>}
-          {usage?.metrics.map((m, i) => {
+      {metrics.map((m, i) => {
             const warn = m.percent !== undefined && m.percent >= WARN_AT;
             const { label, detail, value } = metricText(m);
             return (
@@ -496,7 +485,7 @@ function UsagePane({ agent }: { agent: ActiveAgent }) {
                   </div>
                 )}
                 {detail && <div className="plugin-usage-metric-detail">{detail}</div>}
-                {m.command && (m.kind === "loggedOut" || m.kind === "reauth" || m.kind === "noApiKey") && (
+                {canLogin && m.command && (m.kind === "loggedOut" || m.kind === "reauth" || m.kind === "noApiKey") && (
                   <button
                     type="button"
                     className="plugin-usage-login-btn"
@@ -508,6 +497,27 @@ function UsagePane({ agent }: { agent: ActiveAgent }) {
               </div>
             );
           })}
+    </>
+  );
+}
+
+function UsagePane({ agent }: { agent: ActiveAgent }) {
+  const { t } = useI18n();
+  const cli = agent.cli as AgentCli;
+  const pluginId = CLI_INFO[cli]?.pluginId ?? "";
+  const profile = agent.profile ?? undefined;
+  const { fetcher, usage, loading } = useUsageState(pluginId, profile);
+  const kind = usage ? planKind(usage.metrics) : "other";
+  const session = useSessionUsage(agent, !agent.wsl);
+  return (
+    <>
+      {fetcher && (
+        <div className="agent-insight-section">
+          <div className="agent-insight-title">
+            {kind === "payg" ? t("agentPanel.payg.title") : kind === "plan" ? t("agentPanel.plan.title") : t("agentPanel.plan.generic")}
+          </div>
+          {loading && !usage && <div className="agent-insight-note">{t("common.checking")}</div>}
+          {usage && <PlanMetrics metrics={usage.metrics} profile={profile} />}
         </div>
       )}
       <div className="agent-insight-section">
@@ -518,7 +528,7 @@ function UsagePane({ agent }: { agent: ActiveAgent }) {
   );
 }
 
-function SessionBlock({ session, showCost }: { session: Loaded<SessionUsage>; showCost: boolean }) {
+export function SessionBlock({ session, showCost }: { session: Loaded<SessionUsage>; showCost: boolean }) {
   const { t } = useI18n();
   if (session === undefined) return null;
   if (session === null) return <div className="agent-insight-note">{t("agentPanel.session.unavailable")}</div>;
