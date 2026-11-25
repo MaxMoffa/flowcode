@@ -29,8 +29,8 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
     <div className="remote-workspace">
       {mounted.map((entry) =>
         entry.kind === "pty" ? (
-          <RemoteLinks key={entry.key} hostId={hostId}>
-            <RemoteTerminalView hostId={hostId} ptyId={entry.tab.ptyId} visible={entry.key === activeKey} />
+          <RemoteLinks key={entry.key} hostId={hostId} cwd={entry.tab.cwd || undefined}>
+            <RemoteTerminalView hostId={hostId} ptyId={entry.tab.ptyId} visible={entry.key === activeKey} cwd={entry.tab.cwd || undefined} />
           </RemoteLinks>
         ) : (
           <RemoteChatView key={entry.key} hostId={hostId} chatId={entry.chat.chatId} hidden={entry.key !== activeKey} />

@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { FileLinkResolverContext, useOpenPath, type PathTarget } from "../lib/fileLinks";
+import { createPathLinkProvider } from "../terminal/pathLinkProvider";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { t, useI18n } from "../i18n";
@@ -24,10 +27,12 @@ interface RemoteTerminalViewProps {
   ptyId: string;
   /** This terminal is the one in front (its host and its tab). Out of sight it stops streaming. */
   visible: boolean;
+  /** The folder the terminal was opened in: relative paths in its output resolve against it. */
+  cwd?: string;
 }
 
 /** A terminal of another PC: the same screen as there, typed into from here. */
-export function RemoteTerminalView({ hostId, ptyId, visible }: RemoteTerminalViewProps) {
+export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTerminalViewProps) {
   useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +52,17 @@ export function RemoteTerminalView({ hostId, ptyId, visible }: RemoteTerminalVie
   const openLink = useOpenLink();
   const openLinkRef = useRef(openLink);
   openLinkRef.current = openLink;
+  // Paths in the output: found as in a local terminal, but the other PC's disk says whether they exist (the resolver of RemoteLinks), and a click opens its read-only viewer.
+  const resolver = useContext(FileLinkResolverContext);
+  const resolverRef = useRef(resolver);
+  resolverRef.current = resolver;
+  const cwdRef = useRef(cwd ?? null);
+  cwdRef.current = cwd ?? null;
+  const openPath = useOpenPath();
+  const pathClickRef = useRef<(event: MouseEvent, target: PathTarget, line?: number) => void>(() => {});
+  pathClickRef.current = (event, target, line) => {
+    if (event.button === 0) openPath(event, target, line);
+  };
   // What the app's copy / paste / clear shortcuts do while this terminal is the one on screen.
   const handle = useMemo<RemoteTerminalHandle>(
     () => ({
@@ -85,6 +101,15 @@ export function RemoteTerminalView({ hostId, ptyId, visible }: RemoteTerminalVie
     term.loadAddon(fit);
     // OSC 8 hyperlinks: http(s) only, through the app's own link menu - never xterm's default confirm() + window.open.
     term.options.linkHandler = { activate: (event, uri) => openLinkRef.current(event, uri) };
+    // Plain addresses in the text (its dev servers go through the tunnel, see LinkRewriteContext); only the left button opens them.
+    term.loadAddon(new WebLinksAddon((event, uri) => event.button === 0 && openLinkRef.current(event, uri)));
+    term.registerLinkProvider(
+      createPathLinkProvider(
+        () => term.buffer.active,
+        (path) => resolverRef.current?.(path, cwdRef.current) ?? Promise.resolve(null),
+        (event, target, line) => pathClickRef.current(event, target, line),
+      ),
+    );
     term.open(el);
     termRef.current = term;
     fitRef.current = fit;
