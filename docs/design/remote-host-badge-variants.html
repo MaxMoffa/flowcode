@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — badge PC remoto in alto a sinistra: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --yellow:#e0c060; --red:#e07a6a; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+  --host:#7fb0e0;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --yellow:#a67a14; --red:#b8483a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+  --host:#2f6fae;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:10px}
+.col{margin-bottom:34px;max-width:1000px}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted)}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.cur{display:inline-block;font-size:11px;background:var(--track);color:var(--fg-muted);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;color:var(--fg-muted);font-size:12px;margin-top:8px}
+.pros b{color:var(--fg);font-weight:600}
+
+/* ---------- finestra finta ---------- */
+.win{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);position:relative}
+.win.narrow{max-width:520px}
+.head{height:40px;display:flex;align-items:center;gap:6px;padding:0 0 0 8px;border-bottom:1px solid var(--border);background:var(--surface)}
+.ib{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--fg-muted);flex:none;cursor:pointer;border:0;background:transparent}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib.on{color:var(--fg);background:var(--track)}
+svg{display:block}
+.tabs{display:flex;gap:2px;align-items:center;min-width:0;flex:1;overflow:hidden;height:100%}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:7px;color:var(--fg-muted);font-size:12.5px;white-space:nowrap;flex:none}
+.tab .ag{width:14px;height:14px;border-radius:4px;flex:none}
+.tab.act{background:var(--surface3);color:var(--fg)}
+.tab.plus{padding:0 8px}
+.right{display:flex;gap:2px;align-items:center;margin-left:auto;padding-right:4px}
+.wc{display:flex;height:100%}
+.wc span{width:42px;display:flex;align-items:center;justify-content:center;color:var(--fg-muted);font-size:12px}
+.body{display:flex;height:150px}
+.side{width:180px;border-right:1px solid var(--border);padding:10px;color:var(--fg-muted);font-size:12px;flex:none}
+.side .row{height:18px;border-radius:4px;background:var(--track);margin-bottom:8px}
+.main{flex:1;padding:14px;color:var(--fg-muted);font-size:12px}
+.main .ln{height:9px;border-radius:4px;background:var(--track);margin-bottom:9px}
+.narrow .side{display:none}
+
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--fg-muted);opacity:.6}
+.st-online .dot{background:var(--accent);opacity:1}
+.st-connecting .dot{background:var(--yellow);opacity:1;animation:pulse 1.2s ease-in-out infinite}
+.st-offline .dot{background:var(--red);opacity:1}
+@keyframes pulse{50%{opacity:.3}}
+.chev{color:var(--fg-muted);font-size:9px;margin-left:1px}
+
+/* ---------- attuale ---------- */
+.cur-chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);font-size:12px;color:var(--fg)}
+
+/* ---------- A: pillola unica ---------- */
+.a-pill{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 9px 0 7px;border-radius:8px;color:var(--fg-muted);cursor:pointer;flex:none;border:1px solid transparent}
+.a-pill:hover{background:var(--hover)}
+.is-remote .a-pill{background:color-mix(in srgb,var(--host) 14%,transparent);border-color:color-mix(in srgb,var(--host) 35%,transparent);color:var(--fg)}
+.a-pill .mon{position:relative}
+.a-pill .mon .dot{position:absolute;right:-3px;bottom:-1px;width:7px;height:7px;box-shadow:0 0 0 2px var(--surface)}
+.is-remote .a-pill .mon .dot{box-shadow:0 0 0 2px color-mix(in srgb,var(--host) 14%,var(--surface))}
+.a-pill .nm{font-size:12.5px;font-weight:600;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-pill .sep{width:1px;height:14px;background:var(--border)}
+
+/* ---------- B: radice della barra schede ---------- */
+.b-root{display:inline-flex;align-items:center;gap:7px;height:100%;padding:0 12px 0 10px;margin-left:-2px;color:var(--fg);cursor:pointer;flex:none;position:relative;font-size:12.5px;font-weight:600}
+.b-root:hover{background:var(--hover)}
+.is-remote .b-root{background:color-mix(in srgb,var(--host) 13%,transparent)}
+.is-remote .b-root::after{content:"";position:absolute;right:-7px;top:0;bottom:0;width:7px;background:color-mix(in srgb,var(--host) 13%,transparent);clip-path:polygon(0 0,100% 50%,0 100%)}
+.b-root .nm{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.is-remote.var-b .head{box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--host) 60%,transparent)}
+.is-remote.var-b .tab.act{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--host) 40%,transparent)}
+.var-b .tabs{padding-left:10px}
+.b-ribbon{display:none;position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--host)}
+.is-remote.var-b .b-ribbon{display:block}
+
+/* ---------- C: interruttore segmentato ---------- */
+.c-seg{display:inline-flex;align-items:center;height:28px;padding:2px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);flex:none}
+.c-seg .s{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:6px;color:var(--fg-muted);font-size:12px;cursor:pointer;white-space:nowrap}
+.c-seg .s:hover{color:var(--fg)}
+.c-seg .s.on{background:var(--surface3);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.c-seg .s.on.rem{background:color-mix(in srgb,var(--host) 22%,var(--surface3))}
+.c-seg .s .nm{max-width:110px;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- menu ---------- */
+.menu{position:absolute;top:38px;left:10px;width:236px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:5px;z-index:5;display:none;font-size:12.5px}
+.menu.show{display:block}
+.menu .mi{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;color:var(--fg)}
+.menu .mi:hover{background:var(--hover)}
+.menu .mi .meta{margin-left:auto;color:var(--fg-muted);font-size:11px}
+.menu .mi.sel{background:var(--track)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:5px 4px}
+.menu .mi.mut{color:var(--fg-muted)}
+.menu .hd{padding:6px 9px 3px;color:var(--fg-muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<h1>Badge "PC in primo piano" — 3 varianti</h1>
+<p class="sub">Oggi: icona monitor + chip separato con pallino e nome. Due pezzi, non si capisce che sono la stessa cosa né che le schede a destra appartengono a quel PC. Tutte e tre le varianti uniscono icona+nome in un solo elemento e aprono lo stesso menu (questo PC, PC collegati con stato, collega un altro PC, gestisci). Clicca sul badge per vedere il menu.</p>
+
+<div class="bar">
+  <span class="lab">Stato:</span>
+  <button data-st="local">Questo PC</button>
+  <button data-st="online" class="on">Remoto online</button>
+  <button data-st="connecting">Connessione…</button>
+  <button data-st="offline">Offline</button>
+  <span class="lab">Larghezza:</span>
+  <button data-w="wide" class="on">Larga</button>
+  <button data-w="narrow">Stretta</button>
+  <span class="lab">Tema:</span>
+  <button data-th="dark" class="on">Scuro</button>
+  <button data-th="light">Chiaro</button>
+</div>
+
+<div id="root"></div>
+
+<script>
+const S={st:"online",w:"wide",th:"dark",menu:null};
+const HOST="XPS-Studio";
+const ic={
+  side:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>',
+  mon:(s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/></svg>`,
+  laptop:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>',
+  feat:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>',
+  keb:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>',
+  check:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12.5 10 17.5 19 7"/></svg>',
+  arrows:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg>',
+};
+const remote=()=>S.st!=="local";
+const narrow=()=>S.w==="narrow";
+const stTxt={online:"Online",connecting:"Connessione…",offline:"Offline"};
+
+function tabs(){
+  const loc=[["Flowcode","#d97757",1],["api-server","#6fa8dc",0],["pwsh","#888",0]];
+  const rem=[["landing-site","#d97757",1],["backend","#10a37f",0]];
+  const list=(remote()?rem:loc).map(([n,c,a])=>`<span class="tab${a?" act":""}"><span class="ag" style="background:${c}"></span>${n}</span>`).join("");
+  return `<div class="tabs">${list}<span class="tab plus">+</span></div>`;
+}
+function frame(v,badge,{prefixTabs=false}={}){
+  return `<div class="win var-${v} ${narrow()?"narrow":""} ${remote()?"is-remote":""} st-${remote()?S.st:"local"}">
+    <div class="b-ribbon"></div>
+    <div class="head">
+      ${narrow()?"":`<button class="ib">${ic.side}</button>`}
+      ${badge}
+      ${tabs()}
+      <div class="right"><button class="ib">${ic.feat}</button><button class="ib">${ic.keb}</button></div>
+      <div class="wc"><span>—</span><span>☐</span><span>✕</span></div>
+    </div>
+    <div class="body"><div class="side"><div class="row"></div><div class="row" style="width:70%"></div><div class="row" style="width:85%"></div></div>
+      <div class="main"><div class="ln" style="width:60%"></div><div class="ln" style="width:82%"></div><div class="ln" style="width:45%"></div></div></div>
+    ${menu(v)}
+  </div>`;
+}
+function menu(v){
+  const on=S.menu===v;
+  const r=remote();
+  const row=(icon,name,meta,sel,dotSt)=>`<div class="mi${sel?" sel":""}">${dotSt?`<span class="st-${dotSt}"><span class="dot" style="display:block"></span></span>`:icon}<span>${name}</span><span class="meta">${meta||""}</span>${sel?ic.check:""}</div>`;
+  return `<div class="menu ${on?"show":""}">
+    <div class="hd">Stai usando</div>
+    ${row(ic.mon(14),"Questo PC","",!r)}
+    ${row("",HOST,r?stTxt[S.st]:"Online",r,r?S.st:"online")}
+    ${row("","Mac-mini","Offline",false,"offline")}
+    <hr>
+    <div class="mi mut">Collega un altro PC…</div>
+    <div class="mi mut">Gestisci PC collegati</div>
+  </div>`;
+}
+
+/* --- badge --- */
+function badgeCurrent(){
+  return `<span class="ib${remote()?" on":""}" data-m="cur">${ic.mon()}</span>${remote()?`<span class="cur-chip" data-m="cur"><span class="dot"></span>${narrow()?"":HOST}</span>`:""}`;
+}
+function badgeA(){
+  if(!remote()) return `<span class="a-pill" data-m="a" title="Questo PC"><span class="mon">${ic.mon()}</span>${narrow()?"":`<span class="chev">▾</span>`}</span>`;
+  return `<span class="a-pill" data-m="a" title="${HOST} — ${stTxt[S.st]}"><span class="mon">${ic.mon()}<span class="dot"></span></span>${narrow()?"":`<span class="nm">${HOST}</span>`}<span class="chev">▾</span></span>`;
+}
+function badgeB(){
+  if(!remote()) return `<span class="b-root" data-m="b" title="Questo PC" style="font-weight:400;color:var(--fg-muted)">${ic.mon()}</span>`;
+  return `<span class="b-root" data-m="b" title="${HOST} — ${stTxt[S.st]}"><span class="dot"></span>${narrow()?ic.mon(15):`<span class="nm">${HOST}</span>`}<span class="chev">▾</span></span>`;
+}
+function badgeC(){
+  const r=remote();
+  const loc=`<span class="s${r?"":" on"}" data-m="c" title="Questo PC">${ic.laptop}${narrow()?"":"<span>Questo PC</span>"}</span>`;
+  const rem=`<span class="s${r?" on rem":""}" data-m="c" title="${HOST}"><span class="dot"></span>${narrow()&&!r?ic.mon(15):`<span class="nm">${HOST}</span>`}<span class="chev">▾</span></span>`;
+  return `<span class="c-seg">${loc}${rem}</span>`;
+}
+
+function render(){
+  document.body.classList.toggle("light",S.th==="light");
+  const r=document.getElementById("root");
+  r.innerHTML=`
+  <div class="col"><h2>Attuale <span class="cur">oggi</span></h2>
+    <p class="d">Bottone icona + chip a parte. Con un PC remoto davanti sembrano due controlli diversi; in stretto resta solo un pallino senza nome.</p>
+    ${frame("cur",badgeCurrent())}</div>
+
+  <div class="col"><h2>A · Pillola unica <span class="rec">consigliata</span></h2>
+    <p class="d">Un solo bottone: monitor con pallino di stato agganciato all'angolo + nome del PC + freccina. Su questo PC resta solo l'icona (come oggi, niente rumore). Con un PC remoto la pillola si colora del colore "remoto" (blu) — si capisce a colpo d'occhio che non sei sul tuo PC.</p>
+    ${frame("a",badgeA())}
+    <div class="pros"><div><b>+</b> minimo cambiamento, un elemento, chiaro che è un menu</div><div><b>−</b> le schede non "appartengono" visivamente al PC</div></div></div>
+
+  <div class="col"><h2>B · Radice delle schede</h2>
+    <p class="d">Il nome del PC diventa l'inizio della barra schede, come una breadcrumb: <i>XPS-Studio ▸ landing-site · backend</i>. Bordo inferiore e striscia a sinistra della finestra nel colore remoto: tutta la finestra dice "sei su un altro PC". Su questo PC solo l'icona discreta.</p>
+    ${frame("b",badgeB())}
+    <div class="pros"><div><b>+</b> più evidente; le schede sono chiaramente di quel PC</div><div><b>−</b> più invasiva; il bordo colorato tocca anche il resto dell'UI</div></div></div>
+
+  <div class="col"><h2>C · Interruttore segmentato</h2>
+    <p class="d">Due segmenti sempre visibili: <i>Questo PC | XPS-Studio ▾</i>. Un clic sul segmento cambia PC subito, senza menu; la freccina apre il menu completo (altri PC, collega, gestisci). Il segmento attivo del remoto è tinto di blu. In stretto mostra solo le icone.</p>
+    ${frame("c",badgeC())}
+    <div class="pros"><div><b>+</b> passaggio tra PC in un clic, stato sempre leggibile</div><div><b>−</b> occupa più spazio anche quando sei sul tuo PC; con 3+ PC il secondo segmento mostra solo l'ultimo usato</div></div></div>`;
+  r.querySelectorAll("[data-m]").forEach(el=>el.addEventListener("click",e=>{e.stopPropagation();const m=el.dataset.m;S.menu=S.menu===m?null:m;render();}));
+}
+document.addEventListener("click",()=>{if(S.menu){S.menu=null;render();}});
+document.querySelectorAll(".bar button").forEach(b=>b.addEventListener("click",()=>{
+  const k=b.dataset.st?"st":b.dataset.w?"w":"th";S[k]=b.dataset[k];
+  document.querySelectorAll(`.bar button[data-${k}]`).forEach(x=>x.classList.toggle("on",x===b));render();
+}));
+render();
+</script>
+</body>
+</html>
