@@ -61,8 +61,12 @@ fn token_expired(value: &Value, now_ms: u64) -> bool {
     auth["accessToken"].as_str().and_then(token).is_some() && auth["expiresAt"].as_u64().is_some_and(|at| at <= now_ms)
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
 fn account_token_expired(dir: &Path, default_profile: bool) -> bool {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let now = now_ms();
     std::fs::read(settings_path(dir, default_profile)).ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .is_some_and(|v| token_expired(&v, now))
@@ -113,13 +117,84 @@ fn parse_usage(value: &Value) -> Result<ClineUsage, String> {
     Ok(ClineUsage::Available { windows })
 }
 
+/// The distro a terminal shell id (`wsl`, `wsl:<distro>`) runs in, when Cline's chat then runs inside WSL:
+/// `Some(None)` is the default distro. `None` off Windows, for other shells, and for a named profile
+/// (its folders are Windows paths, meaningless in the distro).
+pub(crate) fn wsl_distro(shell: Option<&str>, profile: Option<&str>) -> Option<Option<String>> {
+    if !cfg!(windows) || profile.is_some() {
+        return None;
+    }
+    let shell = shell?;
+    if shell == "wsl" {
+        return Some(None);
+    }
+    shell.strip_prefix("wsl:").map(|d| Some(d.to_string()).filter(|d| !d.is_empty()))
+}
+
+/// Script run in the distro: prints the provider settings file of its Cline folder (`CLINE_DIR`, else `~/.cline`).
+#[cfg(windows)]
+const WSL_READ_SETTINGS: &str = r#"d="${CLINE_DIR:-$HOME/.cline}"; f="${CLINE_PROVIDER_SETTINGS_PATH:-${CLINE_DATA_DIR:-$d/data}/settings/providers.json}"; [ -f "$f" ] && cat "$f""#;
+
+/// Runs `bash -lc script` in the distro (a login shell, as the chat's own start does).
+#[cfg(windows)]
+fn wsl_run(distro: Option<&str>, script: &str) -> Option<std::process::Output> {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = std::process::Command::new("wsl.exe");
+    if let Some(distro) = distro {
+        cmd.args(["-d", distro]);
+    }
+    cmd.args(["--exec", "bash", "-lc", script]);
+    cmd.creation_flags(flowcode_shared::CREATE_NO_WINDOW);
+    crate::system::run_wsl(cmd)
+}
+
+/// The distro's provider settings, parsed (`None`: no file, unreadable, or WSL unavailable).
+pub(crate) fn wsl_settings(distro: Option<&str>) -> Option<Value> {
+    #[cfg(windows)]
+    {
+        let out = wsl_run(distro, WSL_READ_SETTINGS)?;
+        out.status.success().then(|| serde_json::from_slice(&out.stdout).ok()).flatten()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = distro;
+        None
+    }
+}
+
+/// Whether `cline` is installed in the distro.
+pub(crate) fn wsl_installed(distro: Option<&str>) -> bool {
+    #[cfg(windows)]
+    {
+        wsl_run(distro, "command -v cline >/dev/null 2>&1").is_some_and(|o| o.status.success())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = distro;
+        false
+    }
+}
+
+/// Whether the distro holds a Cline login its chat accepts (see `has_account_login`).
+pub(crate) fn wsl_account_login(distro: Option<&str>) -> bool {
+    wsl_settings(distro).is_some_and(|v| account_login(&v))
+}
+
 #[tauri::command]
-pub(crate) async fn cline_usage(app: tauri::AppHandle, profile: Option<String>) -> Result<ClineUsage, String> {
+pub(crate) async fn cline_usage(app: tauri::AppHandle, profile: Option<String>, shell: Option<String>) -> Result<ClineUsage, String> {
     crate::blocking(move || {
-        let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else {
-            return Ok(ClineUsage::MissingCredentials);
+        // Chats run in the distro's Cline, whose login is the distro's own: ask that one.
+        let (key, expired) = if let Some(distro) = wsl_distro(shell.as_deref(), profile.as_deref()) {
+            let settings = wsl_settings(distro.as_deref());
+            let now = now_ms();
+            (settings.as_ref().and_then(settings_token), settings.as_ref().is_some_and(|v| token_expired(v, now)))
+        } else {
+            let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else {
+                return Ok(ClineUsage::MissingCredentials);
+            };
+            (credential(&dirs.cline, profile.is_none()), account_token_expired(&dirs.cline, profile.is_none()))
         };
-        let Some(key) = credential(&dirs.cline, profile.is_none()) else {
+        let Some(key) = key else {
             return Ok(ClineUsage::MissingCredentials);
         };
         // Cline owns login and refresh of its CLI session. This probe only
@@ -139,7 +214,7 @@ pub(crate) async fn cline_usage(app: tauri::AppHandle, profile: Option<String>) 
                 parse_usage(&value)
             }
             Ok(response) => Err(format!("ClinePass usage returned HTTP {}", response.status())),
-            Err(ureq::Error::Status(401 | 403, _)) if account_token_expired(&dirs.cline, profile.is_none()) => Ok(ClineUsage::Expired),
+            Err(ureq::Error::Status(401 | 403, _)) if expired => Ok(ClineUsage::Expired),
             Err(ureq::Error::Status(401 | 403, _)) => Ok(ClineUsage::RejectedCredentials),
             // `{"data":null,"error":"no plan history found for user","success":false}`
             Err(ureq::Error::Status(404, _)) => Ok(ClineUsage::NoPlan),
@@ -199,6 +274,23 @@ pub(crate) fn logout(dir: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    #[cfg(windows)]
+    fn wsl_distro_follows_the_terminal_shell() {
+        assert_eq!(wsl_distro(Some("wsl"), None), Some(None));
+        assert_eq!(wsl_distro(Some("wsl:Ubuntu"), None), Some(Some("Ubuntu".into())));
+        assert_eq!(wsl_distro(Some("wsl:"), None), Some(None));
+        assert_eq!(wsl_distro(Some("powershell"), None), None);
+        assert_eq!(wsl_distro(None, None), None);
+        assert_eq!(wsl_distro(Some("wsl"), Some("work")), None);
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn wsl_is_windows_only() {
+        assert_eq!(wsl_distro(Some("wsl"), None), None);
+    }
 
     #[test]
     fn reads_only_cline_credentials_and_prefixes_oauth_once() {

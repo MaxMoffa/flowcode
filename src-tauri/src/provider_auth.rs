@@ -31,6 +31,9 @@ pub struct AuthRequest {
     pub api_key: Option<String>,
     #[serde(default)]
     pub remote: bool,
+    /// The terminal shell id chats run in (`wsl`, `wsl:<distro>`): Cline then lives in that distro.
+    #[serde(default)]
+    pub shell: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -122,10 +125,16 @@ fn key_busy(cli: &str, profile: Option<&str>) -> bool {
     lock(&KEY_OPS).keys().any(|(_, c, p)| c == cli && p.as_deref() == profile)
 }
 
-fn state_for(app: &AppHandle, cli: &str, profile: Option<&str>, probe: bool) -> AuthState {
-    let installed = crate::plugins::cli_is_installed(cli);
+/// The distro Cline's login lives in, when the chat shell is WSL (see `cline::wsl_distro`).
+fn cline_wsl(cli: &str, profile: Option<&str>, shell: Option<&str>) -> Option<Option<String>> {
+    if cli == "cline" { crate::cline::wsl_distro(shell, profile) } else { None }
+}
+
+fn state_for(app: &AppHandle, cli: &str, profile: Option<&str>, shell: Option<&str>, probe: bool) -> AuthState {
+    let wsl = cline_wsl(cli, profile, shell);
+    let installed = match &wsl { Some(distro) => crate::cline::wsl_installed(distro.as_deref()), None => crate::plugins::cli_is_installed(cli) };
     // Cline's chat (ACP) only accepts the Cline account: a key saved for another provider is not a sign-in here.
-    let signed_in = if cli == "cline" { crate::cline::has_account_login(&crate::profiles::dirs(app, profile).map(|d| d.cline).unwrap_or_default()) } else { crate::plugins::cli_is_logged_in(app, cli, profile) };
+    let signed_in = if let Some(distro) = &wsl { crate::cline::wsl_account_login(distro.as_deref()) } else if cli == "cline" { crate::cline::has_account_login(&crate::profiles::dirs(app, profile).map(|d| d.cline).unwrap_or_default()) } else { crate::plugins::cli_is_logged_in(app, cli, profile) };
     let authenticated = probe && installed && (crate::provider_auth_keys::has_key(app, cli, profile) || signed_in);
     AuthState {
         cli: cli.into(), profile: profile.map(str::to_owned),
@@ -385,7 +394,7 @@ fn read_vibe(app: AppHandle, session: Arc<AuthSession>, stdout: impl Read) {
     if lock(&session.state).phase == "waiting" { mark_error(&session, "auth_failed"); }
 }
 
-fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Result<AuthState, String> {
+fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool, wsl: Option<Option<String>>) -> Result<AuthState, String> {
     reap_expired();
     let _reservation = lock(&RESERVATIONS);
     let mut sessions = lock(&SESSIONS);
@@ -441,9 +450,13 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
  "cline" => "cline auth cline".to_string(), _ => return Err("unsupported_provider".into()) };
         let line = line.as_str();
         #[cfg(target_os = "windows")]
-        let mut command = { let mut cmd = CommandBuilder::new("cmd.exe"); cmd.args(["/D", "/C", line]); cmd };
+        let mut command = match &wsl {
+            // Cline's chat runs in the distro, so its sign-in is saved there too.
+            Some(distro) => { let mut cmd = CommandBuilder::new("wsl.exe"); if let Some(d) = distro { cmd.args(["-d", d]); } cmd.args(["--exec", "bash", "-lc", line]); cmd }
+            None => { let mut cmd = CommandBuilder::new("cmd.exe"); cmd.args(["/D", "/C", line]); cmd }
+        };
         #[cfg(not(target_os = "windows"))]
-        let mut command = { let mut cmd = CommandBuilder::new("/bin/sh"); cmd.args(["-c", &format!("exec {line}")]); cmd };
+        let mut command = { let _ = &wsl; let mut cmd = CommandBuilder::new("/bin/sh"); cmd.args(["-c", &format!("exec {line}")]); cmd };
         command.cwd(&neutral);
         for (key, value) in env { command.env(key, value); }
         command.env("TERM", "xterm-256color"); command.env("NoDefaultCurrentDirectoryInExePath", "1");
@@ -489,15 +502,15 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
     request.profile = request.profile.filter(|profile| !profile.is_empty());
     if crate::profiles::dirs(app, request.profile.as_deref()).is_none() { return Err("profile_not_found".into()); }
     match request.op.as_str() {
-        "status" => Ok(state_for(app, &request.cli, request.profile.as_deref(), true)),
+        "status" => Ok(state_for(app, &request.cli, request.profile.as_deref(), request.shell.as_deref(), true)),
         "start" => {
             if request.method.as_deref().is_some_and(|method| method != "browser") { return Err("unsupported_method".into()); }
-            let state = state_for(app, &request.cli, request.profile.as_deref(), false);
+            let state = state_for(app, &request.cli, request.profile.as_deref(), request.shell.as_deref(), false);
             if !state.installed { return Err("provider_not_installed".into()); }
-            start(app, owner, state, request.remote)
+            start(app, owner, state, request.remote, cline_wsl(&request.cli, request.profile.as_deref(), request.shell.as_deref()))
         }
         "key" => {
-            let mut state = state_for(app, &request.cli, request.profile.as_deref(), false);
+            let mut state = state_for(app, &request.cli, request.profile.as_deref(), request.shell.as_deref(), false);
             if !state.installed { return Err("provider_not_installed".into()); }
             let api_key = request.api_key.as_deref().ok_or("key_invalid")?;
             let op: KeyOp = (owner.to_owned(), request.cli.clone(), request.profile.clone());
@@ -519,7 +532,7 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
         // A key verification has no session id: cancel it by owner/provider/profile.
         "cancel" if request.session_id.is_none() => {
             cancel_key_ops(|(o, c, p)| o == owner && *c == request.cli && *p == request.profile);
-            let mut state = state_for(app, &request.cli, request.profile.as_deref(), false);
+            let mut state = state_for(app, &request.cli, request.profile.as_deref(), request.shell.as_deref(), false);
             state.phase = "cancelled".into();
             Ok(state)
         }
@@ -546,7 +559,10 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
                 if exited == Some(false) { mark_error(&session, "auth_failed"); }
                 else if browser_ready_to_probe(&request.cli, exited, &session.stamp, &stamp) {
                     let env = browser_env(app, request.profile.as_deref());
-                    let authenticated = crate::plugins::cli_browser_is_logged_in(app, &request.cli, request.profile.as_deref(), &env);
+                    let authenticated = match cline_wsl(&request.cli, request.profile.as_deref(), request.shell.as_deref()) {
+                        Some(distro) => crate::cline::wsl_account_login(distro.as_deref()),
+                        None => crate::plugins::cli_browser_is_logged_in(app, &request.cli, request.profile.as_deref(), &env),
+                    };
                     if authenticated { finish(app, &session)?; }
                     else if exited.is_some() { mark_error(&session, "auth_failed"); }
                 }

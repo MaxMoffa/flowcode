@@ -6,12 +6,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ProviderAuthDialog } from "../../shared/ProviderAuthDialog";
 import type { ProviderAuthState, ProviderAuthTransport } from "../../shared/providerAuth";
 import { useI18n } from "../i18n";
+import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { AGENT_CLIS, CLI_INFO, invalidateCliStatus } from "../agents/cliInfo";
 import { refreshProviderUsage } from "../plugins/useUsageState";
 import { refreshProfiles, useProfiles } from "./profiles";
 import { completeProviderAuthentication, PROVIDER_AUTH_OPEN, type ProviderAuthenticated, type ProviderAuthOpen } from "./providerAuth";
 
-const transport: ProviderAuthTransport = (request) => invoke<ProviderAuthState>("provider_auth", { request });
+const transport: ProviderAuthTransport = (request) => invoke<ProviderAuthState>("provider_auth", { request: { ...request, shell: getConfiguredShell() } });
 
 /** One dialog handles chat, usage popups and profile settings, without opening a terminal tab. */
 export function ProviderAuthHost() {
