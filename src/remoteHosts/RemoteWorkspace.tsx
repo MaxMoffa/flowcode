@@ -6,6 +6,7 @@ import { RemoteTerminalView } from "./RemoteTerminalView";
 import { RemoteFileViewer } from "./RemoteFileViewer";
 import { RemoteDiffViewer } from "./RemoteDiffViewer";
 import { RemoteLinks } from "./RemoteLinks";
+import { useRemoteBrowserMirror } from "./remoteBrowserMirror";
 import "./remote-hosts.css";
 
 /** The content area while another PC is in front. Tabs already visited stay mounted (switching is instant); only the active one is shown.
@@ -13,6 +14,7 @@ import "./remote-hosts.css";
 export function RemoteWorkspace({ hostId }: { hostId: string }) {
   useI18n();
   const host = useHost(hostId);
+  useRemoteBrowserMirror(hostId);
   const { tabs, chats, activeKey } = useHostState(hostId);
   const entries = remoteEntries(tabs, chats);
   const [visited, setVisited] = useState<readonly string[]>([]);

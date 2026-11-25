@@ -31,3 +31,9 @@ export async function chatFileUrl(hostId: string, chatId: string, relative: stri
   const local = await invoke<number>("remote_host_tunnel", { id: hostId, chatId });
   return `http://localhost:${local}/${relative.split("/").map(encodeURIComponent).join("/")}`;
 }
+
+/** A file of a page of the other PC's browser (`pageId`, the file's `name` in the folder that page is in) as an address that opens here. */
+export async function browserPageFileUrl(hostId: string, pageId: string, name: string): Promise<string> {
+  const local = await invoke<number>("remote_host_tunnel", { id: hostId, pageId });
+  return `http://localhost:${local}/${encodeURIComponent(name)}`;
+}

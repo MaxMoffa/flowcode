@@ -44,6 +44,34 @@ impl RemoteClients {
     }
 }
 
+/// How long a tunnel's listener may go without a connection (and with none open) before it is closed.
+const TUNNEL_IDLE: Duration = Duration::from_secs(10 * 60);
+
+/// Accepts connections and runs `on_conn` for each, until `idle` passes with no connection open and none arriving (or accepting fails). Streams in flight die with it.
+async fn serve_until_idle<F, Fut>(listener: TcpListener, idle: Duration, mut on_conn: F)
+where
+    F: FnMut(tokio::net::TcpStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let mut streams = tokio::task::JoinSet::new();
+    loop {
+        let accepted = if streams.is_empty() {
+            match tokio::time::timeout(idle, listener.accept()).await {
+                Ok(accepted) => accepted,
+                Err(_) => break,
+            }
+        } else {
+            // Something is open: not idle. When it ends the clock starts over.
+            tokio::select! {
+                accepted = listener.accept() => accepted,
+                _ = streams.join_next() => continue,
+            }
+        };
+        let Ok((tcp, _)) = accepted else { break };
+        streams.spawn(on_conn(tcp));
+    }
+}
+
 /// The host's current QUIC connection, if its link is up.
 fn connection_of(clients: &RemoteClients, id: &str) -> Option<iroh::endpoint::Connection> {
     clients.lock().get(id).and_then(|c| c.quic.clone())
@@ -51,12 +79,14 @@ fn connection_of(clients: &RemoteClients, id: &str) -> Option<iroh::endpoint::Co
 
 /// Makes `port` of the other PC's loopback reachable at `127.0.0.1:<returned>` of this one (idempotent).
 #[tauri::command]
-pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: String, port: Option<u16>, chat_id: Option<String>) -> Result<u16, String> {
-    let target = match (port, chat_id) {
-        (Some(0), _) => return Err("invalid port".into()),
-        (Some(port), _) => PreviewTarget::Port(port),
+pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: String, port: Option<u16>, chat_id: Option<String>, page_id: Option<String>) -> Result<u16, String> {
+    let target = match (port, chat_id, page_id) {
+        (Some(0), _, _) => return Err("invalid port".into()),
+        (Some(port), _, _) => PreviewTarget::Port(port),
         // The files of a chat's working folder, served over HTTP by the other PC (needs its `chatPreview`).
-        (None, Some(chat)) if !chat.is_empty() && !chat.contains(char::is_whitespace) => PreviewTarget::ChatFiles(chat),
+        (None, Some(chat), _) if !chat.is_empty() && !chat.contains(char::is_whitespace) => PreviewTarget::ChatFiles(chat),
+        // The folder of a file page of the other PC's browser (needs its `browserTabs`).
+        (None, None, Some(page)) if !page.is_empty() && !page.contains(char::is_whitespace) => PreviewTarget::BrowserPage(page),
         _ => return Err("no target".into()),
     };
     let header = preview_header(&target);
@@ -70,18 +100,16 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.map_err(|e| e.to_string())?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let clients_for_task = Arc::clone(&clients);
+    let clients_for_exit = Arc::clone(&clients);
     let host = id.clone();
     let header_key = header.clone();
+    let key = (id.clone(), header_key.clone());
     let task = tauri::async_runtime::spawn(async move {
-        // Streams in flight live in the set: aborting this task aborts them too.
-        let mut streams = tokio::task::JoinSet::new();
-        loop {
-            let Ok((tcp, _)) = listener.accept().await else { break };
-            while streams.try_join_next().is_some() {}
+        serve_until_idle(listener, TUNNEL_IDLE, move |tcp| {
             let clients = Arc::clone(&clients_for_task);
             let host = host.clone();
             let header = header.clone();
-            streams.spawn(async move {
+            async move {
                 // Read at each connection: a redialed link has a new one.
                 let Some(conn) = connection_of(&clients, &host) else { return };
                 let Ok((mut send, recv)) = conn.open_bi().await else { return };
@@ -93,7 +121,13 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
                 let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
                 let (_, mut send) = stream.into_inner();
                 let _ = send.finish();
-            });
+            }
+        })
+        .await;
+        // Unused for a while (or the listener failed): forget it, `remote_host_tunnel` makes a new one on demand.
+        let mut map = clients_for_exit.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(&key).is_some_and(|t| t.local_port == local_port) {
+            map.remove(&key);
         }
     });
     let mut tunnels = clients.tunnels.lock().unwrap_or_else(|e| e.into_inner());
@@ -149,7 +183,9 @@ pub async fn remote_host_upload(clients: State<'_, Arc<RemoteClients>>, id: Stri
 
 #[cfg(test)]
 mod tests {
-    use super::drop_host;
+    use super::{drop_host, serve_until_idle};
+    use std::time::Duration;
+    use tokio::net::{TcpListener, TcpStream};
     use std::collections::HashMap;
 
     #[test]
@@ -166,5 +202,27 @@ mod tests {
         assert!(map.contains_key(&("b".to_string(), "port 1
 ".to_string())));
         assert_eq!(drop_host(&mut map, "a"), 0);
+    }
+
+    #[tokio::test]
+    async fn an_unused_listener_ends_after_the_idle_time() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(5), serve_until_idle(listener, Duration::from_millis(80), |_tcp| async {})).await;
+        assert!(ended.is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_open_connection_keeps_the_listener_and_the_clock_restarts_after_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(100), |_tcp| async {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+        }));
+        let _client = TcpStream::connect(addr).await.unwrap();
+        // Longer than the idle time, still serving: the connection is open.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert!(!serve.is_finished());
+        // Handler done at ~400 ms, then 100 ms idle.
+        assert!(tokio::time::timeout(Duration::from_secs(5), serve).await.is_ok());
     }
 }

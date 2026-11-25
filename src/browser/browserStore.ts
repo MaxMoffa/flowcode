@@ -37,10 +37,20 @@ export interface PageError {
   at: number;
 }
 
+/** Marks a page that mirrors a tab of another PC's browser (see remoteHosts/remoteBrowserMirror). `key` is what the other PC showed
+ * last, to tell its own change from ours. */
+export interface MirrorTag {
+  hostId: string;
+  remoteId: string;
+  key: string;
+}
+
 export type PreviewPage =
   | {
       id: string;
       kind: "url";
+      /** Set when this page mirrors a tab of another PC. */
+      mirror?: MirrorTag;
       /** Where the page really is (the native view reports it): what the address bar shows. */
       url: string;
       /** What was asked for (typed, an agent, a link): the native view navigates when it changes. */
@@ -59,9 +69,9 @@ export type PreviewPage =
       /** An agent drives this page (opened by it, or handed over). */
       control?: PageControl;
     }
-  | { id: string; kind: "file"; path: string }
+  | { id: string; kind: "file"; path: string; mirror?: MirrorTag }
   /** `src` is an http(s) URL or an absolute local path. */
-  | { id: string; kind: "pdf"; src: string };
+  | { id: string; kind: "pdf"; src: string; mirror?: MirrorTag };
 
 /** A dev server a terminal printed an address for. */
 interface DetectedServer {
@@ -272,10 +282,10 @@ export function openFileFromRemote(path: string, nonce: string) {
 /** The tabs as the phone mirrors them. */
 export function browserTabsSnapshot(state: BrowserState): BrowserTabsSnapshot {
   return {
-    pages: state.pages.map((p): BrowserTabPage =>
+    pages: state.pages.filter((p) => !p.mirror).map((p): BrowserTabPage =>
       p.kind === "url" ? { id: p.id, kind: "url", url: p.url, canBack: p.back.length > 0, canForward: p.forward.length > 0 } : p.kind === "file" ? { id: p.id, kind: "file", path: p.path } : { id: p.id, kind: "pdf", src: p.src },
     ),
-    activeId: state.activeId,
+    activeId: state.pages.find((p) => p.id === state.activeId)?.mirror ? null : state.activeId,
     servers: state.servers.map((s) => ({ url: s.url, port: s.port, alive: s.alive })),
     opened: state.remoteOpened,
   };
@@ -378,7 +388,67 @@ export function activatePage(id: string) {
   if (store.get().pages.some((p) => p.id === id)) store.update((s) => ({ ...s, activeId: id }));
 }
 
+// ---- tabs mirrored from another PC ----
+/** What the user does to a mirrored page that the other PC must hear (set by remoteHosts, which owns the links). */
+interface MirrorHooks {
+  close: (tag: MirrorTag) => void;
+  navigate: (tag: MirrorTag, url: string) => void;
+}
+let mirrorHooks: MirrorHooks | null = null;
+export function setMirrorHooks(hooks: MirrorHooks | null) {
+  mirrorHooks = hooks;
+}
+
+export type MirrorTarget = { kind: "url"; url: string } | { kind: "file"; path: string } | { kind: "pdf"; src: string };
+
+/** Adds the mirror of a remote tab, or updates it when the other PC changed what it shows (a url page navigates, another kind is replaced). Our own changes (key unchanged) are left alone. Returns the page id. */
+export function upsertMirroredPage(tag: MirrorTag, target: MirrorTarget, activate = false): string {
+  const same = (p: PreviewPage) => p.mirror?.hostId === tag.hostId && p.mirror.remoteId === tag.remoteId;
+  const existing = store.get().pages.find(same);
+  if (existing?.mirror?.key === tag.key) return existing.id;
+  if (existing?.kind === "url" && target.kind === "url") {
+    updateUrlPage(existing.id, (p) => ({ ...p, requestedUrl: target.url, mirror: tag }));
+    return existing.id;
+  }
+  const id = existing?.id ?? newId();
+  if (existing?.kind === "url") native(() => nativeView.close(id));
+  const page: PreviewPage =
+    target.kind === "url"
+      ? { id, kind: "url", url: target.url, requestedUrl: target.url, back: [], forward: [], mirror: tag }
+      : target.kind === "file"
+        ? { id, kind: "file", path: target.path, mirror: tag }
+        : { id, kind: "pdf", src: target.src, mirror: tag };
+  store.update((s) => ({
+    ...s,
+    pages: existing ? s.pages.map((p) => (p.id === id ? page : p)) : [...s.pages, page],
+    activeId: activate || !s.activeId ? id : s.activeId,
+  }));
+  return id;
+}
+
+/** Removes the mirrored pages of `hostId` whose remote tab is not in `keep` (all of them without it): the other PC closed them, or left the front. Never tells the other PC. */
+export function dropMirroredPages(hostId: string, keep?: ReadonlySet<string>) {
+  const gone = store.get().pages.filter((p) => p.mirror?.hostId === hostId && !keep?.has(p.mirror.remoteId));
+  if (gone.length === 0) return;
+  const ids = new Set(gone.map((p) => p.id));
+  for (const p of gone) {
+    native(() => nativeView.close(p.id));
+    forgetErrorTiming(p.id);
+  }
+  store.update((s) => {
+    const pages = s.pages.filter((p) => !ids.has(p.id));
+    let activeId = s.activeId;
+    if (activeId && ids.has(activeId)) {
+      const at = s.pages.findIndex((p) => p.id === activeId);
+      activeId = s.pages.slice(at + 1).find((p) => !ids.has(p.id))?.id ?? pages[pages.length - 1]?.id ?? null;
+    }
+    return { ...s, pages, activeId };
+  });
+}
+
 export function closePage(id: string) {
+  const mirror = store.get().pages.find((p) => p.id === id)?.mirror;
+  if (mirror) mirrorHooks?.close(mirror);
   native(() => nativeView.close(id));
   forgetErrorTiming(id);
   store.update((s) => {
@@ -403,6 +473,7 @@ export function closePages(ids: string[]): ClosedPages | null {
   const removed = before.pages.map((page, index) => ({ page, index })).filter((e) => wanted.has(e.page.id));
   if (removed.length === 0) return null;
   for (const { page } of removed) {
+    if (page.mirror) mirrorHooks?.close(page.mirror);
     native(() => nativeView.close(page.id));
     forgetErrorTiming(page.id);
   }
@@ -437,7 +508,8 @@ export function restorePages(closed: ClosedPages) {
     const restored: string[] = [];
     const sorted = [...closed.pages].sort((a, b) => a.index - b.index);
     for (const { page, index } of sorted) {
-      if (isAlreadyOpen(pages, page)) continue;
+      // The other PC closed a mirrored page with it: nothing to bring back here.
+      if (page.mirror || isAlreadyOpen(pages, page)) continue;
       const fresh: PreviewPage =
         page.kind === "url"
           ? {
@@ -472,6 +544,9 @@ function updateUrlPage(id: string, fn: (page: Extract<PreviewPage, { kind: "url"
 
 /** Asks the page to go to `url`. The address bar follows once the view reports it (syncPageUrl). */
 export function navigatePage(id: string, url: string) {
+  const mirror = store.get().pages.find((p) => p.id === id)?.mirror;
+  // A mirrored page goes where the other PC sends it; its answer moves this view.
+  if (mirror && mirrorHooks) return mirrorHooks.navigate(mirror, url);
   updateUrlPage(id, (p) => (p.url === url || p.requestedUrl === url ? p : { ...p, requestedUrl: url }));
 }
 
