@@ -803,12 +803,12 @@ pub async fn browser_view_snapshot(
     {
         use base64::Engine;
         let (tx, rx) = tokio::sync::oneshot::channel::<Option<Vec<u8>>>();
-        if wv.with_webview(move |pw| unsafe { capture_png(pw, tx) }).is_err() {
+        if wv.with_webview(move |pw| unsafe { capture_jpeg(pw, tx) }).is_err() {
             return Ok(None);
         }
-        Ok(match tokio::time::timeout(Duration::from_millis(500), rx).await {
-            Ok(Ok(Some(png))) => {
-                Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
+        Ok(match tokio::time::timeout(Duration::from_millis(900), rx).await {
+            Ok(Ok(Some(jpeg))) => {
+                Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg)))
             }
             _ => None,
         })
@@ -821,9 +821,9 @@ pub async fn browser_view_snapshot(
 }
 
 #[cfg(windows)]
-unsafe fn capture_png(pw: tauri::webview::PlatformWebview, tx: tokio::sync::oneshot::Sender<Option<Vec<u8>>>) {
+unsafe fn capture_jpeg(pw: tauri::webview::PlatformWebview, tx: tokio::sync::oneshot::Sender<Option<Vec<u8>>>) {
     use webview2_com::CapturePreviewCompletedHandler;
-    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG;
     use windows::Win32::Foundation::HGLOBAL;
     use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
     use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
@@ -851,7 +851,7 @@ unsafe fn capture_png(pw: tauri::webview::PlatformWebview, tx: tokio::sync::ones
         let _ = tx.send(if res.is_ok() { unsafe { read_all(&keep) } } else { None });
         Ok(())
     }));
-    let _ = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler);
+    let _ = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &handler);
 }
 
 static FAVICONS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);

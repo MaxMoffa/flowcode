@@ -665,6 +665,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
   const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
+  const drawerHeld = tabsOpen && nativeLive && !suspended;
   // An agent drives this page: ring around the view and a bar under it (settings "off" turns the whole thing inert).
   const control = urlPage?.control && controlSetting !== "off" ? urlPage.control : null;
   const toastInset = (toast || diagToast || openError || closedToast) && urlPage ? TOAST_INSET : 0;
@@ -1022,8 +1023,9 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
       {tabsOpen && (
         <>
-          <div className="browser-tabs-scrim" onClick={() => setTabsOpen(false)} />
-          <div ref={tabsRef} className="browser-tabs-drawer" role="dialog" aria-label={t("browser.tabs")}>
+          {/* Held (invisible, not animating) until the native view is parked: it sits above the DOM and would cover the slide-in. */}
+          <div className={"browser-tabs-scrim" + (drawerHeld ? " is-held" : "")} onClick={() => setTabsOpen(false)} />
+          <div ref={tabsRef} className={"browser-tabs-drawer" + (drawerHeld ? " is-held" : "")} role="dialog" aria-label={t("browser.tabs")}>
             <div className="browser-tabs-drawer-head">
               <span className="browser-tabs-drawer-title">{t("browser.tabs")}</span>
               <span className="browser-tabs-drawer-count">{`· ${pages.length}`}</span>

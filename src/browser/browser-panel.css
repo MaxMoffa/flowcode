@@ -1084,11 +1084,30 @@
   flex: 1;
 }
 
+.browser-tabs-scrim.is-held,
+.browser-tabs-drawer.is-held {
+  visibility: hidden;
+  animation: none;
+}
+
+/* Anchored to the drawer head: the popover's height cap (relative to the panel) would squash it here. */
 .browser-tabs-drawer .browser-tabs-actions {
   top: calc(100% - 2px);
   right: 8px;
   z-index: 7;
-  width: min(250px, calc(100% - 16px));
+  width: max-content;
+  min-width: 220px;
+  max-width: calc(100vw - 24px);
+  max-height: none;
+  overflow: visible;
+}
+
+.browser-tabs-drawer .browser-tabs-actions .browser-menu-item {
+  white-space: nowrap;
+}
+
+.browser-tabs-drawer .browser-tabs-actions .browser-menu-key {
+  padding-left: 16px;
 }
 
 .browser-tabs-chips {
