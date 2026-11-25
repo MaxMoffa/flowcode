@@ -8,6 +8,7 @@ import type { ChatSession } from "../chat/useChat";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatAttachment, ChatEvent } from "../chat/chatTypes";
 import { discardAttachment } from "../chat/attachmentRelease";
+import { queuedAttachments, takeStaged, type StagedFiles } from "./queuedFiles";
 import type { ChatAttachmentRef } from "../../shared/remote-types";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
 import { agentCallOf } from "../../shared/agentOpen";
@@ -24,6 +25,15 @@ import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMess
 export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const [session, setSession] = useState<RemoteSession>(emptySession);
   const sessionRef = useRef(session);
+  // The composer's copies of the files of queued messages, by the id the other PC stored them under (see queuedFiles).
+  const stagedRef = useRef<StagedFiles>(new Map());
+  useEffect(() => {
+    const staged = stagedRef.current;
+    return () => {
+      staged.forEach(discardAttachment);
+      staged.clear();
+    };
+  }, []);
   const info = useHostState(hostId).chats.find((c) => c.chatId === chatId);
   const infoRef = useRef(info);
   infoRef.current = info;
@@ -82,6 +92,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     update(() => taken.session);
     void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.files.length > 0 ? { attachments: taken.files } : {}), ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
       if (!ok) update((cur) => putBack(cur, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
+      // Out of the queue for good: its files are on the other PC, the staged copies are not needed.
+      else takeStaged(stagedRef.current, taken.files).forEach(discardAttachment);
     });
   }, [hostId, chatId, update, promptReceipts]);
 
@@ -209,12 +221,15 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             if (!a.upload) throw new Error(a.name);
             const id = await invoke<string>("remote_host_upload", { id: hostId, chatId, upload: a.upload, name: a.name, mime: a.mime });
             files.push({ id, name: a.name, mime: a.mime });
+            // Kept staged while the message waits: pulled back into the composer, they are attachments again.
+            stagedRef.current.set(id, a);
           }
           enqueue(files);
         } catch (e) {
+          // Nothing queued: the files are not wanted any more, uploaded or not.
+          attachments.forEach(discardAttachment);
           update((s) => ({ ...s, model: applyLocalError(s.model, t("remoteHosts.attachFailed", { error: String(e) })) }));
         } finally {
-          attachments.forEach(discardAttachment);
           lane.pending--;
         }
       });
@@ -256,7 +271,14 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   // The host arms its own chats; only editing or cancelling its scheduled resume is forwarded (when it supports that).
   const canUpdateResume = !!host?.caps.includes("chatResume");
   const updateResume = useCallback((text: string | null) => void sendToHost(hostId, { t: "chatresume", chatId, text }), [hostId, chatId]);
-  const unqueue = useCallback((index: number) => update((s) => ({ ...s, queued: s.queued.filter((_, i) => i !== index) })), [update]);
+  // The composer takes the message back (and its staged files with it, from `queued`), or throws it away and discards them itself.
+  const unqueue = useCallback(
+    (index: number) => {
+      takeStaged(stagedRef.current, sessionRef.current.queued[index]?.files ?? []);
+      update((s) => ({ ...s, queued: s.queued.filter((_, i) => i !== index) }));
+    },
+    [update],
+  );
   const force = useCallback(
     (index: number) => {
       const cancels = forceNeedsCancel(sessionRef.current, chatStatus(infoRef.current, sessionRef.current.model));
@@ -279,6 +301,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   // A fresh conversation: "/clear" in that chat's tab, or (once it ended) a new chat of the same agent and folder.
   const canClear = !!host?.caps.includes("chatClear");
   const clear = useCallback(() => {
+    sessionRef.current.queued.forEach((q) => takeStaged(stagedRef.current, q.files).forEach(discardAttachment));
     update((s) => ({ ...s, queued: [] }));
     // Most agents keep the tab and just start a new session; the others get a new chat in its place.
     if (infoAgent && infoCwd) expectNewTab(hostId, chatLike(infoAgent, infoCwd, chatId), chatId);
@@ -342,8 +365,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     // A remote PC's agent runs on that PC, never in a WSL distro of this one.
     wslDistro: null,
     profileId: null,
-    // A message's files are on the other PC once queued: the queue shows them as names only.
-    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: q.files.map((f) => ({ name: f.name, mime: f.mime })) })), [session.queued]),
+    // The files are on the other PC once queued; the staged copies stay here so a message pulled back keeps them as attachments.
+    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: queuedAttachments(q.files, stagedRef.current) })), [session.queued]),
     canAttach,
     resumed: true,
     loaded: true,
