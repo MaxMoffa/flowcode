@@ -24,7 +24,7 @@ export function dragTarget(height: number, velocity: number, half: number, full:
 
 /**
  * Lets a finger drag the browser drawer by its handle (grabber and toolbar) and settle on a
- * detent or close. While dragging, `--br-h` on the root follows the finger.
+ * detent or close. While dragging, the root's translateY follows the finger (compositor only, no layout).
  */
 export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef: RefObject<HTMLElement | null>, enabled: boolean, onRelease: (target: Detent | "closed") => void): void {
   const release = useRef(onRelease);
@@ -42,15 +42,7 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
     let height = 0;
     let samples: Sample[] = [];
 
-    // The full detent stops `--br-top-gap` below the top (clear of the status bar, see browser.css).
-    const topGap = () => {
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--br-top-gap)";
-      root!.appendChild(probe);
-      const gap = probe.offsetHeight;
-      probe.remove();
-      return gap;
-    };
+    // The drawer is laid out at its full height (browser.css) and slid with a transform; the full detent stops `--br-top-gap` below the top, which is what its height is.
     let fullAtDown = 0;
     const fullHeight = () => fullAtDown;
 
@@ -58,7 +50,7 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
       pointerId = -1;
       if (dragging) {
         root!.classList.remove("is-dragging");
-        root!.style.removeProperty("--br-h");
+        root!.style.removeProperty("transform");
       }
       dragging = false;
     }
@@ -67,8 +59,9 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
       if (!e.isPrimary || (e.target as Element).closest("input, .br-btn")) return;
       pointerId = e.pointerId;
       startY = e.clientY;
-      startHeight = root!.offsetHeight;
-      fullAtDown = (window.visualViewport?.height ?? window.innerHeight) - topGap();
+      fullAtDown = root!.offsetHeight;
+      // The visible part: from the (maybe moving) top edge down to the bottom of the layout box.
+      startHeight = root!.offsetTop + fullAtDown - root!.getBoundingClientRect().top;
       dragging = false;
       samples = [];
     }
@@ -84,7 +77,7 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
         root!.classList.add("is-dragging");
       }
       height = Math.min(Math.max(startHeight - dy, 0), fullHeight());
-      root!.style.setProperty("--br-h", height + "px");
+      root!.style.transform = `translateY(${fullHeight() - height}px)`;
       samples.push({ t: e.timeStamp, d: e.clientY });
       while (samples.length > 1 && e.timeStamp - samples[0].t > 160) samples.shift();
     }

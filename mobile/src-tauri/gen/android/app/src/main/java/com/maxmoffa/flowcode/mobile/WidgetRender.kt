@@ -319,9 +319,10 @@ internal object WidgetRender {
         }
     }
 
-    /** Renders off the main thread; `pending` (from `goAsync()`) keeps the receiver alive. */
+    /** Renders off the main thread. `pending` (from `goAsync()`) is released at once: holding it for 24 PNGs per widget risks an ANR at boot/resize, and the single render thread finishes the queued work anyway. */
     fun updateAsync(ctx: Context, kind: WidgetKind, ids: IntArray, pending: BroadcastReceiver.PendingResult?) {
-        enqueue(ctx.applicationContext, kind, ids) { pending?.finish() }
+        enqueue(ctx.applicationContext, kind, ids, null)
+        pending?.finish()
     }
 
     /** After new stats from the app: every instance of every provider. */

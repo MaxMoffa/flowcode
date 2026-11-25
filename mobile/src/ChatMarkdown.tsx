@@ -1,6 +1,6 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, memo, useContext, useMemo, type ReactNode } from "react";
 import { markdownImageRef, splitLinks } from "../../src/chat/chatLinks";
-import { renderMarkdown } from "../../shared/Markdown";
+import { MarkdownText, type MarkdownAdapters } from "../../shared/Markdown";
 import { ChatImageView } from "./ChatImage";
 import { ChatTable } from "./ChatTable";
 import { t } from "./i18n";
@@ -85,17 +85,25 @@ function withLinks(text: string, keyBase: string, onLink: OnLink, canOpen: (path
 /** Whether a `[text](path)` link can be opened (the chat knows its folder). */
 export const ChatFileLinks = createContext<(path: string) => boolean>(() => false);
 
-/** Markdown with the phone's link sheet and image provider. */
-export function ChatMarkdown({ text, onLink }: { text: string; onLink: OnLink }) {
+/** Markdown with the phone's link sheet and image provider. Memoised, and its adapter is stable, so a streaming message reparses only its last chunk. */
+export const ChatMarkdown = memo(function ChatMarkdown({ text, onLink }: { text: string; onLink: OnLink }) {
   const canOpen = useContext(ChatFileLinks);
-  return <div className="chat-md">{renderMarkdown(text, {
-    text: (text, key, label) => withLinks(text, key, onLink, canOpen, label),
-    code: (text, key) => codeSpan(text, key, onLink, canOpen),
-    image: (src, alt, key) => {
-      const ref = markdownImageRef(src);
-      return ref ? <ChatImageView key={key} image={ref} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
-    },
-    table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
-    copyLabels: { copy: t("chatCodeCopy"), copied: t("chatTableCopied"), code: t("chatCodeShowCode"), diagram: t("chatCodeShowDiagram") },
-  })}</div>;
-}
+  const adapter = useMemo<MarkdownAdapters>(
+    () => ({
+      text: (text, key, label) => withLinks(text, key, onLink, canOpen, label),
+      code: (text, key) => codeSpan(text, key, onLink, canOpen),
+      image: (src, alt, key) => {
+        const ref = markdownImageRef(src);
+        return ref ? <ChatImageView key={key} image={ref} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
+      },
+      table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
+      copyLabels: { copy: t("chatCodeCopy"), copied: t("chatTableCopied"), code: t("chatCodeShowCode"), diagram: t("chatCodeShowDiagram") },
+    }),
+    [onLink, canOpen],
+  );
+  return (
+    <div className="chat-md">
+      <MarkdownText text={text} adapter={adapter} />
+    </div>
+  );
+});

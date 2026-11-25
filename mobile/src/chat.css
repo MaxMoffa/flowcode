@@ -236,6 +236,9 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* Turns scrolled far off screen skip layout and paint; `auto` remembers the last real height, so the scroll position holds. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
 }
 
 .chat-agent {
@@ -1776,10 +1779,11 @@ button.chat-step-row {
   padding: 2px 0;
   overflow: hidden;
   font-size: 12.5px;
-  transition: opacity .4s, transform .4s, max-height .4s, padding .4s;
+  transition: opacity .4s, transform .4s;
 }
 
-.chat-subtray-row.is-leaving { opacity: 0; transform: translateX(10px); max-height: 0; padding-block: 0; }
+/* Fade and slide only (no max-height/padding: that relayouts the card each frame); the row leaves the flow when it is removed. */
+.chat-subtray-row.is-leaving { opacity: 0; transform: translateX(10px); }
 .chat-subtray-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: chat-subtray-pulse 1.2s ease-in-out infinite; }
 .chat-subtray-name { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; white-space: nowrap; }
 .chat-subtray-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
@@ -1796,7 +1800,6 @@ button.chat-step-row {
 @keyframes chat-subtray-list-in { from { opacity: 0; transform: translateY(8px); } }
 .chat-subtray.is-grouped .chat-subtray-row { width: 100%; min-height: 40px; max-height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; }
 .chat-subtray.is-grouped button.chat-subtray-row:active { background: color-mix(in srgb, var(--fg) 6%, transparent); }
-.chat-subtray.is-grouped .chat-subtray-row.is-leaving { min-height: 0; max-height: 0; padding-block: 0; }
 .chat-subtray-go { flex: none; width: 22px; display: grid; place-items: center; color: var(--muted); }
 .chat-subtray + .chat-card { z-index: 1; }
 @keyframes chat-subtray-pulse { 50% { opacity: .3; } }
@@ -2459,8 +2462,20 @@ button.chat-step-row {
 }
 
 .chat-round.chat-mic.is-listening {
+  position: relative;
+  isolation: isolate;
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* The pulse is a ring scaled and faded on the compositor (animating box-shadow repaints every frame). */
+.chat-round.chat-mic.is-listening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--chat-glow);
   animation: chat-mic-pulse 1.4s ease-out infinite;
 }
 
@@ -2476,10 +2491,12 @@ button.chat-step-row {
 
 @keyframes chat-mic-pulse {
   from {
-    box-shadow: 0 0 0 0 var(--chat-glow);
+    opacity: 1;
+    transform: scale(1);
   }
   to {
-    box-shadow: 0 0 0 12px transparent;
+    opacity: 0;
+    transform: scale(1.5);
   }
 }
 
@@ -2886,8 +2903,18 @@ button.chat-step-row {
 }
 
 .chat-subcard-bar.is-running i {
-  background: linear-gradient(90deg, var(--accent-2, var(--muted)), var(--accent), var(--accent-2, var(--muted)));
-  background-size: 200% 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* The moving gradient is a strip slid by transform (animating background-position repaints every frame): 3 widths of the bar, a 2-width period, one period per loop. */
+.chat-subcard-bar.is-running i::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 300%;
+  background: linear-gradient(90deg, var(--accent-2, var(--muted)), var(--accent), var(--accent-2, var(--muted))) 0 0 / 66.6667% 100% repeat-x;
+  transform: translateX(-66.6667%);
   animation: chat-subcard-shimmer 1.6s linear infinite;
 }
 
@@ -2896,9 +2923,13 @@ button.chat-step-row {
   animation: none;
 }
 
+.chat-subcard-bar.is-bad i::after {
+  display: none;
+}
+
 @keyframes chat-subcard-shimmer {
   to {
-    background-position: -200% 0;
+    transform: translateX(0);
   }
 }
 
@@ -3266,13 +3297,16 @@ button.chat-step-row {
 .chat-img.is-loading::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.06) 50%, transparent 70%) 0 0 / 200% 100%;
+  inset: 0 auto 0 0;
+  /* A strip twice the image, slid by transform (animating background-position repaints every frame). */
+  width: 200%;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.06) 50%, transparent 70%);
+  transform: translateX(-50%);
   animation: chat-img-shimmer 1.4s infinite linear;
 }
 @keyframes chat-img-shimmer {
   to {
-    background-position: -200% 0;
+    transform: translateX(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4142,4 +4176,9 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   .chat-dots i {
     animation: none;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-round.chat-mic.is-listening::after,
+  .chat-subcard-bar.is-running i::after { animation: none; }
 }

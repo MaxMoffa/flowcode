@@ -218,14 +218,28 @@
 }
 
 .hm-mic.is-listening {
+  position: relative;
+  isolation: isolate;
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* A halo scaled and faded on the compositor (animating box-shadow repaints every frame). */
+.hm-mic.is-listening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--accent-bg);
+  opacity: 0;
   animation: hm-mic-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes hm-mic-pulse {
   50% {
-    box-shadow: 0 0 0 6px var(--accent-bg);
+    opacity: 1;
+    transform: scale(1.3);
   }
 }
 
@@ -966,4 +980,8 @@
   .hm-menu {
     animation: none;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-mic.is-listening::after { animation: none; }
 }

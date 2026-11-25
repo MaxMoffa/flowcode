@@ -1,11 +1,15 @@
 .br-root {
   --br-top-gap: calc(var(--safe-t) + 16px);
-  --br-h: calc(var(--app-h, 100dvh) * 0.62);
+  /* The drawer is always laid out at its full height and slid with translateY (compositor only: no
+     per-frame layout of the page inside). Half is the same box pushed down by --br-off; its
+     padding keeps the content above the screen edge, changing once per detent, not animated. */
+  --br-full: calc(var(--app-h, 100dvh) - var(--br-top-gap));
+  --br-off: calc(var(--br-full) - var(--app-h, 100dvh) * 0.62);
   position: fixed;
   left: 0;
   right: 0;
-  top: calc(var(--app-h, 100dvh) - var(--br-h));
-  height: var(--br-h);
+  top: var(--br-top-gap);
+  height: var(--br-full);
   /* Above the session top buttons (.st-top, 20), so a full drawer is not covered. */
   z-index: 25;
   display: flex;
@@ -13,20 +17,23 @@
   overflow: hidden;
   background: var(--surface);
   color: var(--fg);
-  padding-bottom: var(--safe-b);
+  padding-bottom: calc(var(--safe-b) + var(--br-off));
   border-radius: 22px 22px 0 0;
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-strong);
-  transition: top 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(var(--br-off));
+  will-change: transform;
+  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .br-root.is-full {
   /* Stops under the status bar with a margin: a finger reaching for the grabber
      must not start Android's notification shade. browserDrag.ts reads the gap. */
-  --br-h: calc(var(--app-h, 100dvh) - var(--br-top-gap));
+  --br-off: 0px;
 }
 
 .br-root.is-closed {
-  --br-h: 0px;
+  /* Slid fully off (plus the shadow); the padding stays as it was, so closing reflows nothing. */
+  transform: translateY(calc(100% + 40px));
 }
 
 .br-root.is-dragging {
@@ -38,7 +45,10 @@
 }
 
 .br-root.is-wide {
-  --br-h: var(--app-h, 100dvh);
+  --br-off: 0px;
+  top: 0;
+  height: var(--app-h, 100dvh);
+  transform: none;
   padding-top: var(--safe-t);
   z-index: 60;
   border-radius: 0;
@@ -56,6 +66,8 @@
   padding-bottom: 0;
   border-radius: 0;
   box-shadow: none;
+  transform: none;
+  will-change: auto;
   transition: none;
 }
 

@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { parseBlocks, parseInline, type Block, type Inline } from "../src/chat/markdownBlocks";
+import { splitMarkdown } from "./markdownSplit";
 import { MathView } from "./MathView";
 import { MermaidView } from "./MermaidView";
 import type { MdTable } from "../src/chat/markdownTable";
@@ -137,4 +138,20 @@ function blocks(list: Block[], keyBase: string, adapter: MarkdownAdapters, offse
 
 export function renderMarkdown(text: string, adapter: MarkdownAdapters): ReactNode {
   return blocks(parseBlocks(text), "b", adapter);
+}
+
+/** One completed chunk: skipped on re-render while its source and the adapter are the same. */
+const Chunk = memo(function Chunk({ source, adapter }: { source: string; adapter: MarkdownAdapters }) {
+  return <>{renderMarkdown(source, adapter)}</>;
+});
+
+/** Like `renderMarkdown`, for a text that grows: completed chunks are memoised by source, so a streaming message reparses only its tail. `adapter` must be stable (useMemo) or nothing is skipped. */
+export function MarkdownText({ text, adapter }: { text: string; adapter: MarkdownAdapters }) {
+  return (
+    <>
+      {splitMarkdown(text).map((source, i) => (
+        <Chunk key={i} source={source} adapter={adapter} />
+      ))}
+    </>
+  );
 }

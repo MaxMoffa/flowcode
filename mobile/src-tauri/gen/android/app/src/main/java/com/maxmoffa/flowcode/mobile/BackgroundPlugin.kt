@@ -53,10 +53,6 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
     private var arm = Arm(false, "", "", 0)
     private val nextId = AtomicInteger(1000)
 
-    /** True once onPause started the service; the next onResume must stop it. */
-    @Volatile
-    private var serviceStarted = false
-
     /** Permission requests whose dialog is still up; see `onDestroy`. */
     private val pendingPermission = mutableListOf<Invoke>()
 
@@ -97,15 +93,16 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
             .putExtra(EXTRA_CAP_MINUTES, a.capMinutes)
         try {
             ContextCompat.startForegroundService(activity, intent)
-            serviceStarted = true
+            ConnectionService.started = true
         } catch (e: Exception) {
             Log.w(TAG, "could not start the connection service: ${e.message}")
         }
     }
 
     override fun onResume(activity: AppCompatActivity) {
-        if (!serviceStarted) return
-        serviceStarted = false
+        // Cleared by the service itself when it ended on its own (cap, notification button).
+        if (!ConnectionService.started) return
+        ConnectionService.started = false
         try {
             // stopService right after startForegroundService can beat startForeground
             // (ForegroundServiceDidNotStartInTimeException): ask the service to stop itself.

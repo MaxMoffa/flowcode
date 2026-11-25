@@ -87,3 +87,4 @@
 .fx-menu hr { width: calc(100% - 12px); margin: 4px 6px; border: 0; border-top: 1px solid var(--border); }
 @keyframes fx-menu-in { from { transform: scale(.94); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .fx-menu { animation: none; } }
+.fx-more { margin: 6px 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 15px; background: none; color: var(--accent-2); font-size: 14px; }

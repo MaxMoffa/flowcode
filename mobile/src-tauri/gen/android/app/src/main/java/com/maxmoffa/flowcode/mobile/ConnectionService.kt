@@ -60,6 +60,12 @@ fun openAppIntent(context: Context, requestCode: Int, tabId: String?): PendingIn
 class ConnectionService : Service() {
     private val handler = Handler(Looper.getMainLooper())
 
+    companion object {
+        /** Set by `BackgroundPlugin` when it asks for the service, cleared when the service is gone for any reason (cap, notification button): a stale "started" would make the next resume start it just to stop it, flashing the notification. */
+        @Volatile
+        var started = false
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -106,6 +112,7 @@ class ConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        started = false
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }

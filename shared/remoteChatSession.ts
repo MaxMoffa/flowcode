@@ -4,6 +4,7 @@
 // so the resume-after-reconnect and queue rules are testable without a link.
 import { applyEvents as applyModelEvents, applyLocalError, isAgentBusy, isAgentExited, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
 import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "../src/chat/chatTypes";
+import { NO_ACTIVITY, trackActivity, type ChatActivity } from "../src/chat/cacheWarning";
 import type { ChatAttachmentRef, ChatInfo } from "./remote-types";
 
 /** A message waiting to be sent: its text and the files already uploaded for it. */
@@ -19,6 +20,8 @@ export interface ChatSession {
   model: ChatModelState;
   /** Raw events in `seq` order, newest last, at most MAX_RAW_EVENTS. */
   events: ChatEvent[];
+  /** Last activity time + context size, folded per batch: no pass over `events` on every render. */
+  activity: ChatActivity;
   /** Messages typed while the agent was busy (or the link down), sent one per finished turn. */
   queued: QueuedPrompt[];
   /** `lastSeq` when the last message was handed to the agent: until a newer event arrives its turn hasn't started, so the queue must not send another. */
@@ -39,7 +42,7 @@ export interface ChatSession {
   older: { has: boolean; firstSeq: number; loading: boolean };
 }
 
-export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false, older: { has: false, firstSeq: 0, loading: false } });
+export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], activity: NO_ACTIVITY, queued: [], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false, older: { has: false, firstSeq: 0, loading: false } });
 
 export const promptRequestId = () => `${Date.now()}-${crypto.randomUUID()}`;
 
@@ -75,7 +78,8 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
   const landed = session.sentRequestId === null && session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.text === session.sentText && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
   // The replay of a paged open says whether older events exist (a delta replay says nothing: what is known stays).
   const older = opts.replay && opts.page ? { has: opts.page.hasMore, firstSeq: opts.page.firstSeq, loading: false } : session.older;
-  const next = { ...session, model, events, older, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText, sentFiles: landed ? [] : session.sentFiles };
+  const activity = fresh.length === 0 ? session.activity : fresh.reduce(trackActivity, session.activity);
+  const next = { ...session, model, events, activity, older, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText, sentFiles: landed ? [] : session.sentFiles };
   if (opts.replay && next.sentText !== null && next.sentRequestId === null) {
     return { ...next, queued: [{ text: next.sentText, files: next.sentFiles }, ...next.queued], sentText: null, sentFiles: [], sentAtSeq: null, deliveryUncertain: true };
   }

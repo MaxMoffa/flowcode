@@ -40,11 +40,17 @@ type Page = "agents" | "files" | "settings";
 function useViewportHeight() {
   useEffect(() => {
     const vv = window.visualViewport;
-    const apply = () => document.documentElement.style.setProperty("--app-h", `${vv?.height ?? window.innerHeight}px`);
-    apply();
+    const write = () => document.documentElement.style.setProperty("--app-h", `${vv?.height ?? window.innerHeight}px`);
+    // The keyboard animation fires many resizes per frame: one write (and one relayout of everything on --app-h) per frame.
+    let frame = 0;
+    const apply = () => {
+      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), write()));
+    };
+    write();
     vv?.addEventListener("resize", apply);
     window.addEventListener("resize", apply);
     return () => {
+      cancelAnimationFrame(frame);
       vv?.removeEventListener("resize", apply);
       window.removeEventListener("resize", apply);
     };

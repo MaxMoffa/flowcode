@@ -15,6 +15,7 @@ import { isHidden, setShowHidden, useShowHidden } from "./hiddenFiles";
 import { safeStorage } from "./store";
 import { PendingRow, useOpenNew } from "./Terminals";
 import "./explorer.css";
+import { useRowCap } from "./useRowCap";
 
 type Sheet = { kind: "item" | "rename" | "delete"; path: string; dir: boolean } | { kind: "file" | "folder" };
 const pathKey = (host?: string) => "files.path." + (host ?? "");
@@ -40,6 +41,7 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const roots = state.response?.kind === "roots" ? state.response.roots : [];
   const entries = listing ? listing.entries.filter((e) => showHidden || !isHidden(e)) : [];
   const hiddenCount = listing ? listing.entries.length - entries.length : 0;
+  const cap = useRowCap(entries, listing?.path ?? "");
   const crumbs = useRef<HTMLElement>(null);
   useLayoutEffect(() => { if (crumbs.current) crumbs.current.scrollLeft = crumbs.current.scrollWidth; }, [location.path]);
   const [launch, setLaunch] = useState(false);
@@ -110,7 +112,7 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
     <div className="fx-body"><PendingRow pending={pending} />
       {!canBrowse ? <p className="fx-notice">{t("filesUpgrade")}</p> : state.error ? <p className="fx-notice" role="alert">{state.error}</p> : !state.response ? <p className="fx-hint" role="status">{t("loading")}</p> : listing ? <>
         {entries.length === 0 && <p className="fx-notice">{t("noEntries")}</p>}
-        <div className="fx-list">{entries.map((entry) => { const path = fullPath(listing.path, entry.name); return <div className="fx-row" key={entry.name}><button type="button" className="fx-entry" onClick={() => entry.dir ? navigate(path) : setFile(path)}>{entry.dir ? <FolderIcon /> : <FileIcon />}<span><b>{entry.name}</b>{!entry.dir && <small>{formatSize(entry.size)}</small>}</span></button><button type="button" className="fx-icon" aria-label={t("filesActions", { name: entry.name })} onClick={() => openSheet({ kind: "item", path, dir: entry.dir })}><DotsIcon /></button></div>; })}</div>
+        <div className="fx-list">{cap.rows.map((entry) => { const path = fullPath(listing.path, entry.name); return <div className="fx-row" key={entry.name}><button type="button" className="fx-entry" onClick={() => entry.dir ? navigate(path) : setFile(path)}>{entry.dir ? <FolderIcon /> : <FileIcon />}<span><b>{entry.name}</b>{!entry.dir && <small>{formatSize(entry.size)}</small>}</span></button><button type="button" className="fx-icon" aria-label={t("filesActions", { name: entry.name })} onClick={() => openSheet({ kind: "item", path, dir: entry.dir })}><DotsIcon /></button></div>; })}{cap.hidden > 0 && <button type="button" className="fx-more" onClick={cap.showMore}>{t("showMoreEntries", { n: cap.hidden })}</button>}</div>
         {listing.truncated && <p className="fx-notice">{t("filesListingTruncated")}</p>}
       </> : <div className="fx-list">{roots.map((root) => <button type="button" key={root.path} className="fp-row" onClick={() => navigate(root.path)}><FolderIcon /><span><b>{root.name}</b><small className="mono">{root.path}</small></span></button>)}</div>}
     </div>

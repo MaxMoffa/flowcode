@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatModelOption, ChatModels, ChatThought } from "../../src/chat/chatTypes";
 import { GROUP_MIN, groupModels, matchesModel } from "../../src/chat/modelGroups";
 import { splitModelVersions } from "../../src/chat/modelVersions";
@@ -73,6 +73,8 @@ export function ChatModelPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
   const swallowClick = useRef(false);
+  // A press still pending when the picker closes must not toast afterwards.
+  useEffect(() => () => window.clearTimeout(press.current?.timer), []);
   const split = useMemo(() => (models ? splitModelVersions(models.availableModels) : null), [models]);
   const grouped = useMemo(() => (models ? groupModels(models.availableModels) : null), [models]);
   const searchable = !!models && models.availableModels.length >= GROUP_MIN;

@@ -16,8 +16,8 @@ import { useWide } from "./wide";
 
 /** Hides the loading bar even if the page never reports `load`. */
 const LOAD_TIMEOUT_MS = 20_000;
-/** Duration of the close animation before the layer is removed. */
-const CLOSE_MS = 220;
+/** Fallback if `transitionend` never comes (reduced motion, a hidden page): a little over browser.css's 260 ms slide. */
+const CLOSE_MS = 340;
 /** How long the "tabs closed" undo stays on screen. */
 const UNDO_MS = 6000;
 
@@ -90,12 +90,19 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
   const dragRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const closeTimer = useRef(0);
+  const closeOff = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
   }, []);
-  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(closeTimer.current);
+      closeOff.current?.();
+    },
+    [],
+  );
 
   // The tabs a group action just closed, offered back for a few seconds.
   const [undo, setUndo] = useState<BrowserTabPage[] | null>(null);
@@ -118,7 +125,26 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
     if (closing) return;
     setClosing(true);
     const instant = wide || docked || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    closeTimer.current = window.setTimeout(onClose, instant ? 0 : CLOSE_MS);
+    if (instant) {
+      closeTimer.current = window.setTimeout(onClose, 0);
+      return;
+    }
+    // The layer goes when the slide ends (no cut-off frame), or after the fallback.
+    const root = rootRef.current;
+    const done = () => {
+      closeOff.current?.();
+      onClose();
+    };
+    const onEnd = (e: TransitionEvent) => {
+      if (e.target === root && e.propertyName === "transform") done();
+    };
+    root?.addEventListener("transitionend", onEnd);
+    closeOff.current = () => {
+      root?.removeEventListener("transitionend", onEnd);
+      window.clearTimeout(closeTimer.current);
+      closeOff.current = undefined;
+    };
+    closeTimer.current = window.setTimeout(done, CLOSE_MS);
   }
 
   useBackHandler(!docked, requestClose);

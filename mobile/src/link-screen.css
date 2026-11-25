@@ -1,14 +1,15 @@
 /* The link screen (LinkScreen.tsx), from docs/design/mobile-connection-flow.html: the home's aurora
    breathing, a phone and a computer joined by a wire a dot travels along, three steps, then actions. */
 
+/* Opacity only (a filter on a full-screen layer re-rasterises it every frame), and it settles after
+   three breaths (~10 s): a long reconnect must not keep the GPU busy. */
 .ls-aurora {
-  animation: ls-breathe 3.2s ease-in-out infinite;
+  animation: ls-breathe 3.2s ease-in-out 3;
 }
 
 @keyframes ls-breathe {
   50% {
-    opacity: 1;
-    filter: saturate(1.25);
+    opacity: 0.95;
   }
 }
 
@@ -71,7 +72,7 @@
 
 @keyframes ls-travel {
   0% {
-    left: 0;
+    transform: translateX(0);
     opacity: 0;
   }
   15%,
@@ -79,7 +80,7 @@
     opacity: 1;
   }
   100% {
-    left: 78px;
+    transform: translateX(78px);
     opacity: 0;
   }
 }

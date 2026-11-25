@@ -138,20 +138,18 @@ function Body({ cli, profile, status, chatId, ptyId, context, reply, supported, 
 /** Asks the agent to compact its context: typed into the terminal, or sent as a prompt in a chat. Off while the agent works. */
 function CompactButton({ chatId, ptyId, busy }: { chatId?: string; ptyId?: string; busy: boolean }) {
   const [sent, setSent] = useState(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  useEffect(() => {
-    const list = timers.current;
-    return () => list.forEach(clearTimeout);
-  }, []);
+  // Only the feedback timer is cleared on unmount: the Enter that submits "/compact" must still go out when the sheet closes right after the tap.
+  const feedback = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(feedback.current), []);
   const compact = () => {
     setSent(true);
     if (chatId) {
       sendChatPrompt(chatId, "/compact");
     } else if (ptyId) {
       send({ t: "input", ptyId, data: "/compact" });
-      timers.current.push(setTimeout(() => send({ t: "input", ptyId, data: "\r" }), SUBMIT_DELAY_MS));
+      setTimeout(() => send({ t: "input", ptyId, data: "\r" }), SUBMIT_DELAY_MS);
     }
-    timers.current.push(setTimeout(() => setSent(false), COMPACT_FEEDBACK_MS));
+    feedback.current = setTimeout(() => setSent(false), COMPACT_FEEDBACK_MS);
   };
   return (
     <button type="button" className="ai-btn" disabled={busy || sent} title={busy ? t("agentCompactBusy") : undefined} onClick={compact}>

@@ -479,6 +479,19 @@
   color: var(--muted);
 }
 
+/* "show more" row of a long folder listing (TermFiles, WideFiles) */
+.tm-more {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 8px 12px;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  background: none;
+  color: var(--accent-2);
+  font: inherit;
+}
+
 /* files */
 
 .tm-crumbs {

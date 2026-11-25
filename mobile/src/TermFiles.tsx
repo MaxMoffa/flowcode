@@ -7,6 +7,7 @@ import { formatSize } from "./common";
 import { joinPath, useListing } from "./fileListing";
 import { onMessage, send, showToast, type Tab } from "./remote";
 import { cdCommand, dialectFor, shellQuote } from "./termShell";
+import { useRowCap } from "./useRowCap";
 
 /** The file explorer drawer of one terminal; paths are relative to the tab's cwd. */
 export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: boolean; onClose: () => void; onType: (text: string) => void }) {
@@ -17,6 +18,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
   const [file, setFile] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
 
   const entries = useListing({ ptyId, cwd, path, setPath, enabled: open });
+  const cap = useRowCap(entries, path);
   useEffect(() => setSelected(null), [open, ptyId, path, cwd]);
 
   useEffect(
@@ -72,7 +74,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
           <div className="tm-list">
             {entries === null && <div className="tm-empty">{t("loading")}</div>}
             {entries?.length === 0 && <div className="tm-empty">{t("noEntries")}</div>}
-            {entries?.map((e) => {
+            {cap.rows?.map((e) => {
               const full = joinPath(path, e.name);
               const on = selected === e.name;
               return (
@@ -95,6 +97,11 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
                 </div>
               );
             })}
+            {cap.hidden > 0 && (
+              <button type="button" className="tm-more" onClick={cap.showMore}>
+                {t("showMoreEntries", { n: cap.hidden })}
+              </button>
+            )}
           </div>
           <footer className="tm-foot">
             {path && (

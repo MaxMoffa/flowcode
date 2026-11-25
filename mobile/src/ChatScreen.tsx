@@ -28,7 +28,6 @@ import { useChatBrowser } from "./useChatBrowser";
 import { defaultModeToApply } from "./chatModeDefaults";
 import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAsks, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
 import { loadChatCacheInfo } from "./chatCacheInfo";
 import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, loadOlderChat, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, resumeChat, useChatInfo, useChatSession, useFollowChat } from "./chats";
@@ -214,7 +213,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   }, [limit]);
   const showLimit = !!limit && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limit.at === null || limit.at > limitNow);
   // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
-  const activity = useMemo(() => eventsActivity(session.events), [session.events]);
+  const activity = session.activity;
   const loadInfo = useCallback(() => loadChatCacheInfo(chatId), [chatId]);
   const cacheWarning = useCacheWarning({
     agent: info?.agent ?? "",
@@ -328,7 +327,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     ro.observe(el);
     ro.observe(inner);
     return () => ro.disconnect();
-  }, [shown]);
+    // The thread mounts only once `info` is there; without it in the deps the observer never attached for a late one.
+  }, [shown, !!info]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;

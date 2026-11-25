@@ -4,6 +4,7 @@ import { joinPath, useListing } from "./fileListing";
 import { t } from "./i18n";
 import { BackIcon, FileIcon, FolderIcon, HomeIcon } from "./icons";
 import type { Tab } from "./remote";
+import { useRowCap } from "./useRowCap";
 
 /** The file explorer panel of the wide layout: browses the folder of `tab`, files open as tabs. */
 export function WideFiles({ tab, activeFile, onOpenFile }: { tab: Tab | undefined; activeFile: string | null; onOpenFile: (path: string) => void }) {
@@ -11,6 +12,7 @@ export function WideFiles({ tab, activeFile, onOpenFile }: { tab: Tab | undefine
   const ptyId = tab?.ptyId;
   useEffect(() => setPath(""), [ptyId]);
   const entries = useListing({ ptyId: ptyId ?? "", cwd: tab?.cwd ?? "", path, setPath, enabled: !!tab });
+  const cap = useRowCap(entries, path);
 
   if (!tab) return <div className="empty">{t("noTabs")}</div>;
 
@@ -32,7 +34,7 @@ export function WideFiles({ tab, activeFile, onOpenFile }: { tab: Tab | undefine
       <div className="wf-list">
         {entries === null && <div className="tm-empty">{t("loading")}</div>}
         {entries?.length === 0 && <div className="tm-empty">{t("noEntries")}</div>}
-        {entries?.map((e) => {
+        {cap.rows?.map((e) => {
           const p = joinPath(path, e.name);
           return (
             <button key={e.name} type="button" className={"wf-row" + (e.dir ? " dir" : "") + (!e.dir && p === activeFile ? " on" : "")} onClick={() => (e.dir ? setPath(p) : onOpenFile(p))}>
@@ -42,6 +44,11 @@ export function WideFiles({ tab, activeFile, onOpenFile }: { tab: Tab | undefine
             </button>
           );
         })}
+        {cap.hidden > 0 && (
+          <button type="button" className="tm-more" onClick={cap.showMore}>
+            {t("showMoreEntries", { n: cap.hidden })}
+          </button>
+        )}
       </div>
     </>
   );

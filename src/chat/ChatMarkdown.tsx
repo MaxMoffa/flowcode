@@ -1,8 +1,8 @@
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { useLinkMenu, useOpenLink } from "../terminal/useOpenLink";
 import { markdownImageRef, splitLinks } from "./chatLinks";
 import { ChatImageView } from "./ChatImage";
-import { renderMarkdown } from "../../shared/Markdown";
+import { MarkdownText, type MarkdownAdapters } from "../../shared/Markdown";
 import { useI18n } from "../i18n";
 import { ChatTable } from "./ChatTable";
 import { findPaths, parsePathToken } from "../lib/filePaths";
@@ -95,20 +95,29 @@ function codeSpan(code: string, key: string): ReactNode {
 export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const open = useOpenLink();
   const { t } = useI18n();
-  return <div className="chat-md">{renderMarkdown(text, {
-    text: (text, key, label) => withLinks(text, key, open, label),
-    code: codeSpan,
-    image: (src, alt, key) => {
-      const ref = markdownImageRef(src);
-      return ref ? <ChatImageView key={key} image={{ ...ref, name: alt || undefined }} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
-    },
-    table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
-    copyLabels: {
-      copy: t("chat.code.copy"),
-      copied: t("chat.table.copied"),
-      title: t("chat.code.copyTitle"),
-      code: t("chat.code.showCode"),
-      diagram: t("chat.code.showDiagram"),
-    },
-  })}</div>;
+  // Stable adapter: completed chunks of a streaming message are not re-rendered.
+  const adapter = useMemo<MarkdownAdapters>(
+    () => ({
+      text: (text, key, label) => withLinks(text, key, open, label),
+      code: codeSpan,
+      image: (src, alt, key) => {
+        const ref = markdownImageRef(src);
+        return ref ? <ChatImageView key={key} image={{ ...ref, name: alt || undefined }} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
+      },
+      table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
+      copyLabels: {
+        copy: t("chat.code.copy"),
+        copied: t("chat.table.copied"),
+        title: t("chat.code.copyTitle"),
+        code: t("chat.code.showCode"),
+        diagram: t("chat.code.showDiagram"),
+      },
+    }),
+    [open, t],
+  );
+  return (
+    <div className="chat-md">
+      <MarkdownText text={text} adapter={adapter} />
+    </div>
+  );
 });
