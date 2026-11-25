@@ -76,6 +76,7 @@ const CONTROL_RING = 2;
 /** Favicon per origin (null: none), so a site is asked once. */
 const faviconCache = new Map<string, string | null>();
 const faviconPending = new Set<string>();
+const FAVICON_CACHE_MAX = 200;
 
 function requestFavicon(pageId: string, url: string) {
   if (isLocalUrl(url)) return;
@@ -96,6 +97,8 @@ function requestFavicon(pageId: string, url: string) {
     .catch(() => null)
     .then((icon) => {
       faviconCache.set(origin, icon ?? null);
+      // Capped: the oldest origin goes first (Map keeps insertion order).
+      if (faviconCache.size > FAVICON_CACHE_MAX) faviconCache.delete(faviconCache.keys().next().value as string);
       faviconPending.delete(origin);
       for (const p of getBrowser().pages) {
         if (p.kind !== "url") continue;

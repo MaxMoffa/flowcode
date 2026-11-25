@@ -114,6 +114,9 @@ function setHosts(fetched: HostInfo[]) {
   const hosts = Object.fromEntries(list.map((h) => [h.id, h]));
   const activeHost = snap.activeHost !== LOCAL_HOST && !hosts[snap.activeHost] ? LOCAL_HOST : snap.activeHost;
   const state = Object.fromEntries(Object.entries(snap.state).filter(([id]) => hosts[id]));
+  // Nothing more will come for an unpaired PC: drop its listeners and pending "new tab" wait.
+  for (const id of [...bus.keys()]) if (!hosts[id]) bus.delete(id);
+  for (const id of [...pendingNew.keys()]) if (!hosts[id]) pendingNew.delete(id);
   commit({ ...snap, hosts, list, state, activeHost });
 }
 

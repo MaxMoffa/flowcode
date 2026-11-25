@@ -451,6 +451,7 @@ export function closePage(id: string) {
   if (mirror) mirrorHooks?.close(mirror);
   native(() => nativeView.close(id));
   forgetErrorTiming(id);
+  popupTimes.delete(id);
   store.update((s) => {
     const index = s.pages.findIndex((p) => p.id === id);
     if (index < 0) return s;
@@ -476,6 +477,7 @@ export function closePages(ids: string[]): ClosedPages | null {
     if (page.mirror) mirrorHooks?.close(page.mirror);
     native(() => nativeView.close(page.id));
     forgetErrorTiming(page.id);
+    popupTimes.delete(page.id);
   }
   store.update((s) => {
     const pages = s.pages.filter((p) => !wanted.has(p.id));

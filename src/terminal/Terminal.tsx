@@ -432,6 +432,11 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
    * is kept because a chunk boundary can split a URL; re-matching it is
    * harmless since the store dedupes by port. */
   function detectServers(data: string) {
+    // Plain output with no ':', '/' or escape can neither hold nor complete a "://": skip stripAnsi (it is already clean, so the tail stays exact).
+    if (!/[:/]/.test(data)) {
+      serverTailRef.current = (serverTailRef.current + data).slice(-200);
+      return;
+    }
     const text = serverTailRef.current + stripAnsi(data);
     serverTailRef.current = text.slice(-200);
     if (!text.includes("://")) return;

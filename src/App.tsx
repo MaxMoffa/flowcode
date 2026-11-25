@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -168,6 +168,7 @@ interface Handoff {
 const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.DiffView })));
 const TerminalAgentHeader = lazy(() => import("./agentViews/TerminalAgentHeader").then((m) => ({ default: m.TerminalAgentHeader })));
 const AgentSessionView = lazy(() => import("./agentViews/AgentSessionView").then((m) => ({ default: m.AgentSessionView })));
+type ChatCallbacks = Pick<ComponentProps<typeof AgentSessionView>, "onOpenDelegate" | "onFirstPromptSent" | "onSessionId" | "onStatus" | "onViewChange" | "onTalked" | "onCloser" | "onSwitchToTerminal" | "onOpenFile" | "onOpenLogin">;
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
 const SettingsPage = lazy(() => import("./settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const RemoteWorkspace = lazy(() => import("./remoteHosts/RemoteWorkspace").then((m) => ({ default: m.RemoteWorkspace })));
@@ -702,6 +703,7 @@ function Shell() {
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
   /** How to end each chat tab's agent (see AgentSessionView `onCloser`), so a terminal resuming its session starts only once it is gone. */
+  const chatCallbacksRef = useRef(new Map<string, { latest: ChatCallbacks; stable: ChatCallbacks }>());
   const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void; clear: () => void; compact: () => void }>());
   const switchingChatsRef = useRef(new Set<string>());
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
@@ -1785,9 +1787,16 @@ function Shell() {
   const tabAgentsRef = useRef(new Map<string, TabAgent>());
   const { tabAgents, sessionByTab } = useMemo(() => {
     const byTab = new Map<string, AgentSession>();
+    // pty id -> tab, built once (a scan of the tabs per session was quadratic).
+    const tabByPty = new Map<string, string>();
+    for (const t of tabs) {
+      if (t.kind !== "terminal") continue;
+      const pty = termRefs.current.get(t.id)?.getPtyId();
+      if (pty != null && !tabByPty.has(pty)) tabByPty.set(pty, t.id);
+    }
     for (const session of agentSessions ?? []) {
-      const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
-      if (tab) byTab.set(tab.id, session);
+      const tabId = tabByPty.get(session.pty_id);
+      if (tabId) byTab.set(tabId, session);
     }
     const next = new Map<string, TabAgent>();
     for (const [id, session] of byTab) next.set(id, tabAgentOf(session));
@@ -2246,6 +2255,21 @@ function Shell() {
   }
 
   /** Patches a chat tab's fields as its view reports them. */
+  /** Per chat pane: callbacks whose identity never changes and that call the latest closures, so the memoized chat view skips App renders. */
+  function stableChatCallbacks(key: string, latest: ChatCallbacks): ChatCallbacks {
+    let entry = chatCallbacksRef.current.get(key);
+    if (!entry) {
+      const e = { latest, stable: {} as ChatCallbacks };
+      const stable: Record<string, unknown> = {};
+      for (const name of Object.keys(latest)) stable[name] = (...args: unknown[]) => (e.latest as unknown as Record<string, (...a: unknown[]) => unknown>)[name](...args);
+      e.stable = stable as unknown as ChatCallbacks;
+      entry = e;
+      chatCallbacksRef.current.set(key, e);
+    }
+    entry.latest = latest;
+    return entry.stable;
+  }
+
   function patchChatTab(id: string, patch: Partial<ChatTab>) {
     setTabs((prev) => patchChatTabIn(prev, id, patch));
   }
@@ -3118,6 +3142,36 @@ function Shell() {
                   <Fragment key={tab.id}>
                     {panes.map((pane) => {
                       const handoff = pane.shown ? tab.handoffFrom : undefined;
+                      // Stable callbacks (the memoized view must not re-render with every App render); they call through to this render's closures.
+                      const cb = stableChatCallbacks(pane.paneKey, {
+                        onOpenDelegate: (delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro),
+                        onFirstPromptSent: () => patchChatTab(tab.id, { firstPrompt: undefined }),
+                        onSessionId: (sessionId) => {
+                          patchChatPane(tab.id, pane.paneKey, { sessionId });
+                          if (handoff) finishHandoff(tab.id, handoff);
+                        },
+                        onStatus: (status, error) => {
+                          if (status === "exited" && handoff) failHandoff(tab.id, error);
+                          else {
+                            // Real activity: a turn starting, or ending (busy/waiting -> idle). Starting up and replaying a resumed history is not.
+                            const working = (s: string | undefined) => s === "busy" || s === "waiting";
+                            const active = working(status) || (status === "idle" && working(pane.status));
+                            patchChatPane(tab.id, pane.paneKey, active ? { status, lastActiveAt: Date.now() } : { status });
+                          }
+                        },
+                        onViewChange: (viewId) => patchChatPane(tab.id, pane.paneKey, { viewId }),
+                        onTalked: (talked) => {
+                          // Absent counts as talked (a restored or resumed chat); only a real change is written.
+                          if (talked ? pane.talked === false : pane.talked !== false) patchChatPane(tab.id, pane.paneKey, { talked });
+                        },
+                        onCloser: (closer) => {
+                          if (closer) chatClosersRef.current.set(pane.paneKey, closer);
+                          else chatClosersRef.current.delete(pane.paneKey);
+                        },
+                        onSwitchToTerminal: (sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro),
+                        onOpenFile: openFile,
+                        onOpenLogin: () => { void openProviderAuth(tab.agent, tab.profileId); },
+                      });
                       return (
                         <Suspense key={pane.paneKey} fallback={null}>
                           {/* Paths in this chat resolve against its folder and open on this PC. */}
@@ -3134,38 +3188,21 @@ function Shell() {
                             attachWslDistro={tab.delegate?.wslDistro}
                             tabId={pane.shown ? tab.id : undefined}
                             openTabId={tab.id}
-                            onOpenDelegate={(delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro)}
+                            onOpenDelegate={cb.onOpenDelegate}
                             viewId={pane.viewId}
                             diagnosis={pane.shown ? tab.diagnosis : undefined}
                             firstPrompt={pane.shown ? tab.firstPrompt : undefined}
-                            onFirstPromptSent={() => patchChatTab(tab.id, { firstPrompt: undefined })}
+                            onFirstPromptSent={cb.onFirstPromptSent}
                             hidden={tab.id !== activeTabId || !pane.shown}
                             title={pane.label}
-                            onSessionId={(sessionId) => {
-                              patchChatPane(tab.id, pane.paneKey, { sessionId });
-                              if (handoff) finishHandoff(tab.id, handoff);
-                            }}
-                            onStatus={(status, error) => {
-                              if (status === "exited" && handoff) failHandoff(tab.id, error);
-                              else {
-                                // Real activity: a turn starting, or ending (busy/waiting -> idle). Starting up and replaying a resumed history is not.
-                                const working = (s: string | undefined) => s === "busy" || s === "waiting";
-                                const active = working(status) || (status === "idle" && working(pane.status));
-                                patchChatPane(tab.id, pane.paneKey, active ? { status, lastActiveAt: Date.now() } : { status });
-                              }
-                            }}
-                            onViewChange={(viewId) => patchChatPane(tab.id, pane.paneKey, { viewId })}
-                            onTalked={(talked) => {
-                              // Absent counts as talked (a restored or resumed chat); only a real change is written.
-                              if (talked ? pane.talked === false : pane.talked !== false) patchChatPane(tab.id, pane.paneKey, { talked });
-                            }}
-                            onCloser={(closer) => {
-                              if (closer) chatClosersRef.current.set(pane.paneKey, closer);
-                              else chatClosersRef.current.delete(pane.paneKey);
-                            }}
-                            onSwitchToTerminal={(sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro)}
-                            onOpenFile={openFile}
-                            onOpenLogin={() => { void openProviderAuth(tab.agent, tab.profileId); }}
+                            onSessionId={cb.onSessionId}
+                            onStatus={cb.onStatus}
+                            onViewChange={cb.onViewChange}
+                            onTalked={cb.onTalked}
+                            onCloser={cb.onCloser}
+                            onSwitchToTerminal={cb.onSwitchToTerminal}
+                            onOpenFile={cb.onOpenFile}
+                            onOpenLogin={cb.onOpenLogin}
                           />
                           </FileLinkCwdContext.Provider>
                         </Suspense>

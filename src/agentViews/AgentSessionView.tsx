@@ -1,5 +1,5 @@
 import { useChatCalls } from "../calls/useChatCalls";
-import { Suspense, useCallback, useDeferredValue, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, memo, useCallback, useDeferredValue, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useI18n } from "../i18n";
@@ -78,7 +78,7 @@ interface AgentSessionViewProps {
 /** Hosts a session with a coding agent: owns the session and the header with
  * its discreet session menu, and shows the conversation through the
  * registered view picked for it (see src/agentViews). */
-export function AgentSessionView({
+function AgentSessionViewInner({
   agent,
   cwd,
   profileId,
@@ -108,7 +108,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId: diagnosis?.reportId, initialActivityAt: lastActiveAt, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId: diagnosis?.reportId, hidden, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one shows it as soon as there is
   // something to show (the saved preview, or messages), and ghost bubbles until then.
@@ -388,3 +388,6 @@ export function AgentSessionView({
     </FileLinkWslContext.Provider>
   );
 }
+
+// Memoized: the app passes it stable props, so a hidden chat does not re-render on every App render.
+export const AgentSessionView = memo(AgentSessionViewInner);

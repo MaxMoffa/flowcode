@@ -25,9 +25,15 @@ import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired,
 
 /** A message waiting for the agent to be idle. */
 export interface QueuedMessage {
+  /** Stable key for the list (the queue reorders and shrinks from the front). */
+  id?: string;
   text: string;
   attachments: ChatAttachment[];
 }
+
+let queueSeq = 0;
+/** A fresh id for a queued message. */
+export const newQueueId = () => `q${++queueSeq}`;
 
 // The model and thinking level the user picked last, per agent: the next new chat starts with them.
 const lastModelKey = (agent: AgentCli) => `flowcode.chatLastModel.${agent}`;
@@ -46,6 +52,8 @@ interface ChatEventsPage {
 const OLDER_PAGE_EVENTS = 300;
 /** A hidden window may never run animation frames: live events flush after this long at most. */
 const LIVE_FLUSH_MS = 100;
+/** A hidden chat only folds streamed updates this often: nobody sees them, and each flush re-renders its whole view. */
+const HIDDEN_FLUSH_MS = 500;
 /** After a turn ends, the chat's preview is saved once nothing else happened for this long. */
 const PREVIEW_SAVE_DELAY_MS = 3000;
 
@@ -69,6 +77,8 @@ interface UseChatOptions {
   openTabId?: string;
   /** The crash report this chat investigates: the backend gives the agent the tool that attaches its diagnosis to it. */
   diagnosisId?: string;
+  /** Another tab is in front: streamed updates are folded in slower batches; showing the chat again flushes at once. */
+  hidden?: boolean;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
   /** The chat's status; `error` is why it failed to start, when it did. */
@@ -82,7 +92,13 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId, hidden, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+  const hiddenRef = useRef(!!hidden);
+  hiddenRef.current = !!hidden;
+  const flushLiveRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!hidden) flushLiveRef.current?.();
+  }, [hidden]);
   const confirmOpen = useConfirmDialog();
   const confirmOpenRef = useRef(confirmOpen);
   confirmOpenRef.current = confirmOpen;
@@ -232,18 +248,34 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     let liveBuf: ChatEvent[] = [];
     let frame = 0;
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    let slowFlush = false;
     const flushLive = () => {
       if (frame) cancelAnimationFrame(frame);
       if (flushTimer) clearTimeout(flushTimer);
       frame = 0;
       flushTimer = null;
+      slowFlush = false;
       if (liveBuf.length === 0) return;
       const batch = liveBuf;
       liveBuf = [];
       setModelState((m) => applyEvents(m, batch));
     };
+    flushLiveRef.current = flushLive;
     const queueLive = (ev: ChatEvent) => {
       liveBuf.push(ev);
+      // Hidden: only streamed updates wait; permissions, asks, turn ends, errors keep the fast path (they drive notifications and the tab's status).
+      if (hiddenRef.current && ev.kind === "update") {
+        if (!flushTimer) {
+          flushTimer = setTimeout(flushLive, HIDDEN_FLUSH_MS);
+          slowFlush = true;
+        }
+        return;
+      }
+      if (slowFlush && flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+        slowFlush = false;
+      }
       if (!frame) frame = requestAnimationFrame(flushLive);
       if (!flushTimer) flushTimer = setTimeout(flushLive, LIVE_FLUSH_MS);
     };
@@ -389,6 +421,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      flushLiveRef.current = null;
       if (frame) cancelAnimationFrame(frame);
       if (flushTimer) clearTimeout(flushTimer);
       if (previewTimer) clearTimeout(previewTimer);
@@ -443,7 +476,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           // newer than now (the running turn's end), so a busy agent isn't
           // asked again in a loop; after an exit, a restart sends it.
           sentAtSeqRef.current = modelRef.current.lastSeq;
-          setQueued((q) => [{ text, attachments }, ...q]);
+          setQueued((q) => [{ id: newQueueId(), text, attachments }, ...q]);
           return;
         }
         sentAtSeqRef.current = null;
@@ -462,12 +495,12 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       if ((!trimmed && attachments.length === 0) || (!chatIdRef.current && !closedRef.current)) return;
       // Offline, messages wait in the queue and go out when the network is back.
       if (!onlineRef.current) {
-        setQueued((q) => [...q, { text: trimmed, attachments }]);
+        setQueued((q) => [...q, { id: newQueueId(), text: trimmed, attachments }]);
         return;
       }
-      if (closedRef.current || renewingRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
+      if (closedRef.current || renewingRef.current) setQueued((q) => [...q, { id: newQueueId(), text: trimmed, attachments }]);
       else if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
-      else setQueued((q) => [...q, { text: trimmed, attachments }]);
+      else setQueued((q) => [...q, { id: newQueueId(), text: trimmed, attachments }]);
     },
     [dispatch, agent, profileId],
   );
@@ -558,6 +591,13 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const ids = new Set(delegatesOf(model.items).map((d) => d.childChatId));
     for (const id of ids) {
       if (!live.has(id)) live.set(id, registerControlOwner({ owner: { kind: "chat", id }, hostId: chatId, tabId: openTabIdRef.current, label: basename(cwd) || agent }));
+    }
+    // A delegate that left the items (after /clear or a renewed chat) is no owner any more.
+    for (const [id, off] of live) {
+      if (!ids.has(id)) {
+        off();
+        live.delete(id);
+      }
     }
   }, [model.items, chatId, attachChatId]);
   useEffect(() => {

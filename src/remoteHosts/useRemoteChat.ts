@@ -17,7 +17,16 @@ import { useChatCalls } from "../calls/useChatCalls";
 import { cliName, type AgentCli } from "../agents/cliInfo";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { loopbackPort, tunnelUrl } from "./remoteTunnel";
+import { newQueueId } from "../chat/useChat";
 import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, remoteCallTabId, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
+
+const queueIds = new WeakMap<object, string>();
+/** A list key for a queued message of the shared reducer (its items carry none): kept per item object. */
+function queueIdOf(q: object): string {
+  let id = queueIds.get(q);
+  if (!id) queueIds.set(q, (id = newQueueId()));
+  return id;
+}
 
 /** Follows a chat of another PC and hands it to the desktop's agent views as if it ran here: the same
  * `ChatSession` `useChat` gives. The conversation is the remote's own event stream, folded by the
@@ -366,7 +375,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     wslDistro: null,
     profileId: null,
     // The files are on the other PC once queued; the staged copies stay here so a message pulled back keeps them as attachments.
-    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: queuedAttachments(q.files, stagedRef.current) })), [session.queued]),
+    queued: useMemo(() => session.queued.map((q) => ({ id: queueIdOf(q), text: q.text, attachments: queuedAttachments(q.files, stagedRef.current) })), [session.queued]),
     canAttach,
     resumed: true,
     loaded: true,

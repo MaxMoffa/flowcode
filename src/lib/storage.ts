@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** localStorage access that never throws - storage can be unavailable
  * (blocked, private mode, plain browser dev) and every caller just wants the
@@ -94,13 +94,18 @@ export function usePersistentState<T>(
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [key, read, syncWindows]);
+  // The latest value, so the write happens outside React's updater (which may run twice, and must stay pure).
+  const latest = useRef(value);
+  latest.current = value;
   const set = useCallback(
-    (next: T | ((prev: T) => T)) =>
-      setValue((prev) => {
-        const resolved = typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
-        if (resolved !== prev) write(key, resolved);
-        return resolved;
-      }),
+    (next: T | ((prev: T) => T)) => {
+      const prev = latest.current;
+      const resolved = typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
+      if (resolved === prev) return;
+      latest.current = resolved;
+      write(key, resolved);
+      setValue(resolved);
+    },
     [key, write],
   );
   return [value, set];

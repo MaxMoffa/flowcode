@@ -55,7 +55,15 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
+    // One read at a time (focus, poll and watcher can fire together); a trigger meanwhile reruns once when it ends.
+    let running = false;
+    let again = false;
     const load = () => {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
       const id = ++requestRef.current;
       const read = staged
         ? Promise.all([git.showFile(root, path, "HEAD"), git.showFile(root, path, "INDEX")])
@@ -72,6 +80,13 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
         })
         .catch((e) => {
           if (!cancelled && id === requestRef.current) setError(String(e));
+        })
+        .finally(() => {
+          running = false;
+          if (again && !cancelled) {
+            again = false;
+            load();
+          }
         });
     };
     load();

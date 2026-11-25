@@ -1046,8 +1046,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
           {!sub && queued.length > 0 && (
             <>
               <div className="chat-pending-sep">{t("chat.queue.waiting")}</div>
-              {queued.map(({ text, attachments: files }, i) => (
-                <div key={i} className="chat-pending">
+              {queued.map(({ id, text, attachments: files }, i) => (
+                <div key={id ?? i} className="chat-pending">
                   <div className="chat-user is-pending" title={t("chat.queue.edit")} onDoubleClick={() => editQueued(i)}>
                     <UserText text={text} />
                     {files.length > 0 && (
