@@ -456,7 +456,13 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool, wsl: 
             None => { let mut cmd = CommandBuilder::new("cmd.exe"); cmd.args(["/D", "/C", line]); cmd }
         };
         #[cfg(not(target_os = "windows"))]
-        let mut command = { let _ = &wsl; let mut cmd = CommandBuilder::new("/bin/sh"); cmd.args(["-c", &format!("exec {line}")]); cmd };
+        // The user's login shell, like the install check (`$SHELL -lc`): a macOS app opened from Finder
+        // has launchd's bare PATH, where npm/Homebrew CLIs are missing and the login exits at once.
+        let mut command = {
+            let _ = &wsl;
+            let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/sh".into());
+            let mut cmd = CommandBuilder::new(shell); cmd.args(["-lc", &format!("exec {line}")]); cmd
+        };
         command.cwd(&neutral);
         for (key, value) in env { command.env(key, value); }
         command.env("TERM", "xterm-256color"); command.env("NoDefaultCurrentDirectoryInExePath", "1");
