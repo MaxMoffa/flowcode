@@ -332,6 +332,7 @@ async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog
             conn.clear_streams();
         }
     }
+    clients.close_tunnels(id);
     // Before the guard closes the connection ourselves: what QUIC saw end it.
     match session.conn.close_reason() {
         Some(reason) => log.push(format!("QUIC connection closed: {reason}")),

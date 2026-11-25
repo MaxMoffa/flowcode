@@ -494,6 +494,8 @@ impl RemoteClients {
                 task.abort();
             }
         }
+        drop(conns);
+        self.close_tunnels(id);
     }
 
     /// Starts the host's loop unless one is running (`only_if_idle`), else
@@ -523,6 +525,8 @@ impl RemoteClients {
                 conn.quic = None;
                 conn.clear_streams();
             }
+            drop(conns);
+            clients.close_tunnels(&task_id);
         }));
     }
 

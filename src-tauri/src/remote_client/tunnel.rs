@@ -25,6 +25,25 @@ impl Drop for Tunnel {
     }
 }
 
+/// Removes every entry of host `id` from a registry keyed `(host, target)`; dropping a `Tunnel` stops it.
+pub(super) fn drop_host<V>(map: &mut std::collections::HashMap<(String, String), V>, id: &str) -> usize {
+    let before = map.len();
+    map.retain(|(host, _), _| host != id);
+    before - map.len()
+}
+
+impl RemoteClients {
+    /// Stops the host's loopback listeners and the streams in flight through them: its link is gone (or replaced, or the PC forgotten), and a new link starts with none (the frontend asks again, `remote_host_tunnel` is idempotent).
+    pub(super) fn close_tunnels(&self, id: &str) {
+        let dropped: Vec<Tunnel> = {
+            let mut map = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+            let keys: Vec<_> = map.keys().filter(|(h, _)| h == id).cloned().collect();
+            keys.iter().filter_map(|k| map.remove(k)).collect()
+        };
+        drop(dropped);
+    }
+}
+
 /// The host's current QUIC connection, if its link is up.
 fn connection_of(clients: &RemoteClients, id: &str) -> Option<iroh::endpoint::Connection> {
     clients.lock().get(id).and_then(|c| c.quic.clone())
@@ -54,12 +73,15 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
     let host = id.clone();
     let header_key = header.clone();
     let task = tauri::async_runtime::spawn(async move {
+        // Streams in flight live in the set: aborting this task aborts them too.
+        let mut streams = tokio::task::JoinSet::new();
         loop {
             let Ok((tcp, _)) = listener.accept().await else { break };
+            while streams.try_join_next().is_some() {}
             let clients = Arc::clone(&clients_for_task);
             let host = host.clone();
             let header = header.clone();
-            tauri::async_runtime::spawn(async move {
+            streams.spawn(async move {
                 // Read at each connection: a redialed link has a new one.
                 let Some(conn) = connection_of(&clients, &host) else { return };
                 let Ok((mut send, recv)) = conn.open_bi().await else { return };
@@ -123,4 +145,26 @@ pub async fn remote_host_upload(clients: State<'_, Arc<RemoteClients>>, id: Stri
         }
     };
     tokio::time::timeout(Duration::from_secs(150), exchange).await.map_err(|_| "upload timed out".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drop_host;
+    use std::collections::HashMap;
+
+    #[test]
+    fn dropping_a_host_removes_only_its_tunnels() {
+        let mut map: HashMap<(String, String), u8> = HashMap::new();
+        for (h, t) in [("a", "port 1
+"), ("a", "port 2
+"), ("b", "port 1
+")] {
+            map.insert((h.into(), t.into()), 0);
+        }
+        assert_eq!(drop_host(&mut map, "a"), 2);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&("b".to_string(), "port 1
+".to_string())));
+        assert_eq!(drop_host(&mut map, "a"), 0);
+    }
 }
