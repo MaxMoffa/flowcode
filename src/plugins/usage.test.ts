@@ -49,7 +49,7 @@ describe("subscription usage", () => {
     );
     const result = await usageFetcherFor("cline")!();
 
-    expect(mockInvoke).toHaveBeenCalledWith("cline_usage", { profile: null });
+    expect(mockInvoke).toHaveBeenCalledWith("cline_usage", { profile: null, shell: expect.anything() });
     expect(result.ok).toBe(true);
     // Free models: tokens, not "$0".
     expect(result.metrics.slice(1)).toMatchObject([{ kind: "spend", tokens: 7 }, { kind: "spend" }, { kind: "spend" }]);

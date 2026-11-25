@@ -440,6 +440,11 @@ const CLAUDE_SESSION_VARS: &[&str] = &[
 ];
 const CLAUDE_SESSION_PREFIXES: &[&str] = &["CLAUDE_CODE_SESSION_", "CLAUDE_CODE_MESSAGING_"];
 
+/// A `BROWSER` value that opens nothing: `true` on unix and inside WSL, `cmd /c exit 0` natively on Windows.
+fn no_browser_opener(in_wsl: bool) -> &'static str {
+    if cfg!(windows) && !in_wsl { "cmd /c exit 0" } else { "true" }
+}
+
 // `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
 // on a non-async fn runs on the event-loop thread, where the warmup wait below
 // (and openpty/spawn_command's own blocking syscalls) would stall the window.
@@ -458,6 +463,7 @@ pub fn pty_spawn(
     on_event: Channel<PtyEvent>,
     profile: Option<String>,
     tools: Option<crate::chat_mcp::ToolsConfig>,
+    no_browser: Option<bool>,
 ) -> Result<String, String> {
     // No-op once the warmup has run (the common case, since setup() starts it
     // at launch); blocks only if this spawn really did beat it - see
@@ -576,6 +582,16 @@ pub fn pty_spawn(
                 // tab must still get its login shell rather than die.
                 cmd.args(["-e", "/bin/sh", "-c", WSL_SHELL_START, "sh", &shell_sh]);
             }
+        }
+    }
+    // A hidden background probe must never open a page: BROWSER names a no-op opener (what the `webbrowser`
+    // crate, `open`, xdg-utils... read first). Windows' ShellExecute ignores it, but cmd/PowerShell children
+    // that honour it get a command that does nothing.
+    if no_browser == Some(true) {
+        let in_wsl = wsl_distro.is_some() || shell_stem == "wsl";
+        cmd.env("BROWSER", no_browser_opener(in_wsl));
+        if in_wsl {
+            wsl_names.push("BROWSER".to_string());
         }
     }
     // Tags everything started in this tab with the tab's session id, WSL
@@ -938,6 +954,12 @@ fn process_stem(process: &sysinfo::Process) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn no_browser_opener_is_a_noop_per_platform() {
+        assert_eq!(super::no_browser_opener(true), "true");
+        assert_eq!(super::no_browser_opener(false), if cfg!(windows) { "cmd /c exit 0" } else { "true" });
+    }
+
     use super::*;
 
     #[test]

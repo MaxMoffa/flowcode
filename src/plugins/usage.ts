@@ -222,6 +222,8 @@ async function readCodexStatusScreen(profile?: string): Promise<string> {
       rows: CODEX_ROWS,
       shell: getConfiguredShell(),
       profile,
+      // Background poll: whatever codex shows, nothing may open the user's browser.
+      noBrowser: true,
       onOutput: (data) => {
         if (!done) term.write(data);
       },
@@ -607,7 +609,7 @@ async function fetchClineUsage(profile?: string): Promise<UsageInfo> {
 async function fetchClineQuota(profile?: string): Promise<UsageInfo> {
   const dashboard = { account: "ClinePass", usageUrl: "https://app.cline.bot/dashboard/subscription?personal=true" };
   try {
-    const result = await invoke<ClineUsage>("cline_usage", { profile: profile ?? null });
+    const result = await invoke<ClineUsage>("cline_usage", { profile: profile ?? null, shell: getConfiguredShell() });
     const fetchedAt = Date.now();
     switch (result.status) {
       case "missingCredentials":

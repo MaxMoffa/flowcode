@@ -24,6 +24,8 @@ interface SpawnPtyOptions extends PtyHandlers {
   profile?: string;
   /** What the tab's agents may do through Flowcode's MCP server; none when omitted. */
   tools?: AgentToolsConfig | null;
+  /** Hidden background probes: neutralise the BROWSER opener so nothing can open a page. */
+  noBrowser?: boolean;
 }
 
 function eventChannel({ onOutput, onExit, onExt }: PtyHandlers): Channel<PtyEvent> {
@@ -46,9 +48,9 @@ function eventChannel({ onOutput, onExit, onExt }: PtyHandlers): Channel<PtyEven
  * those bytes). A per-session channel also means each terminal receives only
  * its own session's output, instead of every tab filtering every other tab's
  * bytes off one global event. */
-export async function spawnPty({ cwd, cols, rows, shell, profile, tools, ...handlers }: SpawnPtyOptions): Promise<string> {
+export async function spawnPty({ cwd, cols, rows, shell, profile, tools, noBrowser, ...handlers }: SpawnPtyOptions): Promise<string> {
   const onEvent = eventChannel(handlers);
-  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, profile: profile ?? null, tools: tools ?? null, onEvent });
+  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, profile: profile ?? null, tools: tools ?? null, noBrowser: noBrowser ?? null, onEvent });
 }
 
 /** Stops `id`'s output reaching this window - the first step of moving its
