@@ -5,7 +5,7 @@ import { ChatImageView } from "./ChatImage";
 import { MarkdownText, type MarkdownAdapters } from "../../shared/Markdown";
 import { useI18n } from "../i18n";
 import { ChatTable } from "./ChatTable";
-import { findPaths, parsePathToken } from "../lib/filePaths";
+import { pathSegments, wholeCodePath } from "../../shared/pathLinks";
 import { ChatPathLink } from "../lib/fileLinks";
 
 type OpenLink = ReturnType<typeof useOpenLink>;
@@ -36,21 +36,15 @@ function ChatLink({ url, open, children }: { url: string; open: OpenLink; childr
 
 /** Text with the file paths in it as path links (each one a link only once the disk says it exists). */
 function withPaths(text: string, keyBase: string, bare = false): ReactNode[] {
-  const matches = findPaths(text, { bare });
-  if (matches.length === 0) return [text];
-  const out: ReactNode[] = [];
-  let last = 0;
-  matches.forEach((m, i) => {
-    if (m.start > last) out.push(text.slice(last, m.start));
-    out.push(
-      <ChatPathLink key={`${keyBase}-f${i}`} parsed={m}>
-        {text.slice(m.start, m.end)}
-      </ChatPathLink>,
-    );
-    last = m.end;
-  });
-  if (last < text.length) out.push(text.slice(last));
-  return out;
+  return pathSegments(text, { bare }).map((seg) =>
+    seg.match ? (
+      <ChatPathLink key={`${keyBase}-f${seg.index}`} parsed={seg.match}>
+        {seg.text}
+      </ChatPathLink>
+    ) : (
+      seg.text
+    ),
+  );
 }
 
 /** Text with its `[text](url)` and bare http(s) urls as links, `[text](path)` as a file link (the label alone when the target isn't a path), and file paths as path links. `label` renders a link's text (so code and bold inside it stay formatted). */
@@ -65,7 +59,7 @@ function withLinks(text: string, keyBase: string, open: OpenLink, label: (text: 
       );
     }
     if (part.path !== undefined) {
-      const parsed = parsePathToken(part.path, { bare: true, bareAny: true, spaces: true });
+      const parsed = wholeCodePath(part.path);
       return parsed ? (
         <ChatPathLink key={key} parsed={parsed}>
           {label(part.text, key)}
@@ -80,7 +74,7 @@ function withLinks(text: string, keyBase: string, open: OpenLink, label: (text: 
 
 /** An `inline code` span: agents write paths this way, bare file names (`useChat.ts`) included. */
 function codeSpan(code: string, key: string): ReactNode {
-  const whole = parsePathToken(code, { bare: true, bareAny: true, spaces: true });
+  const whole = wholeCodePath(code);
   if (whole) {
     return (
       <ChatPathLink key={key} parsed={whole}>

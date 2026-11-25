@@ -6,7 +6,6 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import QRCode from "qrcode";
 import { t, useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { SettingRow, SettingsGroup, Switch } from "./SettingsControls";
@@ -127,7 +126,8 @@ function PairDialog({ onClose }: PairDialogProps) {
       return;
     }
     let stale = false;
-    QRCode.toString(pair.ticket, { type: "svg", margin: 1, errorCorrectionLevel: "L" })
+    import("qrcode")
+      .then((m) => m.default.toString(pair.ticket, { type: "svg", margin: 1, errorCorrectionLevel: "L" }))
       .then((svg) => !stale && setQr(svg))
       .catch(() => {});
     return () => {
@@ -225,7 +225,8 @@ function AppQrDialog({ url, onClose }: { url: string; onClose: () => void }) {
   const [qr, setQr] = useState("");
   useEffect(() => {
     let stale = false;
-    QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
+    import("qrcode")
+      .then((m) => m.default.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }))
       .then((svg) => !stale && setQr(svg))
       .catch(() => {});
     return () => {

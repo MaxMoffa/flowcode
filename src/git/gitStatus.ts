@@ -44,21 +44,21 @@ export interface GitBranches {
 
 /** The repository (main tree or linked worktree) `path` is in, `null` when it
  * isn't in one. */
-export const gitToplevel = (path: string) => invoke<string | null>("git_toplevel", { path });
-export const gitStatus = (root: string) => invoke<GitStatus>("git_status", { root });
-export const gitStage = (root: string, paths: string[]) => invoke<void>("git_stage", { root, paths });
-export const gitUnstage = (root: string, paths: string[]) => invoke<void>("git_unstage", { root, paths });
+const gitToplevel = (path: string) => invoke<string | null>("git_toplevel", { path });
+const gitStatus = (root: string) => invoke<GitStatus>("git_status", { root });
+const gitStage = (root: string, paths: string[]) => invoke<void>("git_stage", { root, paths });
+const gitUnstage = (root: string, paths: string[]) => invoke<void>("git_unstage", { root, paths });
 /** Resolves with the new commit's short hash; rejects with git's own message. */
-export const gitCommit = (root: string, message: string) => invoke<string>("git_commit", { root, message });
+const gitCommit = (root: string, message: string) => invoke<string>("git_commit", { root, message });
 /** File content at "HEAD" or in the "INDEX"; empty when absent there. */
-export const gitShowFile = (root: string, path: string, rev: "HEAD" | "INDEX") =>
+const gitShowFile = (root: string, path: string, rev: "HEAD" | "INDEX") =>
   invoke<string>("git_show_file", { root, path, rev });
-export const gitDiscard = (root: string, paths: string[], untracked: boolean) =>
+const gitDiscard = (root: string, paths: string[], untracked: boolean) =>
   invoke<void>("git_discard", { root, paths, untracked });
-export const gitBranches = (root: string) => invoke<GitBranches>("git_branches", { root });
+const gitBranches = (root: string) => invoke<GitBranches>("git_branches", { root });
 /** Rejects with git's own message when it refuses (e.g. changes would be
  * overwritten). `createFromRemote`: `name` is `<remote>/<branch>`. */
-export const gitSwitchBranch = (root: string, name: string, createFromRemote: boolean) =>
+const gitSwitchBranch = (root: string, name: string, createFromRemote: boolean) =>
   invoke<void>("git_switch_branch", { root, name, createFromRemote });
 
 /** What the Git panel, branch menu and diff view ask of a repository: this PC's by default, another PC's (through its `git` protocol messages) when the panel shows that one. */
@@ -76,7 +76,7 @@ export interface GitBackend {
   readText: (path: string) => Promise<string>;
 }
 
-export const localGit: GitBackend = {
+const localGit: GitBackend = {
   toplevel: gitToplevel,
   status: gitStatus,
   stage: gitStage,

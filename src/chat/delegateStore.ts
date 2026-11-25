@@ -28,7 +28,6 @@ export function sameDelegation(a: TabDelegation, b: TabDelegation): boolean {
   return a.wslDistro === b.wslDistro && a.ended === b.ended && sameList(a.delegates, b.delegates) && a.requests.length === b.requests.length && a.requests.every((r, i) => r.requestId === b.requests[i].requestId && r.childChatId === b.requests[i].childChatId) && a.task?.taskId === b.task?.taskId;
 }
 
-const NONE: TabDelegation = { delegates: [], requests: [], task: null, wslDistro: null, ended: false };
 const store = createStore<Record<string, TabDelegation>>({});
 
 /** Publishes (or, with null, withdraws) the delegation state of a tab's chat. */
@@ -43,12 +42,6 @@ export function publishTabDelegation(tabId: string, value: TabDelegation | null)
   }
   if (prev && sameDelegation(prev, value)) return;
   store.set({ ...all, [tabId]: value });
-}
-
-/** The delegation state of a tab's chat; empty when the tab publishes none. */
-export function useTabDelegation(tabId: string | null): TabDelegation {
-  const all = store.use();
-  return (tabId && all[tabId]) || NONE;
 }
 
 /** Every tab's published delegation state. */

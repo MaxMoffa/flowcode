@@ -36,7 +36,7 @@ setMirrorHooks({
 });
 
 /** Mirrors `hostId`'s browser tabs into the panel until stopped; the pages go with it. Returns the stop function. */
-export function startBrowserMirror(hostId: string): () => void {
+function startBrowserMirror(hostId: string): () => void {
   let stopped = false;
   let generation = 0;
   let first = true;

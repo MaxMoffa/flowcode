@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatLeft, runPondScene, type PondKind } from "../../src/chat/pondScene";
 import { speechLocale, t } from "./i18n";
+import "../../shared/chat-pond-end.css";
 import "./chat-pond-end.css";
 
 export function ChatPondEnd({ kind, resetAt, note, children }: { kind: PondKind; resetAt: number | null; note?: string; children?: ReactNode }) {

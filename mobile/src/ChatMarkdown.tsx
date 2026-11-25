@@ -4,7 +4,7 @@ import { MarkdownText, type MarkdownAdapters } from "../../shared/Markdown";
 import { ChatImageView } from "./ChatImage";
 import { ChatTable } from "./ChatTable";
 import { t } from "./i18n";
-import { findPaths, parsePathToken } from "../../src/lib/filePaths";
+import { looksLikeHost, pathSegments, startsWithCommand, wholeCodePath } from "../../shared/pathLinks";
 
 /** Called with a tapped link. */
 type OnLink = (url: string) => void;
@@ -29,33 +29,21 @@ function Link({ url, onLink, children }: { url: string; onLink: OnLink; children
 
 /** Text with the file paths in it that the chat can open (in its folder, previewable) as links. */
 function withPaths(text: string, keyBase: string, onLink: OnLink, canOpen: (path: string) => boolean, bare = false): ReactNode[] {
-  const matches = findPaths(text, { bare }).filter((m) => !looksLikeHost(m.path) && canOpen(m.path));
-  if (matches.length === 0) return [text];
-  const out: ReactNode[] = [];
-  let last = 0;
-  matches.forEach((m, i) => {
-    if (m.start > last) out.push(text.slice(last, m.start));
-    out.push(
-      <Link key={`${keyBase}-f${i}`} url={m.path} onLink={onLink}>
-        {text.slice(m.start, m.end)}
-      </Link>,
-    );
-    last = m.end;
-  });
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
-/** A dotted host without a scheme is not an implicit file link. `./host/path` stays explicit. */
-function looksLikeHost(path: string): boolean {
-  return /^(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,63}\//i.test(path);
+  return pathSegments(text, { bare, accept: (path) => !looksLikeHost(path) && canOpen(path) }).map((seg) =>
+    seg.match ? (
+      <Link key={`${keyBase}-f${seg.index}`} url={seg.match.path} onLink={onLink}>
+        {seg.text}
+      </Link>
+    ) : (
+      seg.text
+    ),
+  );
 }
 
 /** An `inline code` span: agents write paths this way, so a whole openable path is a link, else the paths inside it are. */
 function codeSpan(code: string, key: string, onLink: OnLink, canOpen: (path: string) => boolean): ReactNode {
   // Known command prefixes must not swallow their path argument; other spaced paths stay intact.
-  const command = /^(?:open|xdg-open|start|explorer(?:\.exe)?|code|cat|type|less|more|head|tail|rg|grep|ls|dir|cd|cp|mv|rm|git|npm|npx|pnpm|yarn|bun|node|python(?:3)?|cargo|go|dotnet|bash|sh|zsh|pwsh|powershell|cmd|Get-Content|Set-Content)\s+/i.test(code);
-  const whole = command ? null : parsePathToken(code, { bare: true, bareAny: true, spaces: true });
+  const whole = startsWithCommand(code) ? null : wholeCodePath(code);
   if (whole && !looksLikeHost(whole.path) && canOpen(whole.path)) {
     return (
       <Link key={key} url={whole.path} onLink={onLink}>

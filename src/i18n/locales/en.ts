@@ -346,7 +346,6 @@ export const en: Record<MessageKey, string> = {
   "lint.yamlTab": "YAML doesn't allow tab characters for indentation",
 
   // Agents panel
-  "agents.title": "Active agents",
   "agents.refresh": "Refresh",
   "agents.status.busy": "working",
   "agents.status.waiting": "needs input",

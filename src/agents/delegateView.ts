@@ -17,15 +17,6 @@ export function delegateTone(status: string): "running" | "waiting" | "done" | "
   }
 }
 
-/** The chip class of a tone, from the existing sidebar chips. */
-export const TONE_CHIP: Record<ReturnType<typeof delegateTone>, string> = {
-  running: "running",
-  waiting: "waiting",
-  done: "idle",
-  failed: "busy",
-  cancelled: "saved",
-};
-
 export const TONE_LABEL: Record<ReturnType<typeof delegateTone>, MessageKey> = {
   running: "agentPanel.deleg.status.running",
   waiting: "agentPanel.deleg.status.waiting",

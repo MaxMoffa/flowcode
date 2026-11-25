@@ -1,6 +1,7 @@
 // Uploading a chat attachment: images are shrunk first (shared/attachPrepare),
 // then the bytes go to the desktop over the link.
 import { invoke } from "@tauri-apps/api/core";
+import { formatBytes } from "../../shared/format";
 import { prepareAttachment, toBase64 } from "../../shared/attachPrepare";
 import type { ChatAttachmentRef } from "../../shared/remote-types";
 
@@ -16,11 +17,7 @@ export async function uploadAttachment(chatId: string, file: File): Promise<Chat
   return { id, name, mime };
 }
 
-export function formatSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
+export { formatBytes as formatSize };
 
 export function extOf(name: string): string {
   const dot = name.lastIndexOf(".");

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { formatTokens } from "../../shared/format";
 import type { ProviderAuthState } from "../../shared/providerAuth";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
@@ -76,11 +77,7 @@ function formatCost(usd: number): string {
 }
 
 /** "1.2M" / "850K" / "920" tokens. */
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
-}
+export { formatTokens };
 
 /** Claude splits a window per model ("Current week (all models)" next to
  * "Current week (Fable)"): keep that scope on the translated label, or the

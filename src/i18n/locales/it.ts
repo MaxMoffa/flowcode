@@ -344,7 +344,6 @@ export const it = {
   "lint.yamlTab": "YAML non permette il carattere di tabulazione per l'indentazione",
 
   // Agents panel
-  "agents.title": "Agenti attivi",
   "agents.refresh": "Aggiorna",
   "agents.status.busy": "al lavoro",
   "agents.status.waiting": "chiede input",

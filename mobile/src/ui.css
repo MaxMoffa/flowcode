@@ -602,21 +602,9 @@ button.card:active {
   line-height: 1.2;
 }
 
-.th-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
 .th h1 {
   font-size: 26px;
   font-weight: 700;
-}
-
-.th-sub {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* ---- bottom nav --------------------------------------------------------- */
@@ -1146,40 +1134,10 @@ button.set-row.danger {
 
 /* ---- Terminals page: rows by desktop window -------------------------------- */
 
-.th-new {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 14px 0 10px;
-  border-radius: 12px;
-  border: 1px solid var(--accent-border);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font: 600 13.5px var(--font);
-}
-
 .tr-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.tr-ghead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin: 2px 4px 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.tr-ghead b {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .tr-list {
@@ -1225,36 +1183,11 @@ button.set-row.danger {
   color: var(--muted);
 }
 
-.tr-ico.is-busy,
-.tr-state.is-busy {
+.tr-ico.is-busy {
   color: var(--busy);
 }
 
-.tr-ico.is-waiting,
-.tr-state.is-waiting {
-  color: var(--wait);
-}
-
-.tr-state.is-idle {
-  color: var(--muted);
-}
-
-/* The speech bubble on a chat session's icon. */
-.tr-bubble {
-  position: absolute;
-  right: -5px;
-  bottom: -5px;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid var(--bg);
-  border-radius: 50%;
-  background: var(--surface-3);
-  color: var(--fg);
-}
-
-.tr-ghead.is-wait b {
+.tr-ico.is-waiting {
   color: var(--wait);
 }
 
@@ -1300,19 +1233,6 @@ button.set-row.danger {
   white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
-}
-
-.tr-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.tr-state {
-  flex: none;
-  font-size: 12px;
-  font-weight: 500;
 }
 
 .tr-sub {

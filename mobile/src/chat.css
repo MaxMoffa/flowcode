@@ -595,7 +595,6 @@ th[style*="center"] .chat-table-sort {
   margin-top: 8px;
 }
 
-
 .chat-link-card {
   width: 100%;
   max-width: 420px;
@@ -1685,11 +1684,6 @@ button.chat-step-row {
   margin: 0 auto;
   padding: 0 12px 10px;
 }
-
-
-
-
-
 
 /* The desktop has no internet: a strip above the card. */
 .chat-offline-strip {

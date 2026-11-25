@@ -1,6 +1,7 @@
 // Pure helpers behind the home page's "Limits and costs" cards: tone, time
 // left, pace against the window, and the pay-per-use summary. No React, so
 // they are tested on their own.
+import { formatTokens } from "../../shared/format";
 import { parseResetTimeGuarded } from "../../src/agents/limitText";
 import { t } from "./i18n";
 import type { UsageMetric } from "./remote";
@@ -69,12 +70,7 @@ export function spendSummary(metrics: UsageMetric[]): SpendSummary {
   return { today, week, month, dailyAverage, ratio, state };
 }
 
-/** Token counts the short way ("410K", "7.4M"); a local copy because the desktop's own pulls in desktop-only modules. */
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
-}
+export { formatTokens };
 
 /** Dollars as the cards show them: cents under 100, whole above. */
 export function money(v: number): string {

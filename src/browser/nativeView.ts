@@ -85,7 +85,7 @@ export interface NativeError {
   code: string;
   url: string;
 }
-export type DownloadState = "asking" | "downloading" | "done" | "failed";
+type DownloadState = "asking" | "downloading" | "done" | "failed";
 /** What `browser-download` carries: an item of the downloads list. `cancelled` / `removed` mean it left the list. */
 export interface DownloadItem {
   id: string;

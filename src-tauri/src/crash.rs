@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use crate::util::now_ms;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{Emitter, Manager};
 
@@ -123,13 +124,6 @@ pub struct PendingCrash {
     pub dir: String,
     /// The memory watch's log, when there is one.
     pub memory_log: Option<String>,
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn marker_path(dir: &Path, pid: u32) -> PathBuf {

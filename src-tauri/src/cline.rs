@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::util::now_ms;
 use crate::usage_limits::{QuotaPeriod, UsageWindow};
 
 const USAGE_URL: &str = "https://api.cline.bot/api/v1/users/me/plan/usage-limits";
@@ -59,10 +60,6 @@ fn settings_path(dir: &Path, default_profile: bool) -> PathBuf {
 fn token_expired(value: &Value, now_ms: u64) -> bool {
     let auth = &value["providers"]["cline"]["settings"]["auth"];
     auth["accessToken"].as_str().and_then(token).is_some() && auth["expiresAt"].as_u64().is_some_and(|at| at <= now_ms)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 fn account_token_expired(dir: &Path, default_profile: bool) -> bool {

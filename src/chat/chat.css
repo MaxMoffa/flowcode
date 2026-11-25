@@ -397,12 +397,6 @@
   font-size: 11px;
 }
 
-.chat-menu-check {
-  flex: 0 0 auto;
-  width: 12px;
-  color: var(--accent);
-}
-
 .chat-menu-sep {
   height: 1px;
   margin: 4px 2px;
@@ -1046,8 +1040,6 @@ th[style*="center"] .chat-table-sort {
   gap: 8px;
   margin-top: 8px;
 }
-
-
 
 .chat-link-card {
   width: 100%;
@@ -1943,12 +1935,6 @@ summary.chat-step-row {
   white-space: nowrap;
 }
 
-.chat-queue {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .chat-chip {
   max-width: 100%;
   display: inline-flex;
@@ -1967,15 +1953,6 @@ summary.chat-step-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-chip-thumb {
-  flex: 0 0 auto;
-  max-height: 28px;
-  max-width: 44px;
-  margin-left: -6px;
-  border-radius: 6px;
-  object-fit: cover;
 }
 
 .chat-user-files {
@@ -2082,13 +2059,6 @@ summary.chat-step-row {
   margin-left: auto;
   letter-spacing: 0;
   text-transform: none;
-}
-
-.chat-commands-empty {
-  padding: 16px;
-  text-align: center;
-  font-size: 12.5px;
-  color: var(--fg-muted);
 }
 
 .chat-commands-foot {
@@ -2278,10 +2248,6 @@ summary.chat-step-row {
 
 .chat-cmd-chip-x:hover {
   opacity: 1;
-}
-
-.chat-cmd-chip-lead {
-  margin-right: 6px;
 }
 
 @keyframes chat-cmd-chip-pop {

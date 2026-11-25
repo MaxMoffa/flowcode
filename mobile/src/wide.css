@@ -672,11 +672,6 @@
   font-weight: 600;
 }
 
-.w-ph-title {
-  flex: 1;
-  min-width: 0;
-}
-
 /* The file explorer card. */
 .wf-path {
   flex: 1;

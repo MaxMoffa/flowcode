@@ -83,8 +83,8 @@ function noteAgent(info: ControlOwnerInfo, agent: string | undefined) {
   publishOwners();
 }
 
-export const knownControlOwner = (owner: ControlOwner) => owners.get(ownerKey(owner)) ?? null;
-export const grantsOf = (owner: ControlOwner) => grantsByOwner.get(ownerKey(owner)) ?? noGrants();
+const knownControlOwner = (owner: ControlOwner) => owners.get(ownerKey(owner)) ?? null;
+const grantsOf = (owner: ControlOwner) => grantsByOwner.get(ownerKey(owner)) ?? noGrants();
 const setGrants = (owner: ControlOwner, grants: ControlGrants) => void grantsByOwner.set(ownerKey(owner), grants);
 
 // ---- consent cards ----
@@ -171,14 +171,14 @@ function viewAppears(pageId: string, ms: number): { promise: Promise<boolean>; c
 const pageUrl = (p: PreviewPage) => (p.kind === "url" ? p.url || p.requestedUrl : null);
 
 /** Which of the owner's pages a call without `page` means: the one it used last, else the one in front, else the newest. */
-export function pickControlledPage(pages: ReturnType<typeof controlledPagesOf>, activeId: string | null) {
+function pickControlledPage(pages: ReturnType<typeof controlledPagesOf>, activeId: string | null) {
   if (pages.length === 0) return null;
   const used = [...pages].filter((p) => p.control?.lastUsed).sort((a, b) => (b.control?.lastUsed ?? 0) - (a.control?.lastUsed ?? 0));
   return used[0] ?? pages.find((p) => p.id === activeId) ?? pages[pages.length - 1];
 }
 
 /** Answers one `resolve` request, or null when the owner is not in this window. */
-export async function resolveControlRequest(req: ResolveRequest): Promise<ResolveReply | null> {
+async function resolveControlRequest(req: ResolveRequest): Promise<ResolveReply | null> {
   const info = knownControlOwner(req.owner);
   if (!info) return null;
   noteAgent(info, req.agent);

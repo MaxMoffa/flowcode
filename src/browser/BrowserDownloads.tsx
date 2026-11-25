@@ -40,7 +40,7 @@ export function useDownloads(): DownloadItem[] {
 
 /** An item still being downloaded (even before the user answered). */
 const isActive = (i: DownloadItem) => i.state === "downloading" || (i.state === "asking" && !i.finished);
-export const hasActiveDownload = (items: DownloadItem[]) => items.some(isActive);
+const hasActiveDownload = (items: DownloadItem[]) => items.some(isActive);
 
 const quiet = (p: Promise<unknown>) => void p.catch(() => {});
 

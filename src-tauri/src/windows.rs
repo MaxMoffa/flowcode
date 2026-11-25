@@ -294,7 +294,6 @@ pub fn window_report_tabs(
 
 /// Brings window `label` to the front with tab `tab_id` selected - a
 /// double-click on an agent the Agents panel lists from another window.
-#[tauri::command]
 pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result<(), String> {
     use tauri::Emitter;
     let window = app.get_window(&label).ok_or(tr("finestra non trovata", "window not found"))?;

@@ -29,7 +29,7 @@ export interface ControlGrants {
 
 export const noGrants = (): ControlGrants => ({ access: "none", evalHosts: [], interactHosts: [] });
 
-export type ControlPolicySettings = Pick<BrowserSettings, "control" | "eval" | "externalInteract">;
+type ControlPolicySettings = Pick<BrowserSettings, "control" | "eval" | "externalInteract">;
 
 /** The card the user must answer before the action can go on. */
 export type ControlCard = "access" | "interact" | "eval";

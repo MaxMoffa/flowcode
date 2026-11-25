@@ -6,9 +6,9 @@ export type Target = "app" | "system" | "ask";
 const TARGETS: readonly Target[] = ["app", "system", "ask"];
 
 /** Whether agents may use the browser tabs: not at all, after asking, or on local pages without asking. */
-export type ControlMode = "off" | "ask" | "local";
-export type EvalMode = "never" | "local" | "ask" | "always";
-export type ExternalInteract = "no" | "ask" | "yes";
+type ControlMode = "off" | "ask" | "local";
+type EvalMode = "never" | "local" | "ask" | "always";
+type ExternalInteract = "no" | "ask" | "yes";
 const CONTROL_MODES: readonly ControlMode[] = ["off", "ask", "local"];
 const EVAL_MODES: readonly EvalMode[] = ["never", "local", "ask", "always"];
 const EXTERNAL_INTERACT: readonly ExternalInteract[] = ["no", "ask", "yes"];
