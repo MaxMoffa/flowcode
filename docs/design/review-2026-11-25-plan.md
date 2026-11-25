@@ -139,4 +139,17 @@ Esecuzione: modifiche via sub-agenti con direttive precise, io rivedo. Nessun ag
 3. C10 split App.tsx.
 
 ## Esito
-(da compilare durante l'implementazione)
+Tutto su master, non pushato, non provato nell'app né sul telefono. Verifiche: cargo test desktop 555 + mobile 47, tsc root+mobile, vitest 1162. Kotlin non compilato.
+
+| Commit | Contenuto |
+|---|---|
+| 90db46d | piano + artefatti |
+| 6f6439f | Fase 1: S3, S4, S7, S1 parziale (Referer check + porte bloccate). S2 già coperto lato host. S5 non fatto (shim leggono il token dall'env). |
+| 1a02f55 | Fase 3 backend B1–B11 (B8 parziale) |
+| 597d77d | Fase 4 mobile M1–M5, M7–M15 (M13 parziale) |
+| 6158467 | Fase 2 motion tranne sweep A4 (A13/A14 parziali) |
+| e5465bc | Fase 3 frontend F3–F10 |
+| c2cf0db | Fase 5 pulizia (C9 parziale; C16, M17, ChatImage saltati) |
+| fda50c8 | C10 split App.tsx 3363 → 515 righe |
+
+Aperti: A4 scia (artefatto `busy-sweep-variants.html`), S1 origin per porta, S5, nuova funzione "solo pannello" (`panel-focus-variants.html`).
