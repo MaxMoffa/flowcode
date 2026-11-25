@@ -469,6 +469,11 @@
   user-select: none;
 }
 
+/* The frame keeps the size it was taken at (a resize drag): a shrinking panel crops it. */
+.browser-panel-viewport:has(> .browser-panel-freeze) {
+  overflow: hidden;
+}
+
 /* No snapshot available (not Windows, or the capture failed). */
 .browser-panel-pause {
   position: absolute;

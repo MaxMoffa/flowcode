@@ -330,7 +330,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   // Pages whose address passed the PDF check (a web page is shown only after it).
   const [checked, setChecked] = useState<string[]>([]);
   const [suspended, setSuspended] = useState(false);
-  const [freeze, setFreeze] = useState<{ src: string | null } | null>(null);
+  /** The snapshot standing in for the native view, and the viewport size it was taken at (kept during a resize drag). */
+  const [freeze, setFreeze] = useState<{ src: string | null; width: number | null; height: number | null } | null>(null);
   const coverSeq = useRef(0);
   /** The page whose native view is hidden behind the freeze frame. */
   const suspendedFor = useRef<string | null>(null);
@@ -656,7 +657,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   // The native view is above the DOM: while an overlay covers the viewport (a menu, a dialog, this
   // panel's own popovers) a snapshot stands in for the page and the view is hidden.
   const { visible, covered } = useViewportCovered(viewportRef, !dragging);
-  const coverNow = covered || tabsOpen || menuOpen || dlShown;
+  const overlayNow = covered || tabsOpen || menuOpen || dlShown;
+  // A resize drag also parks the view: resized live, WebView2 stretches its last frame while the page
+  // lays out again (a laggy, rubbery page). A still snapshot at its own size stands in until the drop.
+  const coverNow = overlayNow || dragging;
   // Shown only after the PDF check, except pages already shown (a later navigation is checked alongside).
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
@@ -699,17 +703,21 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       setSuspended(false);
       return;
     }
-    // Nothing to hide, a snapshot already stands in, or a panel drag is moving the view.
-    if (!nativeLive || !urlId || suspendedFor.current === urlId || dragging) return;
+    // Nothing to hide, or a snapshot already stands in.
+    if (!nativeLive || !urlId || suspendedFor.current === urlId) return;
+    const dragOnly = dragging && !overlayNow;
     // A stale answer (the overlay left, another page came forward) is dropped by its sequence.
     const stand = (src: string | null) => {
       if (coverSeq.current !== mine) return;
+      // No capture (not Windows): during a drag a live, lagging page beats a "paused" screen.
+      if (!src && dragOnly) return;
+      const box = viewportRef.current?.getBoundingClientRect();
       suspendedFor.current = urlId;
-      setFreeze({ src });
+      setFreeze({ src, width: box?.width ?? null, height: box ? box.height - insetBottom : null });
       setSuspended(true);
     };
     nativeView.snapshot(urlId).then(stand, () => stand(null));
-  }, [coverNow, nativeLive, urlId, dragging]);
+  }, [coverNow, overlayNow, nativeLive, urlId, dragging, insetBottom]);
 
   // The view reports back (onShown) in the normal case; this covers a view that never shows again.
   useEffect(() => {
@@ -879,7 +887,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             <ControlBar control={control} onStop={() => releasePage(urlId)} onTakeAway={() => releasePage(urlId)} onGiveBack={() => resumePage(urlId)} />
           </div>
         )}
-        {urlPage && freeze?.src && <img className="browser-panel-freeze" src={freeze.src} alt="" draggable={false} style={{ height: `calc(100% - ${insetBottom}px)` }} />}
+        {urlPage && freeze?.src && <img className="browser-panel-freeze" src={freeze.src} alt="" draggable={false} style={freeze.width && freeze.height ? { width: freeze.width, height: freeze.height } : { height: `calc(100% - ${insetBottom}px)` }} />}
         {urlPage && freeze && !freeze.src && (
           <div className="browser-panel-pause">
             <div className="browser-panel-pause-chip">
