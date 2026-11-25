@@ -75,6 +75,13 @@
   width: 100% !important;
 }
 
+/* xterm's redraws never reach the layout around it. Not on the cards
+   (.panel-card, .terminal-stack): layout/paint containment would trap the
+   fixed-position menus inside them. */
+.terminal-container .xterm {
+  contain: content;
+}
+
 .terminal-container .xterm .xterm-viewport {
   background-color: transparent !important;
 }

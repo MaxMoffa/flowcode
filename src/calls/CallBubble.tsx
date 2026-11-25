@@ -5,6 +5,7 @@ import { useI18n, type MessageKey } from "../i18n";
 import { agentCliIcon } from "../plugins/icons";
 import type { AppTab } from "../tabs/types";
 import { removeCall, useCalls, type AgentCall, type CallKind } from "./callStore";
+import { useExitGhost } from "../hooks/useExitGhost";
 import "./call-bubble.css";
 
 /** An unanswered informational bubble folds away after this; the tab keeps pulsing. */
@@ -91,6 +92,7 @@ export function CallBubble({ tabs, agents, narrow, onGoTo, scope }: { tabs: AppT
   const { t } = useI18n();
   const all = useCalls();
   const calls = scope ? all.filter(scope) : all;
+  const exitRef = useExitGhost<HTMLDivElement>();
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const [cycle, setCycle] = useState(0);
   const [reply, setReply] = useState("");
@@ -150,7 +152,7 @@ export function CallBubble({ tabs, agents, narrow, onGoTo, scope }: { tabs: AppT
   };
 
   return (
-    <div className={"call-bubble" + (narrow ? " is-narrow" : "")} style={style} role="alertdialog" aria-label={shown.title}>
+    <div ref={exitRef} className={"call-bubble" + (narrow ? " is-narrow" : "")} style={style} role="alertdialog" aria-label={shown.title}>
       <div className="call-who">
         <span className="call-logo">{agent ? agentCliIcon(agent) : null}</span>
         <div className="call-who-text">

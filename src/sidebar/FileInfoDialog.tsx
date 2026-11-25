@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -53,6 +54,7 @@ interface FileInfoDialogProps {
 }
 
 export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogProps) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t, language } = useI18n();
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +80,7 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

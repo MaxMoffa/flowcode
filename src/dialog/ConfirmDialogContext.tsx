@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import "./confirm-dialog.css";
@@ -52,6 +53,7 @@ export function useConfirmChoice() {
 }
 
 export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pendingRef = useRef<PendingConfirm | null>(null);
@@ -129,6 +131,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
       {pending && (
         <div
           className="modal-backdrop confirm-backdrop"
+          ref={exitRef}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) settle("cancel");
           }}

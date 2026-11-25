@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -224,6 +224,8 @@ function Shell() {
     shown: {},
   });
   const appBodyRef = useRef<HTMLDivElement>(null);
+  const sidebarPanelRef = useRef<HTMLDivElement>(null);
+  const browserPanelRef = useRef<HTMLDivElement>(null);
   const sidebarResize = useResizablePanelWidth({
     storageKey: "flowcode.sidebarWidth",
     defaultWidth: 240,
@@ -232,6 +234,7 @@ function Shell() {
     handleSide: "right",
     getMax: () => layoutLiveRef.current.maxWidth.sidebar ?? Infinity,
     getCurrent: () => layoutLiveRef.current.shown.sidebar,
+    panelRef: sidebarPanelRef,
   });
   const browserResize = useResizablePanelWidth({
     storageKey: "flowcode.browserWidth",
@@ -242,6 +245,7 @@ function Shell() {
     handleSide: "left",
     getMax: () => layoutLiveRef.current.maxWidth.browser ?? Infinity,
     getCurrent: () => layoutLiveRef.current.shown.browser,
+    panelRef: browserPanelRef,
   });
   const { open: browserOpen } = useBrowser();
   const [homeDir, setHomeDir] = useState<string>("");
@@ -579,9 +583,9 @@ function Shell() {
       sidebar: { width: sidebarResize.width, min: sidebarResize.min },
       browser: { width: browserResize.width, min: browserResize.min },
     },
+    liveRef: layoutLiveRef,
   });
   const { isNarrow, sidebarPresence, browserPresence, togglePanel, panelPointerDown } = panelLayout;
-  layoutLiveRef.current = { maxWidth: panelLayout.maxWidth, shown: panelLayout.shown };
   panelRestoreRef.current = panelLayout.markRestore;
 
   useCliLoginEvent();
@@ -2981,16 +2985,14 @@ function Shell() {
       <div className="app-body" ref={appBodyRef}>
         {sidebarPresence.mounted && (
           <div
-            className={
-              "resizable-panel resizable-panel-left" +
-              (sidebarPresence.shown ? "" : " is-hidden") +
-              (sidebarResize.dragging ? " is-dragging" : "")
-            }
-            style={{ width: sidebarPresence.shown ? panelLayout.widthOf("sidebar") : 0 }}
+            ref={sidebarPanelRef}
+            className={"resizable-panel resizable-panel-left" + (sidebarResize.dragging ? " is-dragging" : "")}
+            data-state={sidebarPresence.state}
+            style={{ "--panel-w": `${panelLayout.widthOf("sidebar")}px` } as CSSProperties}
             onPointerDownCapture={panelPointerDown("sidebar")}
           >
-            <div className="panel-card">
-              <div className="panel-card-content" style={{ width: panelLayout.widthOf("sidebar") - 2 }}>
+            <div className="panel-card" onAnimationEnd={sidebarPresence.onAnimationEnd}>
+              <div className="panel-card-content">
                 {sidebarPanel}
               </div>
             </div>
@@ -3234,22 +3236,20 @@ function Shell() {
         {isNarrow && panelLayout.overlay === "browser" && <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissOverlay} />}
         {browserPresence.mounted && (
           <div
-            className={
-              "resizable-panel resizable-panel-right resizable-panel-browser" +
-              (browserPresence.shown ? "" : " is-hidden") +
-              (browserResize.dragging ? " is-dragging" : "")
-            }
-            style={{ width: browserPresence.shown ? panelLayout.widthOf("browser") : 0 }}
+            ref={browserPanelRef}
+            className={"resizable-panel resizable-panel-right resizable-panel-browser" + (browserResize.dragging ? " is-dragging" : "")}
+            data-state={browserPresence.state}
+            style={{ "--panel-w": `${panelLayout.widthOf("browser")}px` } as CSSProperties}
             onPointerDownCapture={panelPointerDown("browser")}
           >
             <div
               className={"resize-handle resize-handle-left" + (browserResize.dragging ? " is-dragging" : "")}
               onPointerDown={browserResize.onHandlePointerDown}
             />
-            <div className="panel-card">
-              <div className="panel-card-content" style={{ width: panelLayout.widthOf("browser") - 2 }}>
+            <div className="panel-card" onAnimationEnd={browserPresence.onAnimationEnd}>
+              <div className="panel-card-content">
                 <Suspense fallback={null}>
-                  <BrowserPanel dragging={browserResize.dragging} />
+                  <BrowserPanel dragging={browserResize.dragging} motion={browserPresence.state} />
                 </Suspense>
               </div>
             </div>

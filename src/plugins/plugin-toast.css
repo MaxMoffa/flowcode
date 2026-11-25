@@ -15,7 +15,7 @@
   color: var(--fg);
   font-size: 12.5px;
   text-align: center;
-  animation: plugin-toast-in 0.16s ease-out;
+  animation: plugin-toast-in var(--dur-2) var(--ease-out);
 }
 
 @keyframes plugin-toast-in {

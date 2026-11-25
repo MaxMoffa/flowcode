@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { Fragment, memo, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { autoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
@@ -35,6 +35,8 @@ import { sweepDashes } from "../../shared/busySweep";
 import { appendDictation, spaceRelease, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
 import { getDictationAutoSend, useDictationShortcuts } from "./dictationModels";
 import { DictationSetupDialog } from "./DictationSetupDialog";
+import { Reveal, RevealList } from "../lib/Reveal";
+import { reducedMotion } from "../lib/motion";
 import "./chat.css";
 
 /** Playful verbs the thinking line cycles through while no tool runs. */
@@ -67,6 +69,8 @@ const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /** Heights of the bars of the listening waveform. */
 const WAVE_BARS = [7, 14, 20, 11, 18, 8, 16, 10];
+/** The /clear dissolve's length (chat.css .chat-dissolve). */
+const DISSOLVE_MS = 450;
 /** Circumference of the download ring around the mic (r = 15 in its 34-unit box). */
 const RING_LENGTH = 2 * Math.PI * 15;
 
@@ -251,7 +255,6 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   const columnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
-  const [footerH, setFooterH] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Set when a dictation ended with auto-send on; the effect below sends once the final phrase is in the draft.
   const autoSendRef = useRef(false);
@@ -523,6 +526,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   // The delegates' open requests take the composer's place, like the agent's own question (which goes first).
   const delegateRequests = attached || !chat.answerDelegatePermission || !chat.answerDelegateAsk ? NO_REQUESTS : model.delegateRequests;
   const delegateAsk = delegateRequests.length > 0 && !openAsk;
+  // A card stands in for the composer (same slot, see .chat-slot).
+  const composerSwapped = !!openAsk || delegateAsk || showCacheCard;
   // The delegate behind a request, for its "open the chat" button.
   const openDelegateOf = useCallback(
     (taskId: string) => {
@@ -546,8 +551,10 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     const content = contentRef.current;
     const footer = footerRef.current;
     if (!column || !content || hidden || typeof ResizeObserver === "undefined") return;
+    // Written straight to the style: as state it re-rendered the whole chat on every frame a card animates.
+    const wrap = column.parentElement;
     const measure = () => {
-      if (footer) setFooterH(footer.offsetHeight);
+      if (footer && wrap) wrap.style.setProperty("--chat-footer-h", `${footer.offsetHeight}px`);
     };
     measure();
     const ro = new ResizeObserver(() => {
@@ -694,19 +701,35 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     if (dissolveSeen.current === chat.clearCount) return;
     dissolveSeen.current = chat.clearCount;
     const column = columnRef.current;
+    const content = contentRef.current;
     const wrap = column?.parentElement;
-    if (!column || !wrap || model.items.length === 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const copy = column.cloneNode(true) as HTMLElement;
+    if (!column || !content || !wrap || model.items.length === 0 || reducedMotion()) return;
+    // Only the rows on screen are copied (a long chat cloned whole was a hitch of its own), laid over
+    // the same spot; the composer stays the real one, so the copy is clipped above it.
+    const box = column.getBoundingClientRect();
+    const footerH = footerRef.current?.offsetHeight ?? 0;
+    const rows = Array.from(content.children).filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.height > 0 && r.bottom > box.top && r.top < box.bottom - footerH;
+    });
+    if (rows.length === 0) return;
+    const firstTop = rows[0].getBoundingClientRect().top;
+    const copy = column.cloneNode(false) as HTMLElement;
+    const inner = content.cloneNode(false) as HTMLElement;
+    for (const row of rows) inner.appendChild(row.cloneNode(true));
+    copy.appendChild(inner);
     copy.removeAttribute("id");
     copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
     copy.classList.add("chat-dissolve");
     copy.setAttribute("aria-hidden", "true");
     copy.inert = true;
+    copy.style.clipPath = `inset(0 0 ${footerH}px 0)`;
     wrap.appendChild(copy);
-    copy.scrollTop = column.scrollTop;
+    const shift = firstTop - (inner.firstElementChild as HTMLElement).getBoundingClientRect().top;
+    inner.style.transform = `translateY(${shift}px)`;
     const remove = () => copy.remove();
     copy.addEventListener("animationend", remove, { once: true });
-    window.setTimeout(remove, 700);
+    window.setTimeout(remove, DISSOLVE_MS + 80);
   }, [chat.clearCount, model.items.length]);
   // Whoever clears the conversation (the composer, the sidebar, the phone), the composer starts over.
   const clearReset = useRef(chat.clearCount);
@@ -951,7 +974,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
 
   return (
     <>
-      <div className="chat-column-wrap" style={{ "--chat-footer-h": `${footerH}px` } as CSSProperties}>
+      <div className="chat-column-wrap">
       <div
         className="chat-column"
         ref={columnRef}
@@ -1180,7 +1203,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             </button>
           </ChatPondEnd>
         ) : (
-          <div className="chat-composer-wrap">
+          <div className={"chat-composer-wrap is-stack" + (composerSwapped ? " has-swap" : "")}>
             {offline ? (
               <div className="chat-offline-strip" role="status">
                 <OfflineIcon size={14} />
@@ -1193,9 +1216,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 <span>✓ {t("chat.offline.back")}</span>
               </div>
             ) : null}
-            {pending.map((item) => (
-              <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
-            ))}
+            <RevealList items={pending} getKey={(item) => item.id} render={(item) => <PermissionCard item={item} onAnswer={chat.answerPermission} />} />
             {notice && (
               <div className="chat-live" role="status">
                 <span className="chat-spinner" aria-hidden="true" />
@@ -1310,22 +1331,28 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 }
               }}
               onUngrouped={foldSubs}
+              presence
             />
-            {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
-            {openAsk && <AskComposer key={openAsk.id} item={openAsk} agent={cliName(agent)} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
-            {delegateAsk && (
-              <DelegateRequests
-                requests={delegateRequests}
-                onPermission={chat.answerDelegatePermission!}
-                onAsk={chat.answerDelegateAsk!}
-                onOpen={(request) => openDelegateOf(request.taskId)}
-                autoFocus={!hidden}
-              />
-            )}
             {/* An agent asking to use the browser (or run code in a page). */}
             <BrowserControlCards hostId={chat.chatId ?? null} />
+            <div className="chat-slot">
+            {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
+            <Reveal show={!!openAsk}>
+              {openAsk && <AskComposer key={openAsk.id} item={openAsk} agent={cliName(agent)} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            </Reveal>
+            <Reveal show={delegateAsk}>
+              {delegateAsk && (
+                <DelegateRequests
+                  requests={delegateRequests}
+                  onPermission={chat.answerDelegatePermission!}
+                  onAsk={chat.answerDelegateAsk!}
+                  onOpen={(request) => openDelegateOf(request.taskId)}
+                  autoFocus={!hidden}
+                />
+              )}
+            </Reveal>
             {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}
-            {showCacheCard && !openAsk && !delegateAsk && (
+            <Reveal show={showCacheCard && !openAsk && !delegateAsk}>
               <div className="chat-cache-card" role="status">
                 <button type="button" className="chat-cache-x" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={cacheWarning.dismiss}>
                   {"✕"}
@@ -1355,8 +1382,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                   </button>
                 </div>
               </div>
-            )}
-            <div className={`chat-composer${openAsk || delegateAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}${goalTone === "active" ? " is-goal-active" : goalTone === "paused" ? " is-goal-paused" : ""}`} data-drop-label={t("chat.attach.drop")}>
+            </Reveal>
+            <div inert={composerSwapped} className={`chat-composer${composerSwapped ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}${goalTone === "active" ? " is-goal-active" : goalTone === "paused" ? " is-goal-paused" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {goalChip && model.goal && <GoalChip chatId={chat.chatId ?? ""} goal={model.goal} actions={model.goalActions} items={model.items} goalAction={chat.goalAction} />}
               {attachments.length > 0 && (
@@ -1398,7 +1425,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                     <>
                       <span className="chat-wave" aria-hidden="true">
                         {WAVE_BARS.map((h, i) => (
-                          <span key={i} className="chat-wave-bar" style={{ height: waveHeight(h, dictation.level) }} />
+                          <span key={i} className="chat-wave-bar" style={{ height: h, transform: `scaleY(${waveHeight(h, dictation.level) / h})` }} />
                         ))}
                       </span>
                       <span className="chat-listening-meta">
@@ -1540,6 +1567,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 )}
               </div>
             </div>
+            </div>
+            <Reveal show={terminals.length > 0} className="is-below">
             <BackgroundTerminalsCard
               terminals={terminals}
               expanded={termsOpen}
@@ -1555,6 +1584,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               idPrefix={listId}
               labels={termLabels}
             />
+            </Reveal>
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { setLayoutDragging } from "../lib/layoutDrag";
 import { readNumber, writeString } from "../lib/storage";
 
@@ -15,6 +15,8 @@ interface Options {
   getMax?: () => number;
   /** The width actually on screen, which the layout may have shrunk below `width`: a drag starts from it. */
   getCurrent?: () => number | undefined;
+  /** The panel element: a drag writes its `--panel-w` directly instead of re-rendering the app every frame. */
+  panelRef?: RefObject<HTMLElement | null>;
 }
 
 /** A panel's width, draggable from one edge and persisted - shared by the
@@ -22,9 +24,9 @@ interface Options {
  * the right) and the agents sidebar (right, handle on the left), so both
  * get the same resize behavior and clamping instead of two hand-rolled
  * versions drifting apart. */
-export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, handleSide, getMax, getCurrent }: Options) {
-  const limitsRef = useRef({ getMax, getCurrent });
-  limitsRef.current = { getMax, getCurrent };
+export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, handleSide, getMax, getCurrent, panelRef }: Options) {
+  const limitsRef = useRef({ getMax, getCurrent, panelRef });
+  limitsRef.current = { getMax, getCurrent, panelRef };
   const [width, setWidth] = useState(() => readNumber(storageKey, defaultWidth, min, max));
   const [dragging, setDragging] = useState(false);
   const resizedRef = useRef(false);
@@ -37,7 +39,8 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     setLayoutDragging(true);
 
     let raf = 0;
-    let next = 0;
+    let next = startWidthRef.current;
+    let moved = false;
     function onMove(e: PointerEvent) {
       // The button was released before these listeners existed (a quick click): end the drag instead of following the mouse.
       if (e.buttons === 0) {
@@ -48,17 +51,21 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
       const signedDelta = handleSide === "right" ? delta : -delta;
       const cap = Math.min(max, limitsRef.current.getMax?.() ?? max);
       next = Math.max(min, Math.min(cap, startWidthRef.current + signedDelta));
+      moved = true;
       if (!raf) raf = requestAnimationFrame(() => {
         raf = 0;
-        setWidth(next);
+        const el = limitsRef.current.panelRef?.current;
+        // Straight to the element: React (and the whole app) only hears of it on release.
+        if (el) el.style.setProperty("--panel-w", `${next}px`);
+        else setWidth(next);
       });
     }
     function onUp() {
       if (raf) {
         cancelAnimationFrame(raf);
         raf = 0;
-        setWidth(next);
       }
+      if (moved) setWidth(next);
       setDragging(false);
     }
     window.addEventListener("pointermove", onMove);

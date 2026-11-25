@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DUR, motionMs } from "../lib/motion";
 import { GitPanel } from "../git/GitPanel";
 import type { GitChange, GitStatus } from "../git/gitStatus";
 import { readBool, readNumber, usePersistentState, writeBool, writeString } from "../lib/storage";
@@ -49,6 +50,25 @@ export function GitDock({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange, 
   const [animating, setAnimating] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
+  // Closing, the body stays drawn until the height transition is over (it used to vanish first, then the box shrank empty).
+  const [bodyShown, setBodyShown] = useState(open);
+  const settle = () => {
+    setAnimating(false);
+    if (!open) setBodyShown(false);
+  };
+  useEffect(() => {
+    if (open) setBodyShown(true);
+    if (!animating) {
+      if (!open) setBodyShown(false);
+      return;
+    }
+    // transitionend never comes for a 0ms (reduced motion) or interrupted transition.
+    const timer = window.setTimeout(settle, motionMs(DUR[3]) + 80);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, animating]);
+  // The drag writes the height straight to the element once a frame; state (and storage) only on release.
+  const drag = useRef({ raf: 0, next: 0, moved: false });
 
   const toggle = () => {
     setAnimating(true);
@@ -61,16 +81,33 @@ export function GitDock({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange, 
     e.currentTarget.setPointerCapture(e.pointerId);
     setAnimating(false);
     setDragging(true);
+    drag.current.moved = false;
   };
   const onSashPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     const panel = dockRef.current?.parentElement?.getBoundingClientRect();
     if (!panel) return;
     const max = Math.max(MIN_H, panel.height - TREE_MIN);
-    setFull(false);
-    setHeight(Math.min(max, Math.max(MIN_H, panel.bottom - e.clientY)));
+    const d = drag.current;
+    d.next = Math.min(max, Math.max(MIN_H, panel.bottom - e.clientY));
+    d.moved = true;
+    if (!d.raf)
+      d.raf = requestAnimationFrame(() => {
+        d.raf = 0;
+        if (dockRef.current) dockRef.current.style.height = `${d.next}px`;
+      });
   };
-  const endDrag = () => setDragging(false);
+  const endDrag = () => {
+    const d = drag.current;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    d.raf = 0;
+    if (d.moved) {
+      d.moved = false;
+      setFull(false);
+      setHeight(d.next);
+    }
+    setDragging(false);
+  };
 
   const pill = summary && summary.count > 0 ? <span className="git-dock-pill">{t("git.dock.changes", { count: summary.count })}</span> : null;
 
@@ -79,6 +116,9 @@ export function GitDock({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange, 
       ref={dockRef}
       className={"git-dock" + (open ? " is-open" : "") + (animating ? " is-anim" : "")}
       style={{ height: open ? (full ? `calc(100% - ${TREE_MIN}px)` : height) : BAR_H }}
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget && e.propertyName === "height") settle();
+      }}
     >
       {open && (
         <div
@@ -117,7 +157,7 @@ export function GitDock({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange, 
           <polyline points="6 15 12 9 18 15" />
         </svg>
       </button>
-      <div className="git-dock-body" hidden={!open}>
+      <div className="git-dock-body" hidden={!open && !bodyShown}>
         <GitPanel cwd={cwd} visible={visible} onOpenFile={onOpenFile} onOpenDiff={onOpenDiff} onStatusChange={onStatusChange} />
       </div>
     </div>

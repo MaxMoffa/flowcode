@@ -7,6 +7,10 @@ import { useEffect, useState, type RefObject } from "react";
 
 const INSET = 6;
 const RECHECK_MS = 250;
+/** DOM mutations look again at most this often: a streaming chat or a busy terminal mutates every frame. */
+const MUTATION_THROTTLE_MS = 100;
+/** Busy subtrees that never hold an overlay over the browser: their mutations are not worth a look. */
+const QUIET_SUBTREES = ".xterm, .chat-content";
 
 export interface ViewportState {
   /** Connected, not in a collapsed panel and not zero-sized: a native view may be shown. */
@@ -87,9 +91,31 @@ export function useViewportCovered(viewportRef: RefObject<HTMLElement | null>, e
     }
     // After a click or key the overlay opens on the next render: look again on the next frame.
     const afterInput = () => requestAnimationFrame(schedule);
+    // Mutations: leading look, then at most one more per window. Input above stays immediate.
+    let throttle = 0;
+    let trailing = false;
+    const onMutations = (records: MutationRecord[]) => {
+      const relevant = records.some((r) => {
+        const t = r.target instanceof Element ? r.target : r.target.parentElement;
+        return !!t && !el.contains(t) && !t.closest(QUIET_SUBTREES);
+      });
+      if (!relevant) return;
+      if (throttle) {
+        trailing = true;
+        return;
+      }
+      schedule();
+      throttle = window.setTimeout(function tick() {
+        throttle = 0;
+        if (!trailing) return;
+        trailing = false;
+        schedule();
+        throttle = window.setTimeout(tick, MUTATION_THROTTLE_MS);
+      }, MUTATION_THROTTLE_MS);
+    };
 
     schedule();
-    const mo = new MutationObserver(schedule);
+    const mo = new MutationObserver(onMutations);
     mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "open", "hidden"] });
     const ro = new ResizeObserver(schedule);
     ro.observe(el);
@@ -100,6 +126,7 @@ export function useViewportCovered(viewportRef: RefObject<HTMLElement | null>, e
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
       window.clearInterval(timer);
+      window.clearTimeout(throttle);
       mo.disconnect();
       ro.disconnect();
       window.removeEventListener("resize", schedule);

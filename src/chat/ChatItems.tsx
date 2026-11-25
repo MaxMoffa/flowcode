@@ -328,7 +328,7 @@ export function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpe
 }
 
 /** The shared running-subagent tray, with desktop translations. */
-export function SubagentTray({ items, onOpen, selectedId, expanded, onToggle, onUngrouped }: { items: SubagentItem[]; onOpen?: (id: string) => void; selectedId?: string | null; expanded: boolean; onToggle: () => void; onUngrouped: () => void }) {
+export function SubagentTray({ items, onOpen, selectedId, expanded, onToggle, onUngrouped, presence }: { items: SubagentItem[]; onOpen?: (id: string) => void; selectedId?: string | null; expanded: boolean; onToggle: () => void; onUngrouped: () => void; presence?: boolean }) {
   const { t } = useI18n();
   return (
     <SharedSubagentTray
@@ -339,6 +339,7 @@ export function SubagentTray({ items, onOpen, selectedId, expanded, onToggle, on
       expanded={expanded}
       onToggle={onToggle}
       onUngrouped={onUngrouped}
+      presence={presence}
       countLabel={(count) => t("chat.subagent.count", { count })}
       hint={t("chat.subagent.hint")}
       hintOpen={t("chat.subagent.hintOpen")}

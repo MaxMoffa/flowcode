@@ -121,6 +121,15 @@
   z-index: 2;
   pointer-events: none;
   border: 2px solid #d9a35b;
+  box-shadow: inset 0 0 8px color-mix(in srgb, #d9a35b 20%, transparent);
+}
+
+/* The breathing glow is a fixed shadow on a pseudo-element faded in and out:
+   opacity is composited, an animated box-shadow repaints every frame. */
+.bctl-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   box-shadow: inset 0 0 22px color-mix(in srgb, #d9a35b 35%, transparent);
   animation: bctl-breathe 2.4s ease-in-out infinite;
 }
@@ -128,17 +137,20 @@
 .bctl-ring.is-paused {
   border-color: var(--accent);
   box-shadow: inset 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent);
-  animation: none;
+}
+
+.bctl-ring.is-paused::after {
+  display: none;
 }
 
 @keyframes bctl-breathe {
   50% {
-    box-shadow: inset 0 0 8px color-mix(in srgb, #d9a35b 20%, transparent);
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bctl-ring {
+  .bctl-ring::after {
     animation: none;
   }
 }

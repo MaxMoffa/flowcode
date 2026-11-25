@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,6 +64,7 @@ interface PairDialogProps {
  * confirmation that follows is the only thing on screen. Closing it any other
  * way invalidates the code. */
 function PairDialog({ onClose }: PairDialogProps) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const [pair, setPair] = useState<PairInfo | null>(null);
   const [qr, setQr] = useState("");
   const [error, setError] = useState(false);
@@ -139,6 +141,7 @@ function PairDialog({ onClose }: PairDialogProps) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) dismiss();
       }}
@@ -218,6 +221,7 @@ function useAppRelease() {
 
 /** The APK's download link as a QR code, for the phone's camera. */
 function AppQrDialog({ url, onClose }: { url: string; onClose: () => void }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const [qr, setQr] = useState("");
   useEffect(() => {
     let stale = false;
@@ -240,6 +244,7 @@ function AppQrDialog({ url, onClose }: { url: string; onClose: () => void }) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

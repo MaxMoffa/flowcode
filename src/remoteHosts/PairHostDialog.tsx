@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -23,6 +24,7 @@ type Stage = "paste" | "confirm" | "waiting" | "failed";
 
 /** Pairs this desktop with another PC from its link: validate, confirm who it is, then wait for the other PC's user to accept. */
 export function PairHostDialog({ onClose }: { onClose: () => void }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   useI18n();
   const [stage, setStage] = useState<Stage>("paste");
   const [link, setLink] = useState("");
@@ -110,6 +112,7 @@ export function PairHostDialog({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && stage !== "waiting") dismiss();
       }}

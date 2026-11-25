@@ -1,0 +1,57 @@
+/* See Reveal.tsx. The height goes through the grid row (layout, but only on
+   open/close), the content only fades (composited). */
+.reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.reveal > .reveal-inner {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Clipped only while moving: open, shadows and tucked edges show as before. */
+.reveal:not([data-state="open"]) > .reveal-inner {
+  overflow: hidden;
+}
+
+.reveal[data-state="entering"] {
+  animation: reveal-open var(--dur-2) var(--ease-out);
+}
+
+.reveal[data-state="entering"] > .reveal-inner {
+  animation: reveal-fade-in var(--dur-2) var(--ease-out) both;
+}
+
+.reveal[data-state="closing"] {
+  pointer-events: none;
+  animation: reveal-close var(--dur-2-out) var(--ease-in) forwards;
+}
+
+.reveal[data-state="closing"] > .reveal-inner {
+  animation: reveal-fade-out var(--dur-2-out) var(--ease-in) forwards;
+}
+
+@keyframes reveal-open {
+  from {
+    grid-template-rows: 0fr;
+  }
+}
+
+@keyframes reveal-close {
+  to {
+    grid-template-rows: 0fr;
+  }
+}
+
+@keyframes reveal-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes reveal-fade-out {
+  to {
+    opacity: 0;
+  }
+}

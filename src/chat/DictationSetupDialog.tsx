@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -20,6 +21,7 @@ import "./dictation-dialog.css";
  * it, or follow the download already running. Closing it never stops a
  * download; "Annulla download" does. */
 export function DictationSetupDialog({ onClose }: { onClose: () => void }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const { models, dir, downloading, error, failedId } = useDictationModels();
   const [picked, setPicked] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function DictationSetupDialog({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

@@ -404,14 +404,16 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 35%;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
   animation: agent-history-indet 1.1s ease-in-out infinite;
 }
 
+/* transform, not `left`: composited. 286% of its 35% width crosses the bar. */
 @keyframes agent-history-indet {
-  from { left: -35%; }
-  to { left: 100%; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(286%); }
 }
 
 .agent-history-row.is-rise {
@@ -488,7 +490,7 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-history-topbar::before {
     animation: none;
-    left: 0;
+    transform: none;
     width: 100%;
     opacity: 0.5;
   }

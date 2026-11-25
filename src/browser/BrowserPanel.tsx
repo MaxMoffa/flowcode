@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import { cliName, type AgentCli } from "../agents/cliInfo";
@@ -41,6 +41,9 @@ import {
 } from "./browserStore";
 import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView, useNativeThemeBackground } from "./nativeView";
 import { useViewportCovered } from "./useViewportCovered";
+import type { PresenceState } from "../hooks/usePresence";
+import { useExitGhost } from "../hooks/useExitGhost";
+import { DUR_OUT } from "../lib/motion";
 import { DownloadsBar, DownloadsButton, DownloadsPopover, useDownloads } from "./BrowserDownloads";
 import "./browser-panel.css";
 import "./browser-control.css";
@@ -282,7 +285,7 @@ function usePopoverDismiss(
 /** The preview panel: files, artifacts and PDFs in a sandboxed host page on its own origin
  * (`flowcode-preview://`, so the app's CSP never opens up to the web), web and localhost pages
  * in native child webviews (src/browser/nativeView.ts) that paint above the DOM. */
-export function BrowserPanel({ dragging }: { dragging: boolean }) {
+export function BrowserPanel({ dragging, motion = "open" }: { dragging: boolean; motion?: PresenceState }) {
   const { pages, activeId, servers } = useBrowser();
   const { artifactScripts, autoReloadArtifacts, control: controlSetting, pauseOnUser } = useBrowserSettings();
   const controlOwners = useControlOwners();
@@ -298,7 +301,22 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   // The typed address opens a new page instead of navigating the current one.
   const [newTab, setNewTab] = useState(false);
   const [tabsOpen, setTabsOpen] = useState(false);
-  const tabsRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  // The drawer and its scrim slide/fade out as copies (useExitGhost); tabsRef still tracks the live one.
+  const scrimGhost = useExitGhost<HTMLDivElement>(DUR_OUT[3]);
+  const drawerGhost = useExitGhost<HTMLDivElement>(DUR_OUT[3]);
+  const drawerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsRef.current = el;
+      if (!el) return;
+      const leave = drawerGhost(el);
+      return () => {
+        tabsRef.current = null;
+        leave?.();
+      };
+    },
+    [drawerGhost],
+  );
   const tabsButtonRef = useRef<HTMLButtonElement>(null);
   const [tabsFilter, setTabsFilter] = useState<"all" | "page" | "file" | "agent">("all");
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -660,11 +678,13 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const overlayNow = covered || tabsOpen || menuOpen || dlShown;
   // A resize drag also parks the view: resized live, WebView2 stretches its last frame while the page
   // lays out again (a laggy, rubbery page). A still snapshot at its own size stands in until the drop.
-  const coverNow = overlayNow || dragging;
+  // The panel sliding out: the snapshot leaves with the card (the native view can't follow a CSS transform).
+  const coverNow = overlayNow || dragging || motion === "closing";
   // Shown only after the PDF check, except pages already shown (a later navigation is checked alongside).
   const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
-  const nativeLive = !!urlPage && visible && !!nativeUrl && !urlPage.error;
+  // Sliding in, the native view would sit at its final place over a card still on its way: it waits for the end.
+  const nativeLive = !!urlPage && visible && motion !== "entering" && !!nativeUrl && !urlPage.error;
   const drawerHeld = tabsOpen && nativeLive && !suspended;
   // An agent drives this page: ring around the view and a bar under it (settings "off" turns the whole thing inert).
   const control = urlPage?.control && controlSetting !== "off" ? urlPage.control : null;
@@ -706,7 +726,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     }
     // Nothing to hide, or a snapshot already stands in.
     if (!nativeLive || !urlId || suspendedFor.current === urlId) return;
-    const dragOnly = dragging && !overlayNow;
+    const dragOnly = (dragging || motion === "closing") && !overlayNow;
     // A stale answer (the overlay left, another page came forward) is dropped by its sequence.
     const stand = (src: string | null) => {
       if (coverSeq.current !== mine) return;
@@ -718,7 +738,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       setSuspended(true);
     };
     nativeView.snapshot(urlId).then(stand, () => stand(null));
-  }, [coverNow, overlayNow, nativeLive, urlId, dragging, insetBottom]);
+  }, [coverNow, overlayNow, nativeLive, urlId, dragging, motion, insetBottom]);
 
   // The view reports back (onShown) in the normal case; this covers a view that never shows again.
   useEffect(() => {
@@ -1024,8 +1044,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       {tabsOpen && (
         <>
           {/* Held (invisible, not animating) until the native view is parked: it sits above the DOM and would cover the slide-in. */}
-          <div className={"browser-tabs-scrim" + (drawerHeld ? " is-held" : "")} onClick={() => setTabsOpen(false)} />
-          <div ref={tabsRef} className={"browser-tabs-drawer" + (drawerHeld ? " is-held" : "")} role="dialog" aria-label={t("browser.tabs")}>
+          <div ref={scrimGhost} className={"browser-tabs-scrim" + (drawerHeld ? " is-held" : "")} onClick={() => setTabsOpen(false)} />
+          <div ref={drawerRef} className={"browser-tabs-drawer" + (drawerHeld ? " is-held" : "")} role="dialog" aria-label={t("browser.tabs")}>
             <div className="browser-tabs-drawer-head">
               <span className="browser-tabs-drawer-title">{t("browser.tabs")}</span>
               <span className="browser-tabs-drawer-count">{`· ${pages.length}`}</span>

@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -13,6 +14,7 @@ const close = () => openRemoteFile(null);
 
 /** A file of another PC, read-only, opened from a link in its chat or from its explorer. One at a time. */
 export function RemoteFileViewer({ hostId }: { hostId: string }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const open = useOpenRemoteFile();
   const file = open && open.hostId === hostId ? open : null;
@@ -52,7 +54,7 @@ export function RemoteFileViewer({ hostId }: { hostId: string }) {
 
   if (!file) return null;
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <div className="modal-backdrop" ref={exitRef} onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div className="modal-panel remote-file-panel" role="dialog" aria-modal="true" aria-label={basename(file.path)}>
         <div className="remote-file-head">
           <div className="remote-file-name">

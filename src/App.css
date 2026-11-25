@@ -236,11 +236,14 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
 }
 
 /* Wraps whichever fixed-width panel (file explorer / settings nav / symbol
-   outline on the left, agents list on the right) is currently docked, so
-   its width is a plain inline style driven by useResizablePanelWidth
-   instead of a CSS constant - the panel itself now just fills this.
+   outline on the left, agents list on the right) is currently docked. Its
+   width is `--panel-w`, set inline by App and written straight to the element
+   during a drag (useResizablePanelWidth), so a drag frame doesn't re-render the app.
    Not itself clipped: the resize handle lives in the gap outside the card
-   (`.panel-card`), which does the clipping. */
+   (`.panel-card`), which does the clipping.
+   Opening/closing never animates the width: the wrapper takes its final width
+   at once (one reflow of the chat/terminal next to it, which then fits once)
+   and only the card slides and fades, on the compositor. */
 .resizable-panel {
   position: relative;
   /* Above the window texture (.app-shell::after, z-index 1) so it only paints
@@ -250,31 +253,60 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
-  transition:
-    width 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
-    margin 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
-    opacity 0.18s ease;
+  width: var(--panel-w);
 }
 
-/* A drag must follow the pointer 1:1, not chase it through the easing. */
-.resizable-panel.is-dragging {
-  transition: none;
-}
-
-/* While collapsed to zero width the panel is still mounted (it animates out
-   before unmounting), but `.app-body`'s gap would keep reserving 8px for it:
-   cancel it with a negative margin on the side facing the terminal card. */
-.resizable-panel.is-hidden {
-  opacity: 0;
+.resizable-panel[data-state="closing"] {
   pointer-events: none;
 }
 
-.resizable-panel-left.is-hidden {
-  margin-right: -8px;
+/* A window resize parks/unparks panels without sliding them (usePanelLayout settles them at once). */
+html.is-resizing .resizable-panel > .panel-card {
+  animation: none;
 }
 
-.resizable-panel-right.is-hidden {
-  margin-left: -8px;
+.resizable-panel-left[data-state="entering"] > .panel-card {
+  animation: panel-in-left var(--dur-3) var(--ease-out) both;
+}
+
+.resizable-panel-left[data-state="closing"] > .panel-card {
+  animation: panel-out-left var(--dur-3-out) var(--ease-in) forwards;
+}
+
+.resizable-panel-right[data-state="entering"] > .panel-card {
+  animation: panel-in-right var(--dur-3) var(--ease-out) both;
+}
+
+.resizable-panel-right[data-state="closing"] > .panel-card {
+  animation: panel-out-right var(--dur-3-out) var(--ease-in) forwards;
+}
+
+@keyframes panel-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+@keyframes panel-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+@keyframes panel-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes panel-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
 }
 
 .panel-card {
@@ -288,19 +320,13 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   overflow: hidden;
 }
 
-/* Keeps the panel at its real width while the wrapper animates, so its
-   contents are revealed by the card clipping instead of squashing. The
-   card's 1px borders are subtracted so the inner box fills it exactly. */
+/* The panel at its real width (the card's 1px borders subtracted), so a card
+   squeezed by the layout clips its contents instead of reflowing them. */
 .panel-card-content {
   flex: none;
   display: flex;
   height: 100%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .resizable-panel {
-    transition: none;
-  }
+  width: calc(var(--panel-w) - 2px);
 }
 
 .resize-handle {

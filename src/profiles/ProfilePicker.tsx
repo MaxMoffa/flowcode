@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -15,6 +16,7 @@ interface ProfilePickerProps {
  * profile and every account profile, pickable with the arrows + Enter or by
  * their number. */
 export function ProfilePicker({ onPick, onClose }: ProfilePickerProps) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const { profiles } = useProfiles();
   const [index, setIndex] = useState(0);
@@ -51,6 +53,7 @@ export function ProfilePicker({ onPick, onClose }: ProfilePickerProps) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

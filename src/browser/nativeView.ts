@@ -271,8 +271,15 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
     const ro = new ResizeObserver(kick);
     ro.observe(el);
     window.addEventListener("resize", kick);
-    // Ancestors scrolling or panels animating move the rect without resizing it.
-    window.addEventListener("scroll", kick, true);
+    // Ancestors scrolling move the rect without resizing it. Captured, so every
+    // scroll in the app comes here (a streaming chat scrolls all the time): only
+    // a scroller that contains the viewport can move it.
+    const onScroll = (e: Event) => {
+      const target = e.target;
+      if (target instanceof Node && target !== document && !target.contains(el)) return;
+      kick();
+    };
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       cancelled = true;
       kickRef.current = null;
@@ -280,7 +287,7 @@ export function useNativeBrowserView({ viewportRef, pageId, url, active, suspend
       if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", kick);
-      window.removeEventListener("scroll", kick, true);
+      window.removeEventListener("scroll", onScroll, true);
       void nativeView.hide(pageId).catch(() => {});
     };
     // `url` is deliberately not a dependency: a URL change navigates (below)

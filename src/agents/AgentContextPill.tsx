@@ -1,6 +1,7 @@
 import { useContext, useRef } from "react";
 import { useI18n } from "../i18n";
 import { useOutsideClose } from "../hooks/useOutsideClose";
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useActiveAgent } from "./activeAgent";
 import { useAgentContextFill } from "./AgentInsightPanel";
 import {
@@ -32,6 +33,7 @@ function Pill({ agent, host }: { agent: NonNullable<ReturnType<typeof useActiveA
   const popoverOpen = useAgentPopoverOpen();
   const pinned = useAgentPanelPinned();
   const anchorRef = useRef<HTMLDivElement>(null);
+  const popRef = useExitGhost<HTMLDivElement>();
   const open = popoverOpen && !pinned;
 
   // The toolbar's Agent button toggles the popover itself: closing on its mousedown would reopen it on the click.
@@ -73,7 +75,7 @@ function Pill({ agent, host }: { agent: NonNullable<ReturnType<typeof useActiveA
         <span>{percent === null ? "—" : `${Math.round(percent * 100)}%`}</span>
       </button>
       {open && (
-        <div className="agent-pop" role="dialog" aria-label={t("agentPanel.pill.title")}>
+        <div ref={popRef} className="agent-pop" role="dialog" aria-label={t("agentPanel.pill.title")}>
           {host.renderPanel(() => {
             setAgentPanelPinned(true);
             setAgentPopoverOpen(false);

@@ -45,7 +45,7 @@ import { addTerminalRequest, EMPTY_TERMINAL_DELEGATES, resolveTerminalRequest, s
 import { TerminalDelegateCard } from "./TerminalDelegateCard";
 import { addCall } from "../calls/callStore";
 import { useOptionalConfirmDialog } from "../dialog/ConfirmDialogContext";
-import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
+import { isLayoutBusy, onLayoutBusyEnd } from "../lib/layoutDrag";
 import { onResume } from "../lib/resume";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
@@ -1206,7 +1206,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         lastW = rect.width;
         lastH = rect.height;
       }
-      if (isLayoutDragging()) {
+      if (isLayoutBusy()) {
         pendingRefit = true;
         return;
       }
@@ -1223,7 +1223,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       }, 100);
     });
     resizeObserver.observe(containerRef.current);
-    const unsubscribeDragEnd = onLayoutDragEnd(() => {
+    const unsubscribeDragEnd = onLayoutBusyEnd(() => {
       if (!pendingRefit) return;
       pendingRefit = false;
       refit();

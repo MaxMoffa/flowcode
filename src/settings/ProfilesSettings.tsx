@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -114,6 +115,7 @@ function ProfileClis({
 /** The dialog behind the page's "New profile" button: name, colour and
  * whether to copy the default profile's settings. Closes itself on success. */
 function NewProfileDialog({ onClose }: { onClose: () => void }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const [name, setName] = useState("");
   const [color, setColor] = useState(PROFILE_COLORS[0]);
@@ -146,6 +148,7 @@ function NewProfileDialog({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

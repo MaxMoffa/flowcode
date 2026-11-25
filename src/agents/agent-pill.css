@@ -61,6 +61,26 @@
   -webkit-backdrop-filter: var(--menu-backdrop);
   font-size: 12.5px;
   line-height: 1.4;
+  animation: agent-pop-in var(--dur-2) var(--ease-out);
+}
+
+.agent-pop.is-leaving {
+  pointer-events: none;
+  animation: agent-pop-out var(--dur-2-out) var(--ease-in) forwards;
+}
+
+@keyframes agent-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes agent-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 /* The panel was made for a full-height sidebar: here it takes its natural height and the popover scrolls. */

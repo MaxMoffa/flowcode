@@ -9,13 +9,14 @@
   box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14));
   backdrop-filter: var(--menu-backdrop);
   -webkit-backdrop-filter: var(--menu-backdrop);
-  animation: context-menu-in 0.1s ease-out;
+  animation: context-menu-in var(--dur-1) var(--ease-out);
 }
 
+/* No scale over the backdrop-filter (re-blurred every frame while scaling). */
 @keyframes context-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.97) translateY(-2px);
+    transform: translateY(-3px);
   }
   to {
     opacity: 1;

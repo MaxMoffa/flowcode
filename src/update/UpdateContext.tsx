@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -59,6 +60,7 @@ function formatBytes(bytes: number): string {
  * dialog that offers it and shows the download. Installing hands off to the
  * installer, which quits and relaunches Flowcode - see updater.rs. */
 export function UpdateProvider({ children }: { children: ReactNode }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,7 +128,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     <UpdateCtx.Provider value={value}>
       {children}
       {dialogOpen && dialogInfo && (
-        <div className="modal-backdrop confirm-backdrop">
+        <div className="modal-backdrop confirm-backdrop" ref={exitRef}>
           <div className="modal-panel confirm-dialog update-dialog" role="alertdialog" aria-modal="true">
             <div className="confirm-title">{t("update.title")}</div>
             <div className="confirm-message">

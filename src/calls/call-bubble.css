@@ -15,7 +15,20 @@
   font-size: 13px;
   line-height: 1.45;
   box-shadow: var(--drop-shadow, 0 14px 40px rgba(0, 0, 0, 0.45));
-  animation: call-bubble-pop 0.18s ease-out;
+  animation: call-bubble-pop var(--dur-2) var(--ease-out);
+}
+
+/* The copy useExitGhost leaves behind when the call is dealt with. */
+.call-bubble.is-leaving {
+  pointer-events: none;
+  animation: call-bubble-out var(--dur-2-out) var(--ease-in) forwards;
+}
+
+@keyframes call-bubble-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
 }
 
 /* The tip points at the calling tab: a rotated square sharing the bubble's surface and its top-left border. */
@@ -269,19 +282,35 @@
 }
 
 /* The calling tab's logo pulses amber until the call is dealt with. */
+/* A halo on a pseudo-element grown with scale + opacity: an animated box-shadow repaints every frame on the main thread. */
 .term-tab.is-calling .term-tab-agent-logo,
 .term-tab.is-calling .term-tab-dot {
+  position: relative;
+  isolation: isolate;
   border-radius: 50%;
+}
+
+.term-tab.is-calling .term-tab-agent-logo::after,
+.term-tab.is-calling .term-tab-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ansi-bright-yellow) 70%, transparent);
+  pointer-events: none;
   animation: call-pulse 1.4s ease-out infinite;
 }
 
 @keyframes call-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ansi-bright-yellow) 70%, transparent);
+    transform: scale(1);
+    opacity: 1;
   }
   70%,
   100% {
-    box-shadow: 0 0 0 8px transparent;
+    transform: scale(2.2);
+    opacity: 0;
   }
 }
 
@@ -289,9 +318,13 @@
   .call-bubble {
     animation: none;
   }
+  .term-tab.is-calling .term-tab-agent-logo::after,
+  .term-tab.is-calling .term-tab-dot::after {
+    animation: none;
+    opacity: 0;
+  }
   .term-tab.is-calling .term-tab-agent-logo,
   .term-tab.is-calling .term-tab-dot {
-    animation: none;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--ansi-bright-yellow) 70%, transparent);
   }
 }

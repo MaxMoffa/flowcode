@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { subagentInfo, type SubagentItem } from "../src/chat/chatTimeline";
+import { usePresence } from "../src/hooks/usePresence";
 
 /** How long a subagent missing from the running list keeps its row before leaving. */
 const LEAVE_GRACE_MS = 2500;
@@ -24,6 +25,7 @@ export function SubagentTray({
   countLabel,
   hint = "",
   hintOpen = "",
+  presence = false,
 }: {
   items: SubagentItem[];
   onOpen?: (id: string) => void;
@@ -38,6 +40,10 @@ export function SubagentTray({
   /** Collapsed / expanded hint next to the count (the keys, on desktop). */
   hint?: string;
   hintOpen?: string;
+  /** Desktop: the tray opens/closes in place (a `.reveal` grid wrapper) and
+   * leaving rows close through a grid slot. Off, the markup is the plain one
+   * the phone's CSS is written for. */
+  presence?: boolean;
 }) {
   const [rows, setRows] = useState<TrayRow[]>([]);
   const [, setTick] = useState(0);
@@ -129,15 +135,17 @@ export function SubagentTray({
     listRef.current?.querySelector(".is-selected")?.scrollIntoView({ block: "nearest" });
   }, [selectedId, expanded]);
 
-  if (rows.length === 0) return null;
-  return (
+  // Every row on its way out: the whole tray leaves at once instead of row by row.
+  const tray = usePresence(presence && rows.some((row) => !row.leaving));
+  if (rows.length === 0 || (presence && !tray.mounted)) return null;
+  const card = (
     <div className={`chat-subtray${grouped ? " is-grouped" : ""}`} role="status">
       {(!grouped || expanded) && (
         <div ref={listRef} className="chat-subtray-list">
           {rows.map(({ item, leaving }) => {
             const { type, description } = subagentInfo(item.call);
             const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
-            const className = `chat-subtray-row${leaving ? " is-leaving" : ""}${selectedId === item.id ? " is-selected" : ""}`;
+            const className = `chat-subtray-row${leaving && !presence ? " is-leaving" : ""}${selectedId === item.id ? " is-selected" : ""}`;
             const info = (
               <>
                 <span className="chat-subtray-dot" aria-hidden="true" />
@@ -146,23 +154,28 @@ export function SubagentTray({
                 <span className="chat-subtray-time">{`${elapsed}s`}</span>
               </>
             );
-            if (grouped && onOpen) {
-              return (
+            const row =
+              grouped && onOpen ? (
                 <button key={item.id} type="button" className={className} title={openLabel} onClick={() => onOpen(item.id)}>
                   {info}
                   <span className="chat-subtray-go">{OPEN_ICON}</span>
                 </button>
+              ) : (
+                <div key={item.id} className={className}>
+                  {info}
+                  {onOpen && (
+                    <button type="button" className="chat-subcard-open" title={openLabel} aria-label={openLabel} onClick={() => onOpen(item.id)}>
+                      {OPEN_ICON}
+                    </button>
+                  )}
+                </div>
               );
-            }
-            return (
-              <div key={item.id} className={className}>
-                {info}
-                {onOpen && (
-                  <button type="button" className="chat-subcard-open" title={openLabel} aria-label={openLabel} onClick={() => onOpen(item.id)}>
-                    {OPEN_ICON}
-                  </button>
-                )}
+            return presence ? (
+              <div key={item.id} className={`chat-subtray-slot${leaving ? " is-leaving" : ""}`}>
+                {row}
               </div>
+            ) : (
+              row
             );
           })}
         </div>
@@ -177,6 +190,12 @@ export function SubagentTray({
           </svg>
         </button>
       )}
+    </div>
+  );
+  if (!presence) return card;
+  return (
+    <div className="reveal is-tray" data-state={tray.state} onAnimationEnd={tray.onAnimationEnd} inert={tray.state === "closing"}>
+      <div className="reveal-inner">{card}</div>
     </div>
   );
 }

@@ -431,8 +431,9 @@
   background: var(--sidebar-bg);
 }
 
+/* Tokens: 0ms with reduced motion. */
 .git-dock.is-anim {
-  transition: height 0.2s ease;
+  transition: height var(--dur-3) var(--ease-out);
 }
 
 .git-dock-sash {
@@ -509,7 +510,7 @@
   fill: none;
   stroke-width: 2.6;
   color: var(--fg-muted);
-  transition: transform 0.2s;
+  transition: transform var(--dur-3) var(--ease-out);
 }
 
 /* Points up while closed ("open me"), down once open. */

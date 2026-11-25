@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -30,6 +31,7 @@ const subscribe = (fn: () => void) => {
 };
 
 export function RemoteDiffViewer({ hostId }: { hostId: string }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const open = useSyncExternalStore(subscribe, () => current);
   const diff = open && open.hostId === hostId ? open : null;
@@ -44,7 +46,7 @@ export function RemoteDiffViewer({ hostId }: { hostId: string }) {
   useEffect(() => () => openRemoteDiff(null), [hostId]);
   if (!diff) return null;
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && openRemoteDiff(null)}>
+    <div className="modal-backdrop" ref={exitRef} onMouseDown={(e) => e.target === e.currentTarget && openRemoteDiff(null)}>
       <div className="modal-panel remote-file-panel remote-diff-panel" role="dialog" aria-modal="true" aria-label={diff.path}>
         <div className="remote-file-head">
           <div className="remote-file-name">

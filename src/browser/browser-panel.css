@@ -992,25 +992,27 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 35%;
   border-radius: 3px;
   background: var(--accent);
   animation: browser-dl-indeterminate 1.3s ease-in-out infinite;
 }
 
+/* transform, not `left`: composited. 286% of its 35% width crosses the track. */
 @keyframes browser-dl-indeterminate {
   from {
-    left: -35%;
+    transform: translateX(-100%);
   }
   to {
-    left: 100%;
+    transform: translateX(286%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .browser-dl-track i {
     animation: none;
-    left: 0;
+    transform: none;
     width: 100%;
     opacity: 0.5;
   }
@@ -1025,7 +1027,7 @@
   bottom: 0;
   z-index: 5;
   background: color-mix(in srgb, #000 30%, transparent);
-  animation: browser-tabs-scrim-in 0.2s ease-out;
+  animation: browser-tabs-scrim-in var(--dur-3) var(--ease-out);
 }
 
 .browser-tabs-drawer {
@@ -1041,7 +1043,18 @@
   border-left: 1px solid var(--border);
   background: var(--menu-surface);
   box-shadow: -12px 0 32px rgba(0, 0, 0, 0.3);
-  animation: browser-tabs-drawer-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: browser-tabs-drawer-in var(--dur-3) var(--ease-out);
+}
+
+/* The copies useExitGhost leaves behind on close. */
+.browser-tabs-drawer.is-leaving {
+  pointer-events: none;
+  animation: browser-tabs-drawer-out var(--dur-3-out) var(--ease-in) forwards;
+}
+
+.browser-tabs-scrim.is-leaving {
+  pointer-events: none;
+  animation: browser-tabs-scrim-out var(--dur-3-out) var(--ease-in) forwards;
 }
 
 @keyframes browser-tabs-drawer-in {
@@ -1050,8 +1063,20 @@
   }
 }
 
+@keyframes browser-tabs-drawer-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @keyframes browser-tabs-scrim-in {
   from {
+    opacity: 0;
+  }
+}
+
+@keyframes browser-tabs-scrim-out {
+  to {
     opacity: 0;
   }
 }

@@ -4,7 +4,9 @@
 // (hidden, not closed) and returns on its own when space does. Narrow
 // (phone-like) windows dock nothing: a panel is a transient overlay there.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { usePanelPresence } from "../hooks/usePanelPresence";
+import { usePresence } from "../hooks/usePresence";
+import { beginLayoutBusy, isLayoutBusy, watchWindowResize } from "../lib/layoutDrag";
+import { DUR, DUR_OUT } from "../lib/motion";
 import type { SidebarMode } from "../settings/modes";
 import { NARROW_BREAKPOINT } from "./appPrefs";
 import { solvePanels, type LayoutResult, type PanelKey } from "./panelLayout";
@@ -30,6 +32,8 @@ interface PanelLayoutInput {
   centerMin: number;
   /** Each panel's preferred (user-dragged) width and its minimum. */
   panels: Record<PanelKey, { width: number; min: number }>;
+  /** Kept current with the latest solve, also between renders (a window resize that changes nothing visible doesn't render). */
+  liveRef?: { current: { maxWidth: Partial<Record<PanelKey, number>>; shown: Partial<Record<PanelKey, number>> } };
 }
 
 const EMPTY: LayoutResult = { shown: {}, parked: [], maxWidth: {} };
@@ -43,7 +47,9 @@ export function usePanelLayout({
   bodyRef,
   centerMin,
   panels,
+  liveRef,
 }: PanelLayoutInput) {
+  useEffect(() => watchWindowResize(), []);
   // Booleans, not the raw width: React bails out of the re-render when a
   // resize frame doesn't cross the breakpoint.
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT);
@@ -54,15 +60,29 @@ export function usePanelLayout({
   }, []);
 
   // Room for the docked panels plus the center, i.e. the body without its padding.
-  const [available, setAvailable] = useState(() => window.innerWidth - BODY_PADDING);
+  // In a ref: a window resize re-renders the app only when the solved layout
+  // (who is shown, at what width) actually changes, not on every frame.
+  const availableRef = useRef(window.innerWidth - BODY_PADDING);
+  const [, setLayoutVersion] = useState(0);
+  const solveRef = useRef<(available: number) => LayoutResult>(() => EMPTY);
   useLayoutEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
-    const measure = () => setAvailable(Math.max(0, el.clientWidth - BODY_PADDING));
+    const measure = () => {
+      const next = Math.max(0, el.clientWidth - BODY_PADDING);
+      const prev = availableRef.current;
+      if (next === prev) return;
+      availableRef.current = next;
+      const a = solveRef.current(prev);
+      const b = solveRef.current(next);
+      if (liveRef) liveRef.current = { maxWidth: b.maxWidth, shown: b.shown };
+      if (JSON.stringify([a.shown, a.parked]) !== JSON.stringify([b.shown, b.parked])) setLayoutVersion((v) => v + 1);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bodyRef]);
 
   const open: Record<PanelKey, boolean> = { sidebar: !sidebarCollapsed, browser: browserOpen };
@@ -80,16 +100,12 @@ export function usePanelLayout({
   const [peek, setPeek] = useState<PanelKey | null>(null);
 
   const sidebarFloats = sidebarMode === "floating";
-  const solved = isNarrow
-    ? EMPTY
-    : solvePanels(
-        available,
-        centerMin,
-        GAP,
-        order
-          .filter((k) => open[k] && !(k === "sidebar" && sidebarFloats))
-          .map((k) => ({ key: k, width: panels[k].width, min: panels[k].min })),
-      );
+  const reqs = order
+    .filter((k) => open[k] && !(k === "sidebar" && sidebarFloats))
+    .map((k) => ({ key: k, width: panels[k].width, min: panels[k].min }));
+  solveRef.current = (available) => (isNarrow ? EMPTY : solvePanels(available, centerMin, GAP, reqs));
+  const solved = solveRef.current(availableRef.current);
+  if (liveRef) liveRef.current = { maxWidth: solved.maxWidth, shown: solved.shown };
 
   const overlay: PanelKey | null = isNarrow
     ? peek && open[peek]
@@ -170,8 +186,21 @@ export function usePanelLayout({
   }, [overlay, isNarrow, sidebarFloats, sidebarCollapsed, setSidebarCollapsed]);
 
   // Kept mounted a beat after hiding so the docked panels can animate out.
-  const sidebarPresence = usePanelPresence(!isNarrow && solved.shown.sidebar !== undefined);
-  const browserPresence = usePanelPresence(isNarrow ? overlay === "browser" : solved.shown.browser !== undefined);
+  const motion = { enterMs: DUR[3], exitMs: DUR_OUT[3] };
+  const sidebarPresence = usePresence(!isNarrow && solved.shown.sidebar !== undefined, motion);
+  const browserPresence = usePresence(isNarrow ? overlay === "browser" : solved.shown.browser !== undefined, motion);
+  // While a panel slides in or out the terminals wait and fit once at the end.
+  const panelMoving = (sidebarPresence.mounted && sidebarPresence.state !== "open") || (browserPresence.mounted && browserPresence.state !== "open");
+  useEffect(() => (panelMoving ? beginLayoutBusy("panel") : undefined), [panelMoving]);
+  // A window resize parking or unparking a panel: no slide (CSS drops it under html.is-resizing), the room is freed at once.
+  const { state: sidebarState, done: sidebarDone } = sidebarPresence;
+  const { state: browserState, done: browserDone } = browserPresence;
+  useLayoutEffect(() => {
+    if (sidebarState !== "open" && isLayoutBusy("window")) sidebarDone();
+  }, [sidebarState, sidebarDone]);
+  useLayoutEffect(() => {
+    if (browserState !== "open" && isLayoutBusy("window")) browserDone();
+  }, [browserState, browserDone]);
 
   // While a panel animates out it has no solved width; keep its last one so its content doesn't reflow.
   const lastWidthRef = useRef<Partial<Record<PanelKey, number>>>({});

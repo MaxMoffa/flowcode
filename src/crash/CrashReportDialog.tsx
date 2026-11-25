@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
@@ -173,6 +174,7 @@ function AnalyzeSplit({ agents, analysis, onPick }: { agents: DiagnosisAgent[]; 
  * an agent can investigate it (see diagnosis.ts): the dialog gives way to a
  * pill while it works and comes back with its verdict. */
 export function CrashReportDialog() {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t, language } = useI18n();
   const [pending, setPending] = useState<PendingCrash | null>(null);
   const [note, setNote] = useState("");
@@ -491,7 +493,7 @@ export function CrashReportDialog() {
       {visible && (
         // No dismiss on backdrop click: dismissing discards the report for good,
         // too costly for a stray click. Escape and "Not now" remain.
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" ref={exitRef}>
           <div className="modal-panel crash-dialog" role="dialog" aria-modal="true" aria-labelledby="crash-dialog-title">
             <div className="crash-main">
               <div className="crash-head">

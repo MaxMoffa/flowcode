@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
@@ -18,6 +19,7 @@ interface Listing {
 
 /** A new terminal or chat on another PC, in a folder picked from that PC's disk (the quick menu starts in its default folder). */
 export function RemoteNewTabDialog({ hostId, startAt, onClose }: { hostId: string; startAt: string | null; onClose: () => void }) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   const host = useHost(hostId);
   const canChat = !!host?.caps.includes("chat");
@@ -60,7 +62,7 @@ export function RemoteNewTabDialog({ hostId, startAt, onClose }: { hostId: strin
   const open = (name: string) => setPath(listing?.path ? joinRemote(listing.path, name) : name);
 
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" ref={exitRef} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-panel remote-newtab" role="dialog" aria-modal="true" aria-label={t("remoteHosts.newTab")}>
         <div className="remote-file-head">
           <div className="remote-file-name">

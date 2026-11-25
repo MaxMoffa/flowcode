@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackgroundTerminal } from "../src/chat/backgroundTerminals";
+import { Reveal } from "../src/lib/Reveal";
 
 /** Characters of a terminal's output drawn. */
 const OUTPUT_MAX = 3000;
@@ -61,7 +62,8 @@ export function BackgroundTerminalsCard({
           <path d="m6 15 6-6 6 6" />
         </svg>
       </button>
-      {expanded && (
+      {/* Desktop only (the phone has its own terminals view): the list and each output open and close in place. */}
+      <Reveal show={expanded}>
         <div className="chat-termcard-list" role="list">
           {terminals.map((term, i) => (
             <div key={term.id} role="listitem">
@@ -78,15 +80,15 @@ export function BackgroundTerminalsCard({
                 <span className="chat-termcard-desc">{term.description}</span>
                 <span className="chat-subtray-time">{elapsed(term.startedAt, now)}</span>
               </button>
-              {openId === term.id && (
+              <Reveal show={openId === term.id}>
                 <pre className="chat-termcard-out" tabIndex={0}>
                   {term.output ? term.output.slice(-OUTPUT_MAX) : labels.noOutput}
                 </pre>
-              )}
+              </Reveal>
             </div>
           ))}
         </div>
-      )}
+      </Reveal>
     </div>
   );
 }

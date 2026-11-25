@@ -1,3 +1,4 @@
+import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef, PluginButtonDef } from "./types";
@@ -12,6 +13,7 @@ interface PluginDialogProps {
 }
 
 export function PluginDialog({ plugin, onRunButton, onClose }: PluginDialogProps) {
+  const exitRef = useExitGhost<HTMLDivElement>();
   const { t } = useI18n();
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -24,6 +26,7 @@ export function PluginDialog({ plugin, onRunButton, onClose }: PluginDialogProps
   return createPortal(
     <div
       className="modal-backdrop"
+      ref={exitRef}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

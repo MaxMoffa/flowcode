@@ -12,13 +12,14 @@
   backdrop-filter: var(--menu-backdrop);
   -webkit-backdrop-filter: var(--menu-backdrop);
   overflow: hidden;
-  animation: plugin-menu-in 0.12s ease-out;
+  animation: plugin-menu-in var(--dur-1) var(--ease-out);
 }
 
+/* No scale over the backdrop-filter (re-blurred every frame while scaling). */
 @keyframes plugin-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.97) translateY(-2px);
+    transform: translateY(-3px);
   }
   to {
     opacity: 1;

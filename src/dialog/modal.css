@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.38);
-  animation: modal-backdrop-in 0.1s ease-out;
+  animation: modal-backdrop-in var(--dur-1) var(--ease-out);
 }
 
 @keyframes modal-backdrop-in {
@@ -32,16 +32,40 @@
   box-shadow: var(--drop-shadow, 0 16px 40px rgba(0, 0, 0, 0.3));
   backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  animation: modal-panel-in 0.14s ease-out;
+  animation: modal-panel-in var(--dur-2) var(--ease-out);
 }
 
+/* No scale: a scaled box re-runs its backdrop-filter blur on every frame. */
 @keyframes modal-panel-in {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* The copy useExitGhost leaves behind on close. */
+.modal-backdrop.is-leaving {
+  pointer-events: none;
+  animation: modal-backdrop-out var(--dur-2-out) var(--ease-in) forwards;
+}
+
+.modal-backdrop.is-leaving .modal-panel {
+  animation: modal-panel-out var(--dur-2-out) var(--ease-in) forwards;
+}
+
+@keyframes modal-backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }

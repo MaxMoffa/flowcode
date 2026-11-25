@@ -173,8 +173,33 @@
   --on-accent: #fff;
   --on-accent-2: #fff;
   --on-danger: #fff;
-  --menu-backdrop: blur(40px) saturate(160%);
+  /* 20px, not 40: the surface is 96% opaque anyway and a wide blur is re-run on every frame a menu animates. */
+  --menu-backdrop: blur(20px) saturate(160%);
   --menu-surface: rgb(var(--surface-rgb) / 0.96);
+}
+
+/* Motion tokens: menus/cards use --dur-2, panels/drawers/modals --dur-3. An
+   exit runs at ~0.75x its entrance. Kept in sync with src/lib/motion.ts. */
+:root {
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+  --dur-1-out: 90ms;
+  --dur-2-out: 135ms;
+  --dur-3-out: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 0.9, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-1-out: 0ms;
+    --dur-2-out: 0ms;
+    --dur-3-out: 0ms;
+  }
 }
 
 /* The whole app is exactly one viewport tall (.app-shell is height: 100vh)
