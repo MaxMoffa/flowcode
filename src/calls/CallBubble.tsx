@@ -87,9 +87,10 @@ const KIND_CHIP: Record<CallKind, MessageKey> = {
 };
 
 /** The newest call as a speech bubble under its tab, the others one click away. Rendered once, by App. */
-export function CallBubble({ tabs, agents, narrow, onGoTo }: { tabs: AppTab[]; agents: Map<string, TabAgent>; narrow: boolean; onGoTo: (tabId: string, sessionId?: string) => void }) {
+export function CallBubble({ tabs, agents, narrow, onGoTo, scope }: { tabs: AppTab[]; agents: Map<string, TabAgent>; narrow: boolean; onGoTo: (tabId: string, sessionId?: string) => void; /** Which calls this bubble speaks for: the tabs of the PC in front. */ scope?: (call: AgentCall) => boolean }) {
   const { t } = useI18n();
-  const calls = useCalls();
+  const all = useCalls();
+  const calls = scope ? all.filter(scope) : all;
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const [cycle, setCycle] = useState(0);
   const [reply, setReply] = useState("");
@@ -130,7 +131,7 @@ export function CallBubble({ tabs, agents, narrow, onGoTo }: { tabs: AppTab[]; a
     const tab = tabOf(call);
     return call.agent ?? (tab?.kind === "chat" ? tab.agent : agents.get(call.tabId)?.cli);
   };
-  const label = (call: AgentCall) => tabOf(call)?.label ?? "";
+  const label = (call: AgentCall) => call.label ?? tabOf(call)?.label ?? "";
   const ago = (call: AgentCall) => {
     const s = Math.max(0, Math.round((now - call.createdAt) / 1000));
     return s < 5 ? t("calls.now") : s < 60 ? t("calls.secondsAgo", { n: s }) : t("calls.minutesAgo", { n: Math.round(s / 60) });

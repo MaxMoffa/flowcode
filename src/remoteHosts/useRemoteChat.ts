@@ -10,9 +10,13 @@ import type { ChatAttachment, ChatEvent } from "../chat/chatTypes";
 import { discardAttachment } from "../chat/attachmentRelease";
 import type { ChatAttachmentRef } from "../../shared/remote-types";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { agentCallOf } from "../../shared/agentOpen";
+import { addCall } from "../calls/callStore";
+import { useChatCalls } from "../calls/useChatCalls";
+import { cliName, type AgentCli } from "../agents/cliInfo";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { loopbackPort, tunnelUrl } from "./remoteTunnel";
-import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
+import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, remoteCallTabId, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
 
 /** Follows a chat of another PC and hands it to the desktop's agent views as if it ran here: the same
  * `ChatSession` `useChat` gives. The conversation is the remote's own event stream, folded by the
@@ -52,6 +56,10 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const trackOpen = useMemo(() => createAgentOpenTracker(infoCwdForOpen), [infoCwdForOpen]);
   const trackOpenRef = useRef(trackOpen);
   trackOpenRef.current = trackOpen;
+  // The bubble that calls the user from this chat's tab in the strip (see CallBubble): `call_user`, permissions and questions.
+  const callTab = remoteCallTabId(hostId, `chat:${chatId}`);
+  const callInfoRef = useRef({ agent: info?.agent, label: info?.label });
+  callInfoRef.current = { agent: info?.agent, label: info?.label };
 
   /** Changes the session synchronously (the queue is read right after), then renders it. */
   const update = useCallback(
@@ -144,6 +152,12 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
           });
           if (!m.replay) {
             for (const ev of events) {
+              // `call_user`: the agent wants the user's eyes; the bubble shows when they are looking at another tab.
+              const call = agentCallOf(ev as ChatEvent);
+              if (call) {
+                const { agent, label } = callInfoRef.current;
+                addCall({ tabId: callTab, agent: agent as AgentCli | undefined, label, key: `call:${callTab}`, kind: "custom", title: t("calls.title.call", { agent: cliName(agent ?? "") }), detail: call.message });
+              }
               const open = trackOpenRef.current(ev as ChatEvent);
               // Files stay on that PC: only addresses can be shown here.
               if (!open || !/^https?:\/\//i.test(open.target)) continue;
@@ -159,7 +173,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
         }
         pump();
       }),
-    [hostId, chatId, sender, update, pump, promptReceipts],
+    [hostId, chatId, sender, update, pump, promptReceipts, callTab],
   );
 
   // The remote's status changed (a turn ended, the link came back): the queue may be able to move.
@@ -314,6 +328,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     if (!ok) update((cur) => ({ ...cur, older: { ...cur.older, loading: false } }));
   }, [hostId, chatId, update]);
   const older = useMemo(() => (chatPaging ? { has: olderHas, loading: olderLoading, load: loadOlder } : undefined), [chatPaging, olderHas, olderLoading, loadOlder]);
+
+  useChatCalls((info?.agent ?? "claude") as AgentCli, info ? callTab : undefined, session.model.items, { permission: answerPermission, ask: answerAsk }, false, { parked: false, label: info?.label });
 
   return {
     model,

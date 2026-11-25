@@ -5,7 +5,7 @@ import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
 import { ChatIcon } from "../app/icons";
 import { agentCliIcon } from "../plugins/icons";
 import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
-import { chatLike, closeRemoteEntry, connectHost, expectNewTab, terminalLike, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
+import { chatLike, closeRemoteEntry, connectHost, remoteCallTabId, expectNewTab, terminalLike, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
 import { RemoteNewTabDialog } from "./RemoteNewTabDialog";
 import "../terminal/tabstrip.css";
@@ -160,6 +160,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
             return (
               <div
                 key={entry.key}
+                data-tab-id={remoteCallTabId(hostId, entry.key)}
                 className={"term-tab" + (entry.key === activeKey ? " is-active" : "") + " attn-" + attention}
                 title={`${label}\n${win} · ${cwd}`}
                 onClick={() => selectRemoteKey(hostId, entry.key)}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatInfo, Tab } from "../../shared/remote-types";
-import { chatLike, claimBusyRefusal, errorNotice, firstNewEntry, firstNewKey, terminalLike, pickActiveKey, rememberVisit, remoteEntries, setPromptInFlight } from "./remoteHosts";
+import { chatLike, claimBusyRefusal, errorNotice, firstNewEntry, firstNewKey, terminalLike, pickActiveKey, rememberVisit, remoteEntries, remoteCallTabId, parseRemoteCallTab, setPromptInFlight } from "./remoteHosts";
 
 const tab = (ptyId: string, window: string): Tab => ({ ptyId, tabId: "t" + ptyId, window, label: ptyId, cwd: "/", cols: 80, rows: 24 });
 const chat = (chatId: string, window: string): ChatInfo => ({ chatId, tabId: "t" + chatId, window, label: chatId, agent: "claude", cwd: "/" });
@@ -108,5 +108,14 @@ describe("firstNewEntry", () => {
   it("compares folders loosely (separators, case, trailing slash)", () => {
     expect(terminalLike("c:/proj")(entries[0])).toBe(true);
     expect(terminalLike("c:/proj", "claude")(entries[0])).toBe(false);
+  });
+});
+
+describe("call tab ids of another PC", () => {
+  it("round-trips a tab and leaves this PC's tabs out", () => {
+    expect(parseRemoteCallTab(remoteCallTabId("h1", "chat:abc-1"))).toEqual({ hostId: "h1", key: "chat:abc-1" });
+    expect(parseRemoteCallTab(remoteCallTabId("h1", "pty:7"))).toEqual({ hostId: "h1", key: "pty:7" });
+    expect(parseRemoteCallTab("tab-3")).toBeNull();
+    expect(parseRemoteCallTab("remote:h1:other:1")).toBeNull();
   });
 });

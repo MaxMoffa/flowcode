@@ -27,14 +27,14 @@ function askAnswers(questions: AskQuestion[]): { options?: CallOption[]; reply: 
  * settled - here, in the tab or from the phone. `tabId` is the tab the chat lives in: the bubble only shows when it is
  * not the one on screen. `pane.parked` is set when this conversation is in the background of that tab, and `pane.sessionId`
  * is its agent session. A delegated child's own tab (`skip`) is left out: its orchestrator's chat raises those. */
-export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: ChatItem[], answers: Answers, skip: boolean, pane: { parked: boolean; sessionId?: string }) {
+export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: ChatItem[], answers: Answers, skip: boolean, pane: { parked: boolean; sessionId?: string; label?: string }) {
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const raised = useRef(new Set<string>());
   // Each conversation of a tab has its own request ids: the pane id keeps their keys apart.
   const paneId = useId();
   const enabled = useCallsEnabled();
-  const { parked, sessionId } = pane;
+  const { parked, sessionId, label } = pane;
   const paneSig = `${parked}|${sessionId ?? ""}`;
   const lastPane = useRef(paneSig);
 
@@ -69,6 +69,7 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
           onOption: (optionId) => answersRef.current.permission(item.requestId, optionId),
           parked,
           sessionId,
+          label,
         });
       } else if (item.type === "ask") {
         const key = `ask:${paneId}:${item.requestId}`;
@@ -90,6 +91,7 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
           onReply: reply ? (text) => accept({ picked: [], custom: text }) : undefined,
           parked,
           sessionId,
+          label,
         });
       }
     }
@@ -98,7 +100,7 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
       raised.current.delete(key);
       removeCallByKey(key);
     }
-  }, [agent, tabId, items, skip, enabled, paneId, paneSig, parked, sessionId]);
+  }, [agent, tabId, items, skip, enabled, paneId, paneSig, parked, sessionId, label]);
 
   // The chat is gone (tab closed, restarted): whatever it asked is moot.
   useEffect(

@@ -23,6 +23,15 @@ export interface HostInfo {
   appVersion?: string;
 }
 
+/** The id the call bubbles (src/calls) know a tab of another PC by: `entryKey` is `pty:<id>` or `chat:<id>`. */
+export const remoteCallTabId = (hostId: string, entryKey: string) => `remote:${hostId}:${entryKey}`;
+
+/** The PC and entry key a call tab id names, or null for a tab of this PC. */
+export function parseRemoteCallTab(tabId: string): { hostId: string; key: string } | null {
+  const m = /^remote:([^:]+):((?:pty|chat):.+)$/.exec(tabId);
+  return m ? { hostId: m[1], key: m[2] } : null;
+}
+
 /** `"local"` = this PC; otherwise a host id. */
 type ActiveHost = string;
 export const LOCAL_HOST = "local";

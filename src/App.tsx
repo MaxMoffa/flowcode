@@ -28,7 +28,7 @@ import { useBrowserControlBridge } from "./browser/control";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
 import { RemoteSidebar } from "./remoteHosts/RemoteSidebar";
-import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
+import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, parseRemoteCallTab, remoteCallTabId, remoteShortcuts, selectRemoteKey, setActiveHost, useActiveHost, useHosts, useHostState } from "./remoteHosts/remoteHosts";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
@@ -261,7 +261,6 @@ function Shell() {
   );
   // The tab on screen, for pages opened on behalf of another tab (see browserStore).
   useLayoutEffect(() => setBrowserFocusTab(activeTabId), [activeTabId]);
-  useLayoutEffect(() => setCallFocusTab(activeTabId), [activeTabId]);
   // The tab strip, the shortcuts and the phone's list leave out the new tab dialog.
   const stripTabs = useMemo(() => listedTabs(tabs), [tabs]);
   const [{ layout: newTabLayoutId }] = useNewTabSettings();
@@ -319,6 +318,12 @@ function Shell() {
   const { t } = useI18n();
   const openMenu = useOpenContextMenu();
   const activeHost = useActiveHost();
+  // The tab on screen decides which calls need no bubble: this PC's tab, or the one of the PC in front.
+  const remoteActiveKey = useHostState(activeHost).activeKey;
+  useLayoutEffect(
+    () => setCallFocusTab(activeHost === LOCAL_HOST ? activeTabId : remoteActiveKey ? remoteCallTabId(activeHost, remoteActiveKey) : null),
+    [activeHost, activeTabId, remoteActiveKey],
+  );
   // No PC paired yet: the header has no PC selector, so pairing is in the "more options" menu.
   const noPairedHosts = useHosts().length === 0;
   const [pairingHost, setPairingHost] = useState(false);
@@ -2937,7 +2942,17 @@ function Shell() {
           onDragOut={(id) => void handleTabDragOut(id)}
         />
         )}
-        {activeHost === LOCAL_HOST && <CallBubble tabs={stripTabs} agents={tabAgents} narrow={isNarrow} onGoTo={openHistoryTab} />}
+        <CallBubble
+          tabs={stripTabs}
+          agents={tabAgents}
+          narrow={isNarrow}
+          scope={(call) => (activeHost === LOCAL_HOST ? !parseRemoteCallTab(call.tabId) : parseRemoteCallTab(call.tabId)?.hostId === activeHost)}
+          onGoTo={(tabId, sessionId) => {
+            const remote = parseRemoteCallTab(tabId);
+            if (remote) selectRemoteKey(remote.hostId, remote.key);
+            else openHistoryTab(tabId, sessionId);
+          }}
+        />
         <div className="header-right">
           {!isNarrow && headerTools}
           {pluginMenuAnchor && (

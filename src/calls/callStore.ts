@@ -33,6 +33,8 @@ export interface AgentCall {
   parked?: boolean;
   /** The agent session of that conversation, so going to the tab shows it. */
   sessionId?: string;
+  /** What the bubble calls the tab, when it is not one of this PC's (a chat of another PC). */
+  label?: string;
   /** Same key replaces: a request that is raised again must not stack up. */
   key?: string;
 }
