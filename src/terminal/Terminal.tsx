@@ -760,6 +760,16 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       ),
     );
     term.open(hostRef.current!);
+    // A right click opens our menu. When a full-screen app captures the mouse
+    // (Codex...), xterm would also forward it as a mouse event, and some apps
+    // paste the clipboard on it - so the click did two things at once. Keep the
+    // right button out of xterm while mouse tracking is on; the contextmenu
+    // event still fires.
+    const keepRightClick = (e: MouseEvent) => {
+      if (e.button === 2 && term.modes.mouseTrackingMode !== "none") e.stopPropagation();
+    };
+    hostRef.current!.addEventListener("mousedown", keepRightClick, true);
+    hostRef.current!.addEventListener("mouseup", keepRightClick, true);
     // This effect body only ever runs once per tab, at the moment it's
     // created (tabs stay mounted, just hidden, once switched away from - see
     // the `hidden` prop) - and every call site that creates one also makes

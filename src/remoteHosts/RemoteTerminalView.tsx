@@ -111,6 +111,12 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
       ),
     );
     term.open(el);
+    // Right click = our menu only, never also a mouse event to an app capturing the mouse (see Terminal.tsx).
+    const keepRightClick = (e: MouseEvent) => {
+      if (e.button === 2 && term.modes.mouseTrackingMode !== "none") e.stopPropagation();
+    };
+    el.addEventListener("mousedown", keepRightClick, true);
+    el.addEventListener("mouseup", keepRightClick, true);
     termRef.current = term;
     fitRef.current = fit;
     let disposed = false;
