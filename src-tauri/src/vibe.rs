@@ -535,10 +535,9 @@ fn keyring_has_key(username: &str) -> bool {
 fn keyring_delete_key(username: &str) {
     // One call deletes one matching item, there may be several.
     for _ in 0..8 {
-        let deleted = std::process::Command::new("/usr/bin/security")
-            .args(["delete-generic-password", "-s", KEYRING_SERVICE, "-a", username])
-            .output()
-            .is_ok_and(|o| o.status.success());
+        let mut cmd = std::process::Command::new("/usr/bin/security");
+        cmd.args(["delete-generic-password", "-s", KEYRING_SERVICE, "-a", username]);
+        let deleted = keyring_output(cmd).is_some_and(|o| o.status.success());
         if !deleted {
             break;
         }
@@ -554,9 +553,9 @@ fn keyring_has_key(username: &str) -> bool {
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
 fn keyring_delete_key(username: &str) {
-    let _ = std::process::Command::new("secret-tool")
-        .args(["clear", "service", KEYRING_SERVICE, "username", username])
-        .output();
+    let mut cmd = std::process::Command::new("secret-tool");
+    cmd.args(["clear", "service", KEYRING_SERVICE, "username", username]);
+    let _ = keyring_output(cmd);
 }
 
 /// Last keyring answer and when it was read: profile refreshes come in bursts.

@@ -246,6 +246,17 @@ fn fetch(
         .get(&format!("{BASE_URL}/{}", model.file))
         .call()
         .map_err(|e| failed(&e))?;
+    let wrong_size = || {
+        tr(
+            "Il file scaricato è incompleto o danneggiato: riprova.",
+            "The downloaded file is incomplete or corrupt: try again.",
+        )
+        .to_string()
+    };
+    // A server announcing another size can't be the model: don't download it.
+    if response.header("Content-Length").and_then(|v| v.trim().parse::<u64>().ok()).is_some_and(|len| len != model.size) {
+        return Err(wrong_size());
+    }
     let mut reader = response.into_reader();
     let mut file = std::fs::File::create(part).map_err(|e| failed(&e))?;
     let mut hasher = Sha256::new();
@@ -267,9 +278,13 @@ fn fetch(
         if n == 0 {
             break;
         }
+        done += n as u64;
+        // Past the expected size it can only be the wrong file: stop filling the disk.
+        if done > model.size {
+            return Err(wrong_size());
+        }
         file.write_all(&buf[..n]).map_err(|e| failed(&e))?;
         hasher.update(&buf[..n]);
-        done += n as u64;
         received.store(done, Ordering::Relaxed);
         // About eight reports a second.
         if last_report.elapsed() >= Duration::from_millis(125) {
@@ -281,11 +296,7 @@ fn fetch(
     drop(file);
     report(done);
     if done != model.size || hex(&hasher.finalize()) != model.sha256 {
-        return Err(tr(
-            "Il file scaricato è incompleto o danneggiato: riprova.",
-            "The downloaded file is incomplete or corrupt: try again.",
-        )
-        .to_string());
+        return Err(wrong_size());
     }
     Ok(())
 }

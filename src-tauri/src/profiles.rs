@@ -161,12 +161,19 @@ fn env_dir(var: &str) -> Option<PathBuf> {
 /// The CLIs' own folders, as they would resolve for Flowcode's process.
 fn default_dirs() -> Option<ProfileDirs> {
     let home = crate::fs::user_home()?;
+    // OpenCode follows the XDG base dirs on Linux/macOS; on Windows it uses the
+    // home-relative layout regardless.
+    let xdg = |var: &str, rel: &[&str]| {
+        let base = if cfg!(windows) { None } else { env_dir(var).filter(|p| p.is_absolute()) };
+        base.unwrap_or_else(|| rel.iter().fold(home.clone(), |p, s| p.join(s)))
+    };
+    let (config_rel, data_rel): (&[&str], &[&str]) = (&[".config"], &[".local", "share"]);
     Some(ProfileDirs {
         claude: env_dir("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
         codex: env_dir("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
         vibe: crate::vibe::vibe_home()?,
-        opencode_config: home.join(".config").join("opencode"),
-        opencode_db: home.join(".local").join("share").join("opencode").join("opencode.db"),
+        opencode_config: xdg("XDG_CONFIG_HOME", config_rel).join("opencode"),
+        opencode_db: xdg("XDG_DATA_HOME", data_rel).join("opencode").join("opencode.db"),
         cline: env_dir("CLINE_DIR").unwrap_or_else(|| home.join(".cline")),
         gemini: env_dir("GEMINI_CLI_HOME").unwrap_or(home),
     })
@@ -527,22 +534,50 @@ fn sep() -> char {
     }
 }
 
+const COPY_MAX_DEPTH: usize = 8;
+const COPY_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Seeds a profile folder. Links may point outside `from` (skills kept
+/// elsewhere), so instead of a root check it refuses cycles (canonical active
+/// ancestors) and caps depth and total size: a loop would overflow the stack
+/// and abort the whole app.
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        // Symlinks are resolved so a linked folder is copied as a folder
-        // (`file_type()` alone would send it to `fs::copy`, which fails).
-        let file_type = entry.file_type()?;
-        let is_dir = if file_type.is_symlink() { std::fs::metadata(entry.path())?.is_dir() } else { file_type.is_dir() };
-        if is_dir {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), &target)?;
-        }
+    copy_dir_guarded(from, to, &mut Vec::new(), &mut 0)
+}
+
+fn copy_dir_guarded(from: &Path, to: &Path, ancestors: &mut Vec<PathBuf>, bytes: &mut u64) -> std::io::Result<()> {
+    let bad = |m: &str| std::io::Error::new(std::io::ErrorKind::InvalidInput, m.to_string());
+    if ancestors.len() >= COPY_MAX_DEPTH {
+        return Err(bad("folder nesting too deep"));
     }
-    Ok(())
+    let real = std::fs::canonicalize(from)?;
+    if ancestors.contains(&real) {
+        return Err(bad("folder link creates a cycle"));
+    }
+    std::fs::create_dir_all(to)?;
+    ancestors.push(real);
+    let result = (|| {
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            let target = to.join(entry.file_name());
+            // Symlinks are resolved so a linked folder is copied as a folder
+            // (`file_type()` alone would send it to `fs::copy`, which fails).
+            let file_type = entry.file_type()?;
+            let is_dir = if file_type.is_symlink() { std::fs::metadata(entry.path())?.is_dir() } else { file_type.is_dir() };
+            if is_dir {
+                copy_dir_guarded(&entry.path(), &target, ancestors, bytes)?;
+            } else {
+                *bytes = bytes.saturating_add(std::fs::metadata(entry.path())?.len());
+                if *bytes > COPY_MAX_BYTES {
+                    return Err(bad("folder too large to copy"));
+                }
+                std::fs::copy(entry.path(), &target)?;
+            }
+        }
+        Ok(())
+    })();
+    ancestors.pop();
+    result
 }
 
 /// Copies the listed files/folders that exist from `from` into `to`. A failed

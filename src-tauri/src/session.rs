@@ -125,7 +125,14 @@ fn write(app: &AppHandle, windows: Option<&[(String, Value)]>, last_written: &mu
         Some(windows) if !windows.is_empty() => {
             let mut ordered: Vec<&Value> = windows.iter().filter(|(l, _)| l == "main").map(|(_, v)| v).collect();
             ordered.extend(windows.iter().filter(|(l, _)| l != "main").map(|(_, v)| v));
-            serde_json::json!({ "version": 2, "windows": ordered }).to_string()
+            // Serialized straight from the references: `json!` would deep-copy
+            // every window's scrollback into a new `Value` first.
+            #[derive(serde::Serialize)]
+            struct File<'a> {
+                version: u8,
+                windows: Vec<&'a Value>,
+            }
+            serde_json::to_string(&File { version: 2, windows: ordered }).map_err(|e| e.to_string())?
         }
         _ => "{}".to_string(),
     };

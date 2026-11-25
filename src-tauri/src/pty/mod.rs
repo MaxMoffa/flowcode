@@ -299,20 +299,22 @@ pub(crate) fn emit_ext(state: &PtyState, id: &str, method: &str, params: serde_j
 impl PtyState {
     pub(crate) fn shutdown(&self) {
         let sessions = std::mem::take(&mut *lock(&self.0));
-        // WSL sweeps in parallel: each is a `wsl.exe` round trip, and the
-        // app is quitting.
+        // WSL sweeps and tree kills in parallel: each is a `wsl.exe` /
+        // `taskkill` round trip, and the app is quitting.
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let mut sweeps = 0;
         for mut session in sessions.into_values() {
-            if let Some(w) = session.wsl.take() {
+            let wsl = session.wsl.take();
+            let pid = session.pid;
+            if wsl.is_some() || pid.is_some() {
                 let done = done_tx.clone();
                 sweeps += 1;
                 std::thread::spawn(move || {
-                    crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag);
+                    if let Some(w) = wsl { crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag); }
+                    if let Some(pid) = pid { crate::chat::kill_tree(pid); }
                     let _ = done.send(());
                 });
             }
-            if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
             let _ = session.killer.kill();
         }
         // The app is quitting: wait for the sweeps for ~1.5 s in total at most.

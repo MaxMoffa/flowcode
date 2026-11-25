@@ -854,8 +854,11 @@ unsafe fn capture_jpeg(pw: tauri::webview::PlatformWebview, tx: tokio::sync::one
     let _ = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &handler);
 }
 
-static FAVICONS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+/// Per origin: the icon (`None` = none) and, for a miss that may be transient
+/// (timeout, DNS, 5xx), when to try again.
+static FAVICONS: Mutex<Option<HashMap<String, (Option<String>, Option<std::time::Instant>)>>> = Mutex::new(None);
 const FAVICON_MAX: u64 = 64 * 1024;
+const FAVICON_RETRY: Duration = Duration::from_secs(300);
 
 /// `<origin>/favicon.ico` of a public site as a data URL (null when absent),
 /// cached per origin. Only open-web hosts: the resolver refuses private ranges.
@@ -868,8 +871,10 @@ pub async fn browser_favicon(url: String) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let origin = url.origin().ascii_serialization();
-    if let Some(hit) = lock(&FAVICONS).as_ref().and_then(|m| m.get(&origin)) {
-        return Ok(hit.clone());
+    if let Some((icon, retry_at)) = lock(&FAVICONS).as_ref().and_then(|m| m.get(&origin)) {
+        if retry_at.is_none_or(|at| std::time::Instant::now() < at) {
+            return Ok(icon.clone());
+        }
     }
     let target = format!("{origin}/favicon.ico");
     let found = tauri::async_runtime::spawn_blocking(move || {
@@ -880,23 +885,33 @@ pub async fn browser_favicon(url: String) -> Result<Option<String>, String> {
             .redirects(3)
             .resolver(crate::link_preview::PublicOnly)
             .build();
-        let response = agent.get(&target).call().ok()?;
+        // (icon, definitive): a 4xx or a non-image answer is final, a transport
+        // error or 5xx may be gone in a minute.
+        let response = match agent.get(&target).call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, _)) => return (None, code < 500 || code == 501),
+            Err(_) => return (None, false),
+        };
         let mime = response.content_type().to_ascii_lowercase();
         if mime.starts_with("text/") || mime.contains("json") {
-            return None;
+            return (None, true);
         }
         let mime = if mime.starts_with("image/") { mime } else { "image/x-icon".to_string() };
         let mut bytes = Vec::new();
-        response.into_reader().take(FAVICON_MAX + 1).read_to_end(&mut bytes).ok()?;
-        if bytes.is_empty() || bytes.len() as u64 > FAVICON_MAX {
-            return None;
+        if response.into_reader().take(FAVICON_MAX + 1).read_to_end(&mut bytes).is_err() {
+            return (None, false);
         }
-        Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+        if bytes.is_empty() || bytes.len() as u64 > FAVICON_MAX {
+            return (None, true);
+        }
+        (Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))), true)
     })
     .await
     .map_err(|e| e.to_string())?;
-    lock(&FAVICONS).get_or_insert_with(HashMap::new).insert(origin, found.clone());
-    Ok(found)
+    let (icon, definitive) = found;
+    let retry_at = (!definitive).then(|| std::time::Instant::now() + FAVICON_RETRY);
+    crate::util::insert_bounded(lock(&FAVICONS).get_or_insert_with(HashMap::new), origin, (icon.clone(), retry_at));
+    Ok(icon)
 }
 
 /// The window is gone: its children died with it; drop the bookkeeping.

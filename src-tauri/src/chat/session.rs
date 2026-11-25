@@ -184,7 +184,10 @@ impl Chat {
             accumulate_answer(&mut final_answer, &body);
         }
         let event = log.push(body, now_ms());
-        let _ = self.feed.send(event.clone());
+        // No subscriber (the common case for a chat nobody streams) = no clone.
+        if self.feed.receiver_count() > 0 {
+            let _ = self.feed.send(event.clone());
+        }
         if before != ChatStatus::Starting && !self.closed.load(Ordering::Relaxed) {
             let _ = self.app.emit_to(&self.owner, "chat-event", json!({ "chatId": self.id, "event": event }));
         }
@@ -808,6 +811,8 @@ impl Chat {
     pub(super) fn reap(&self) -> Option<i32> {
         for _ in 0..40 {
             if let Ok(Some(status)) = lock(&self.child).try_wait() {
+                // The agent is gone but what it started may not be.
+                drop(lock(&self.job).take());
                 return status.code();
             }
             std::thread::sleep(Duration::from_millis(50));

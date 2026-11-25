@@ -27,7 +27,24 @@ impl ChatState {
     pub(crate) fn shutdown(&self) {
         let sessions = std::mem::take(&mut *lock(&self.sessions));
         for session in sessions.values() { self.delegations.forget_parent(&Owner::Chat(session.chat.id.clone())); }
-        drop(sessions);
+        // Dropping a session kills its agent (up to seconds each): in parallel,
+        // ~2 s overall. Whatever is left when the app exits is taken by the job
+        // object (Windows) or the process group.
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let mut pending = 0;
+        for (_, session) in sessions {
+            let done = done_tx.clone();
+            pending += 1;
+            std::thread::spawn(move || {
+                drop(session);
+                let _ = done.send(());
+            });
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        for _ in 0..pending {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if done_rx.recv_timeout(left).is_err() { break; }
+        }
     }
     pub(super) fn changed(&self) {
         self.changes.send_modify(|n| *n += 1);
@@ -138,6 +155,15 @@ impl ChatState {
         if attachments.len() > 16 { return Err("at most 16 attachments per prompt".into()); }
         let chat = self.get(chat_id)?;
         let session_id = chat.session_id()?;
+        // Refused anyway while not idle: don't stage files to disk (a retrying
+        // client would fill the quota) just to throw them away. Only a pure
+        // check of the status - the gate itself still decides under `emit_when`.
+        if !attachments.is_empty() {
+            let status = *lock(&chat.status);
+            if status != ChatStatus::Idle {
+                return prompt_gate(status);
+            }
+        }
         // File IO first: a failure here must not leave a turn open.
         let mut blocks = Vec::new();
         if !text.is_empty() || attachments.is_empty() {

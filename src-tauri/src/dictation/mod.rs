@@ -107,6 +107,13 @@ pub struct DictationState {
     downloads: models::Downloads,
     /// What a phone's session uses (set by the desktop frontend).
     remote_prefs: Mutex<RemotePrefs>,
+    /// The thread of a desktop start still loading its model. `dictation_start`
+    /// releases `gate` while it waits for the model, so a stop can get in; it
+    /// then must not join a thread that is stuck loading.
+    starting: Mutex<Option<std::thread::ThreadId>>,
+    /// Sessions stopped while starting: their threads end on their own once
+    /// the model is loaded; the next start joins them before it opens the mic.
+    lingering: Mutex<Vec<JoinHandle<()>>>,
 }
 
 /// The desktop's dictation preferences, for sessions that start from the phone.
@@ -127,6 +134,14 @@ impl DictationState {
     fn take_thread(&self, id: std::thread::ThreadId) -> Option<Session> {
         let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         if session.as_ref().is_some_and(|s| s.thread.thread().id() == id) { session.take() } else { None }
+    }
+
+    /// The start of thread `id` is over (ready, failed or abandoned).
+    fn end_starting(&self, id: std::thread::ThreadId) {
+        let mut starting = self.starting.lock().unwrap_or_else(|e| e.into_inner());
+        if *starting == Some(id) {
+            *starting = None;
+        }
     }
 
     fn stop_thread(&self, id: std::thread::ThreadId) {
@@ -235,7 +250,7 @@ pub async fn dictation_start(
     accel: Option<String>,
     gpu: Option<String>,
 ) -> Result<(), String> {
-    let _gate = state.gate.lock().await;
+    let gate = state.gate.lock().await;
     let app = window.app_handle().clone();
     let (model_id, model_path) = model
         .as_deref()
@@ -243,9 +258,16 @@ pub async fn dictation_start(
         .and_then(|id| models::installed_path(&app, id).map(|path| (id.to_string(), path)))
         .ok_or_else(|| "model-missing".to_string())?;
     let token = session.unwrap_or_default();
-    if let Some(previous) = state.take() {
+    let previous = state.take();
+    let lingering = std::mem::take(&mut *state.lingering.lock().unwrap_or_else(|e| e.into_inner()));
+    if previous.is_some() || !lingering.is_empty() {
         crate::blocking(move || {
-            previous.finish(false);
+            if let Some(previous) = previous {
+                previous.finish(false);
+            }
+            for thread in lingering {
+                let _ = thread.join();
+            }
             Ok(())
         })
         .await?;
@@ -270,13 +292,21 @@ pub async fn dictation_start(
         .spawn(move || run(job, inbox, ready_tx))
         .map_err(|e| e.to_string())?;
     let thread_id = thread.thread().id();
+    *state.starting.lock().unwrap_or_else(|e| e.into_inner()) = Some(thread_id);
     *state.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label: label.clone(), signals, thread });
     // Insert before checking the window map so neither this path nor Destroyed can miss the session.
     if app.get_window(&label).is_none() {
         state.stop_thread(thread_id);
+        state.end_starting(thread_id);
         return Err("window_closed".into());
     }
+    // The model load can take seconds: a stop must not wait behind the gate
+    // for it. It takes the session out (and `starting` tells it not to join
+    // the loading thread); then a late "ready" finds no session of ours and
+    // just resolves, the thread ending itself with the "end" the stop asked for.
+    drop(gate);
     let ready = ready_rx.await.map_err(|e| e.to_string()).and_then(|r| r);
+    state.end_starting(thread_id);
     if ready.is_err() {
         // The thread is gone already: don't keep a dead session around.
         if let Some(dead) = state.take_thread(thread_id) {
@@ -294,6 +324,14 @@ pub async fn dictation_start(
 pub async fn dictation_stop(state: State<'_, DictationState>) -> Result<(), String> {
     let _gate = state.gate.lock().await;
     if let Some(session) = state.take() {
+        let id = session.thread.thread().id();
+        if *state.starting.lock().unwrap_or_else(|e| e.into_inner()) == Some(id) {
+            // Still loading its model: it hears the stop once loaded. Don't
+            // wait for that; the next start joins it.
+            let _ = session.signals.send(Signal::Stop { notify: true });
+            state.lingering.lock().unwrap_or_else(|e| e.into_inner()).push(session.thread);
+            return Ok(());
+        }
         crate::blocking(move || {
             session.finish(true);
             Ok(())
