@@ -524,7 +524,7 @@ impl Conn {
             }
             ClientMsg::Resume { cwd, session_id, cli, wsl_distro, profile, view } => {
                 let bad = |s: &str, max: usize| s.is_empty() || s.len() > max || s.chars().any(|c| c.is_control());
-                if bad(&cwd, 4096) || bad(&session_id, 256) || wsl_distro.as_deref().is_some_and(|d| bad(d, 128)) {
+                if bad(&cwd, 4096) || bad(&session_id, 256) || wsl_distro.as_deref().is_some_and(|d| bad(d, 128)) || is_foreign_unc(&cwd) {
                     self.error(tr("Sessione non valida", "Invalid session"), None);
                     return;
                 }
@@ -691,10 +691,27 @@ impl Conn {
     }
 }
 
+/// A network share path (`\\host\share`, `//host/share`) other than a WSL one: a phone must not make the
+/// desktop open an agent on a remote share (an SMB connection leaks the user's credentials to that host).
+fn is_foreign_unc(cwd: &str) -> bool {
+    let norm = cwd.replace('/', "\\").to_ascii_lowercase();
+    norm.starts_with("\\\\") && !norm.starts_with("\\\\wsl.localhost\\") && !norm.starts_with("\\\\wsl$\\")
+}
+
 #[cfg(test)]
 mod browser_op_tests {
     use super::*;
     use proto::{BrowserOp as O, BrowserRoot};
+
+    #[test]
+    fn resume_refuses_network_shares_but_not_wsl() {
+        for bad in ["\\\\host\\share\\p", "//host/share/p", "\\\\wsl.localhost", "\\\\?\\UNC\\host\\s", "\\\\wsl$"] {
+            assert!(is_foreign_unc(bad), "{bad:?}");
+        }
+        for ok in ["\\\\wsl.localhost\\Ubuntu\\home\\u", "\\\\WSL$\\Ubuntu\\home", "//wsl.localhost/Ubuntu/home", "C:\\p", "/home/u/p", "C:/a//b"] {
+            assert!(!is_foreign_unc(ok), "{ok:?}");
+        }
+    }
 
     #[test]
     fn urls_are_http_or_https_and_bounded() {

@@ -740,7 +740,7 @@ fn is_open_call(tool_call: &Value) -> bool {
 
 /// Whether a permission request's tool call is one of Flowcode's `browser_*` tools, matched as strictly as
 /// `is_open_call`: Claude names it exactly; other adapters give a title, which must be exactly the tool's and
-/// the input must not look like a shell command.
+/// the input keys must all be arguments of that tool (a shell command has `command`, `cmd`, ... and fails).
 fn is_browser_call(tool_call: &Value) -> bool {
     if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
         return tool.strip_prefix("mcp__flowcode__").is_some_and(crate::browser_control::is_tool)
@@ -749,8 +749,9 @@ fn is_browser_call(tool_call: &Value) -> bool {
     }
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
     let name = title.strip_prefix("tool: ").unwrap_or(&title).strip_prefix("flowcode/");
-    let no_command = tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| !input.contains_key("command") && !input.contains_key("cmd"));
-    name.is_some_and(crate::browser_control::is_tool) && no_command
+    let Some(name) = name.filter(|n| crate::browser_control::is_tool(n)) else { return false };
+    let allowed = crate::browser_control::tool_args(name);
+    tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| input.keys().all(|k| allowed.contains(&k.as_str())))
 }
 
 /// Whether a permission request's tool call is Flowcode's `call_user`, matched
@@ -1201,6 +1202,19 @@ mod tests {
         let mut params = claude(CLAUDE_OPEN_TOOL);
         params["toolCall"]["_meta"]["claudeCode"]["mcpServer"]["source"] = json!("project");
         assert_eq!(auto_allow(&on(), &params), None);
+    }
+
+    #[test]
+    fn untyped_browser_calls_need_the_tools_own_arguments() {
+        let call = |title: &str, input: Value| json!({ "title": title, "rawInput": input });
+        assert!(is_browser_call(&call("flowcode/browser_click", json!({ "ref": "e3", "double": true }))));
+        assert!(is_browser_call(&call("Tool: flowcode/browser_snapshot", json!({}))));
+        assert!(is_browser_call(&call("flowcode/browser_eval", json!({ "js": "1", "page": "p1" }))));
+        assert!(!is_browser_call(&call("flowcode/browser_click", json!({ "ref": "e3", "script": "rm -rf /" }))));
+        assert!(!is_browser_call(&call("flowcode/browser_snapshot", json!({ "command": "ls" }))));
+        assert!(!is_browser_call(&call("flowcode/browser_eval", json!({ "ref": "e3" }))), "another tool's argument");
+        assert!(!is_browser_call(&json!({ "title": "flowcode/browser_snapshot" })), "no input");
+        assert!(!is_browser_call(&call("flowcode/nope", json!({}))));
     }
 
     #[test]

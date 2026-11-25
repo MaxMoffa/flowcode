@@ -99,6 +99,18 @@ pub(crate) fn route(path_and_query: &str, referer: Option<&str>) -> Option<Route
     Some(Route { target, upstream: path_and_query.to_string() })
 }
 
+/// True when a `/p/<port>/` request comes from a page of a different port.
+/// All ports share one origin (`allow-same-origin` in the iframe), so a page
+/// served by one dev server could otherwise fetch the others. A missing or
+/// unparsable Referer is a top-level navigation from the app and passes.
+pub(crate) fn crosses_ports(path_and_query: &str, referer: Option<&str>, origin: Option<&str>) -> bool {
+    let path = path_and_query.split(['?', '#']).next().unwrap_or("");
+    let Some((PreviewTarget::Port(port), _)) = split_prefix(path) else { return false };
+    [referer, origin].into_iter().flatten().any(|url| {
+        matches!(url_path(url).and_then(split_prefix), Some((PreviewTarget::Port(from), _)) if from != port)
+    })
+}
+
 /// The URL prefix of `target`, for rewriting redirects back into our scheme.
 fn prefix_of(target: &PreviewTarget) -> String {
     match target {
@@ -213,6 +225,10 @@ async fn handle(conn: Option<iroh::endpoint::Connection>, request: Request<Vec<u
     let Some(conn) = conn else { return Err((StatusCode::SERVICE_UNAVAILABLE, "not connected".into())) };
     let path_and_query = request.uri().path_and_query().map_or("/", |pq| pq.as_str());
     let referer = request.headers().get(header::REFERER).and_then(|v| v.to_str().ok());
+    let origin = request.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok());
+    if crosses_ports(path_and_query, referer, origin) {
+        return Err((StatusCode::FORBIDDEN, "a page cannot reach another port".into()));
+    }
     let Some(route) = route(path_and_query, referer) else { return Err((StatusCode::NOT_FOUND, "not found".into())) };
     if request.body().len() > MAX_REQUEST_BODY {
         return Err((StatusCode::PAYLOAD_TOO_LARGE, "request body too large".into()));
@@ -340,6 +356,18 @@ mod tests {
         assert_eq!(route("/assets/app.js", None), None);
         // Its own prefix wins over the referer.
         assert_eq!(route("/p/4000/y", referer), port(4000, "/y"));
+    }
+
+    #[test]
+    fn a_port_page_cannot_reach_another_port() {
+        let from_3000 = Some("http://flowcode-remote.localhost/p/3000/app/");
+        assert!(crosses_ports("/p/5000/api", from_3000, None));
+        assert!(crosses_ports("/p/5000/api?x=1", None, from_3000));
+        assert!(!crosses_ports("/p/3000/api", from_3000, None));
+        assert!(!crosses_ports("/p/5000/", None, None));
+        assert!(!crosses_ports("/p/5000/", Some("http://flowcode-remote.localhost/"), Some("http://flowcode-remote.localhost")));
+        assert!(!crosses_ports("/f/t1/x", from_3000, None));
+        assert!(!crosses_ports("/assets/a.js", from_3000, None));
     }
 
     #[test]

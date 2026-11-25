@@ -194,7 +194,9 @@ async fn read_header<R: AsyncRead + Unpin>(reader: &mut R) -> Option<PreviewTarg
 }
 
 /// Loopback ports the phone's tunnel never reaches: system, remote-access and
-/// database/admin services that are not something to browse. Why a denylist
+/// database/admin services (plus debugger/adb/Ollama ports: Chrome DevTools
+/// 9222, Node inspector 9229, Ollama 11434, adb 5037) that are not something
+/// to browse. Kept sorted. Why a denylist
 /// and not an allowlist of the desktop's browser-tab ports: the phone opens
 /// `http://localhost:<port>` itself (typed or from a link) at the same moment
 /// it sends the `openUrl` op, so the port is in no snapshot yet when the
@@ -203,7 +205,8 @@ async fn read_header<R: AsyncRead + Unpin>(reader: &mut R) -> Option<PreviewTarg
 /// talks over files, see chat_mcp.rs), so there is no own port to hide; in a
 /// debug build the Vite dev server (1420) is blocked too.
 const BLOCKED_PORTS: &[u16] = &[
-    21, 22, 23, 25, 135, 137, 139, 445, 1433, 1521, 2375, 2376, 3306, 3389, 5432, 5900, 5985, 5986, 6379, 9200, 11211, 27017,
+    21, 22, 23, 25, 135, 137, 139, 445, 1433, 1521, 2375, 2376, 3306, 3389, 5037, 5432, 5900, 5985, 5986, 6379, 9200, 9222, 9229, 11211, 11434,
+    27017,
 ];
 
 fn port_blocked(port: u16) -> bool {

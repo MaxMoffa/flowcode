@@ -845,13 +845,14 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
     result
 }
 
-/// The child's starting mode. A restricted parent (read-only, plan) keeps its
-/// restrictions. Otherwise the child starts in its agent's auto-review mode
-/// (Codex "Auto review", Claude "auto"): it asks only for actions flagged as
-/// unsafe, so a delegated task doesn't stop on every command. A same-agent child
-/// of a full-access parent keeps that mode. A child with no auto-review mode (Gemini, Vibe, Cline,
-/// OpenCode) of an unrestricted parent starts in its normal editing mode (default / act / build),
-/// never a bypass one.
+/// The child's starting mode: never looser than the parent's. A restricted parent (read-only, plan)
+/// keeps its restrictions. A same-agent child starts in the parent's own mode when the child has it.
+/// Otherwise: a full-access parent (or an unknown one) gives the child its agent's auto-review mode
+/// (Codex "Auto review", Claude "auto"), which asks only for actions flagged as unsafe; an auto-review
+/// parent likewise. A parent that asks for every action (Claude/Gemini "default", acceptEdits, Codex
+/// workspace-write...) gives a child in its manual mode (default / act / build, Codex workspace-write),
+/// never auto review. A child with no auto-review mode (Gemini, Vibe, Cline, OpenCode) starts in its
+/// normal editing mode, never a bypass one.
 fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>) -> Result<Option<String>, String> {
     const SAFE: [&str; 5] = ["read-only", "readonly", "read_only", "plan", "architect"];
     // Normal editing modes: Gemini/Vibe "default", Cline "act", OpenCode "build".
@@ -862,16 +863,24 @@ fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>)
         .filter_map(|m| Some((m.get("id")?.as_str()?, m.get("name").and_then(Value::as_str).unwrap_or_default().to_lowercase())))
         .collect();
     let available: Vec<&str> = listed.iter().map(|(id, _)| *id).collect();
+    let is_auto_review = |id: &str, name: &str| id.eq_ignore_ascii_case("auto") || name.contains("auto review") || name.contains("auto-review");
     let restricted = parent.is_some_and(|mode| SAFE.contains(&mode.to_lowercase().as_str()));
     let inherit = same_agent && parent.is_some_and(|mode| available.contains(&mode));
+    let full = parent.is_some_and(|mode| FULL.contains(&mode.to_lowercase().as_str()));
+    // Codex's auto-review id is `agent`; a parent from another agent only has the id to go by.
+    let auto_parent = parent.is_some_and(|mode| {
+        let name = listed.iter().find(|(id, _)| *id == mode).map(|(_, n)| n.as_str()).unwrap_or_default();
+        is_auto_review(mode, name) || mode.eq_ignore_ascii_case("agent")
+    });
+    // Asks for every action (or every edit): the child must not start looser, so no auto review for it.
+    let manual = parent.is_some() && !restricted && !full && !auto_parent;
     if !restricted {
-        if inherit && parent.is_some_and(|mode| FULL.contains(&mode.to_lowercase().as_str())) {
+        if inherit && full {
             return Ok(parent.map(str::to_string));
         }
-        let auto_review = listed.iter().find(|(id, name)| {
-            id.eq_ignore_ascii_case("auto") || name.contains("auto review") || name.contains("auto-review")
-        });
-        if let Some((id, _)) = auto_review { return Ok(Some(id.to_string())); }
+        if !manual {
+            if let Some((id, _)) = listed.iter().find(|(id, name)| is_auto_review(id, name)) { return Ok(Some(id.to_string())); }
+        }
     }
     if same_agent {
         if inherit { return Ok(parent.map(str::to_string)); }
@@ -880,7 +889,9 @@ fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>)
     if !restricted {
         // No auto-review mode (Gemini, Vibe, Cline, OpenCode): the agent's normal editing mode, never
         // plan/read-only, so the child can change files (it still asks per its own rules).
-        for normal in EDITING {
+        // For a manual parent, Codex has no "default": its sandboxed workspace mode is the nearest.
+        let manual_extra: &[&str] = if manual { &["workspace-write"] } else { &[] };
+        for normal in EDITING.iter().chain(manual_extra) {
             if let Some(id) = available.iter().find(|id| id.eq_ignore_ascii_case(normal)) { return Ok(Some(id.to_string())); }
         }
     }
@@ -950,13 +961,42 @@ mod tests {
             { "id": "agent", "name": "Auto review" }, { "id": "agent-full-access", "name": "Full access" },
         ] });
         let claude = json!({ "availableModes": [{ "id": "default", "name": "Default" }, { "id": "auto", "name": "Auto" }, { "id": "plan", "name": "Plan" }, { "id": "bypassPermissions", "name": "Bypass" }] });
-        assert_eq!(inherited_mode(false, Some("default"), Some(&codex)).unwrap().as_deref(), Some("agent"));
+        // Full access: the same agent keeps it, another one gets auto review.
         assert_eq!(inherited_mode(false, Some("bypassPermissions"), Some(&codex)).unwrap().as_deref(), Some("agent"));
-        assert_eq!(inherited_mode(false, Some("plan"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
-        assert_eq!(inherited_mode(false, Some("workspace-write"), Some(&claude)).unwrap().as_deref(), Some("auto"));
-        assert_eq!(inherited_mode(true, Some("default"), Some(&claude)).unwrap().as_deref(), Some("auto"));
         assert_eq!(inherited_mode(true, Some("bypassPermissions"), Some(&claude)).unwrap().as_deref(), Some("bypassPermissions"));
+        assert_eq!(inherited_mode(true, Some("agent-full-access"), Some(&codex)).unwrap().as_deref(), Some("agent-full-access"));
+        // Unknown parent mode: auto review, as before.
+        assert_eq!(inherited_mode(true, None, Some(&claude)).unwrap().as_deref(), Some("auto"));
+        assert_eq!(inherited_mode(false, None, Some(&codex)).unwrap().as_deref(), Some("agent"));
+        // Auto-review parent: auto review.
+        assert_eq!(inherited_mode(true, Some("auto"), Some(&claude)).unwrap().as_deref(), Some("auto"));
+        assert_eq!(inherited_mode(true, Some("agent"), Some(&codex)).unwrap().as_deref(), Some("agent"));
+        assert_eq!(inherited_mode(false, Some("agent"), Some(&claude)).unwrap().as_deref(), Some("auto"));
+        assert_eq!(inherited_mode(false, Some("auto"), Some(&codex)).unwrap().as_deref(), Some("agent"));
+        // Restricted parent keeps its restrictions.
+        assert_eq!(inherited_mode(false, Some("plan"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
         assert_eq!(inherited_mode(true, Some("read-only"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
+    }
+
+    #[test]
+    fn children_of_a_manual_parent_never_start_in_auto_review() {
+        let codex = json!({ "availableModes": [
+            { "id": "read-only", "name": "Read-only" }, { "id": "workspace-write", "name": "Workspace access" },
+            { "id": "agent", "name": "Auto review" }, { "id": "agent-full-access", "name": "Full access" },
+        ] });
+        let claude = json!({ "availableModes": [{ "id": "default", "name": "Default" }, { "id": "auto", "name": "Auto" }, { "id": "plan", "name": "Plan" }, { "id": "bypassPermissions", "name": "Bypass" }] });
+        // Same agent: the parent's own mode.
+        assert_eq!(inherited_mode(true, Some("default"), Some(&claude)).unwrap().as_deref(), Some("default"));
+        assert_eq!(inherited_mode(true, Some("workspace-write"), Some(&codex)).unwrap().as_deref(), Some("workspace-write"));
+        // Another agent: its manual mode.
+        assert_eq!(inherited_mode(false, Some("default"), Some(&codex)).unwrap().as_deref(), Some("workspace-write"));
+        assert_eq!(inherited_mode(false, Some("workspace-write"), Some(&claude)).unwrap().as_deref(), Some("default"));
+        assert_eq!(inherited_mode(false, Some("acceptEdits"), Some(&claude)).unwrap().as_deref(), Some("default"));
+        // Same agent, but the parent's mode is not on the child's list: still its manual mode.
+        assert_eq!(inherited_mode(true, Some("acceptEdits"), Some(&claude)).unwrap().as_deref(), Some("default"));
+        // No manual mode at all: fail closed to a safe one, never auto review.
+        let only_auto = json!({ "availableModes": [{ "id": "agent", "name": "Auto review" }, { "id": "read-only", "name": "Read-only" }] });
+        assert_eq!(inherited_mode(false, Some("default"), Some(&only_auto)).unwrap().as_deref(), Some("read-only"));
     }
 
     #[test]

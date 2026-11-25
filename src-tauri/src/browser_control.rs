@@ -59,6 +59,25 @@ pub(crate) fn is_tool(name: &str) -> bool {
     TOOLS.contains(&name)
 }
 
+/// The argument names of a browser tool (as declared in flowcode-mcp.cjs, plus the `page` every tool takes), so a
+/// permission request whose input has anything else is not taken for a call of it. Unknown tool: none.
+pub(crate) fn tool_args(name: &str) -> &'static [&'static str] {
+    match name {
+        "browser_tabs" | "browser_snapshot" => &["page"],
+        "browser_navigate" => &["page", "url", "action", "newTab"],
+        "browser_screenshot" | "browser_hover" => &["page", "ref"],
+        "browser_click" => &["page", "ref", "double", "button"],
+        "browser_type" => &["page", "ref", "text", "clear", "submit"],
+        "browser_press" => &["page", "key"],
+        "browser_select" => &["page", "ref", "values"],
+        "browser_scroll" => &["page", "ref", "dx", "dy"],
+        "browser_wait_for" => &["page", "text", "ref", "gone", "timeout_ms"],
+        "browser_console" => &["page", "clear"],
+        "browser_eval" => &["page", "js"],
+        _ => &[],
+    }
+}
+
 const SCRIPT: &str = include_str!("browser-control.js");
 
 const UNSUPPORTED: &str = "this browser tool is not supported on this platform yet (page control works on Windows only for now). browser_tabs and browser_navigate still work";
@@ -1192,6 +1211,24 @@ mod tests {
         for (tool, claude) in TOOLS.iter().zip(CLAUDE_TOOLS) {
             assert_eq!(claude, format!("mcp__flowcode__{tool}"));
         }
+    }
+
+    #[test]
+    fn tool_args_match_the_mcp_script() {
+        // A Windows checkout has CRLF line ends.
+        let script = include_str!("flowcode-mcp.cjs").replace("\r\n", "\n");
+        let script = script.as_str();
+        for tool in TOOLS {
+            let start = script.find(&format!("browserTool(\n    \"{tool}\"")).unwrap_or_else(|| panic!("{tool} not in script"));
+            let block = &script[start + 1..];
+            let block = &block[..block.find("browserTool(").unwrap_or(block.len())];
+            let args = tool_args(tool);
+            assert!(args.contains(&"page"), "{tool}");
+            for arg in args.iter().filter(|a| **a != "page") {
+                assert!(block.contains(&format!("{arg}:")), "{tool}: {arg}");
+            }
+        }
+        assert!(tool_args("nope").is_empty());
     }
 
     #[test]
