@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — scia delle tab occupate: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --track:rgba(232,184,128,.12); --tint:#d9a25f;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --track:rgba(120,80,36,.12); --tint:#a5652a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:10px}
+.col{margin-bottom:30px;max-width:1100px}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);max-width:900px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.cur{display:inline-block;font-size:11px;background:var(--track);color:var(--fg-muted);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.cost{display:inline-block;font-size:11px;border:1px solid var(--border);color:var(--fg-muted);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+.strip{display:flex;gap:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;transform-origin:left top}
+.zoom3 .strip{transform:scale(3);margin-bottom:calc(46px * 2)}
+.zoom3 .col{max-width:none}
+.tab{box-sizing:border-box;position:relative;display:flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:10px;background:rgba(0,0,0,.03);
+  border:1px solid var(--border);color:var(--fg-muted);font:500 12.5px/1 "JetBrains Mono",ui-monospace,monospace;white-space:nowrap;width:160px;flex:0 0 160px}
+.tab.act{background:color-mix(in srgb,var(--tint) 22%,transparent);border-color:color-mix(in srgb,var(--tint) 55%,transparent);color:var(--fg);font-weight:700}
+.tab.busy{border-color:color-mix(in srgb,var(--blue) 25%,transparent)}
+.tab .lg{width:13px;height:13px;border-radius:4px;background:var(--blue);opacity:.9;flex:none}
+.tab.wide{width:240px;flex-basis:240px}
+svg.sw{position:absolute;top:-.25px;left:-.25px;width:calc(100% + .5px);height:calc(100% + .5px);overflow:visible;pointer-events:none}
+svg.sw rect{fill:none;stroke:var(--blue);stroke-width:1.5;animation:sweep 1.6s linear infinite}
+svg.sw rect.round{stroke-linecap:round}
+body.paused svg.sw rect{animation-play-state:paused}
+@keyframes sweep{from{stroke-dashoffset:0}to{stroke-dashoffset:-100px}}
+.note{color:var(--fg-muted);font-size:12px;max-width:900px;margin-top:-6px}
+</style>
+</head>
+<body>
+<h1>Scia delle tab occupate — varianti più leggere</h1>
+<p class="sub">Oggi la scia è fatta da <b>16 tratti SVG</b> sovrapposti, ognuno animato a ogni frame sul thread principale (non si può comporre su GPU). Ogni tratto in meno è lavoro di ridisegno in meno per ogni tab occupata, ogni frame. Stessa velocità, lunghezza (45%) e colore in tutte le varianti; cambia solo da quanti pezzi è fatta la coda sfumata. Usa <b>Zoom 3×</b> per confrontare la sfumatura da vicino.</p>
+<div class="bar">
+  <button id="bz">Zoom 3×</button>
+  <button id="bl">Tema chiaro</button>
+  <button id="bp">Pausa</button>
+  <span class="lab">Tab occupate per riga:</span>
+  <button data-n="1">1</button><button data-n="3" class="on">3</button><button data-n="6">6</button>
+</div>
+<div id="root"></div>
+<p class="note">In tutte le varianti nuove, inoltre: animazione in pausa quando la finestra è ridotta a icona o nascosta (nessuno la vede, oggi gira comunque).</p>
+
+<script>
+function dashes(length, slices, exp){
+  const step=length/slices; let below=0;
+  return Array.from({length:slices},(_,i)=>{
+    const start=i*step, target=((i+1)/slices)**exp, op=1-(1-target)/(1-below); below=target;
+    return {da:`0 ${start} ${length-start} ${100-length}`, op};
+  });
+}
+const V=[
+  {id:"0",name:"Attuale — 16 tratti",tag:'<span class="cur">attuale</span>',cost:"16 tratti",d:"Riferimento.",ds:dashes(45,16,1.6)},
+  {id:"A",name:"A — 6 tratti",tag:'<span class="rec">consigliata</span>',cost:"6 tratti · −63%",d:"Stessa curva di sfumatura con 6 gradini. A grandezza reale praticamente indistinguibile; a 3× si intravedono i gradini nella parte più tenue della coda.",ds:dashes(45,6,1.6)},
+  {id:"B",name:"B — 4 tratti",tag:"",cost:"4 tratti · −75%",d:"Gradini un po' più visibili da vicino, a grandezza reale la coda sembra appena più \"a blocchi\".",ds:dashes(45,4,1.6)},
+  {id:"C",name:"C — testa + alone (2 tratti)",tag:"",cost:"2 tratti · −88%",d:"Una testa corta e piena più una coda lunga uniforme e tenue. Più leggera, ma l'effetto cambia: niente sfumatura progressiva, sembra una cometa con alone.",ds:[{da:"0 0 45 55",op:.28},{da:"0 33 12 55",op:1}],round:true},
+];
+let n=3;
+function render(){
+  const root=document.getElementById("root"); root.innerHTML="";
+  for(const v of V){
+    const col=document.createElement("div"); col.className="col";
+    col.innerHTML=`<h2>${v.name}${v.tag}<span class="cost">${v.cost}</span></h2><p class="d">${v.d}</p>`;
+    const strip=document.createElement("div"); strip.className="strip";
+    const tabs=[];
+    tabs.push(`<div class="tab act"><span class="lg" style="background:var(--tint)"></span>flowcode</div>`);
+    for(let i=0;i<n;i++){
+      const svg=`<svg class="sw">${v.ds.map(x=>`<rect class="${v.round?'round':''}" width="100%" height="100%" rx="9.25" pathLength="100" style="stroke-dasharray:${x.da};opacity:${x.op};animation-delay:-${(i*0.37).toFixed(2)}s"></rect>`).join("")}</svg>`;
+      tabs.push(`<div class="tab busy ${i%3===1?'wide':''}"><span class="lg"></span>${["claude","codex","gemini","opencode","cline","vibe"][i%6]}${svg}</div>`);
+    }
+    tabs.push(`<div class="tab"><span class="lg" style="background:var(--fg-muted)"></span>terminale</div>`);
+    strip.innerHTML=tabs.join("");
+    col.appendChild(strip); root.appendChild(col);
+  }
+}
+render();
+document.getElementById("bz").onclick=e=>{document.body.classList.toggle("zoom3");e.target.classList.toggle("on")};
+document.getElementById("bl").onclick=e=>{document.body.classList.toggle("light");e.target.classList.toggle("on")};
+document.getElementById("bp").onclick=e=>{document.body.classList.toggle("paused");e.target.classList.toggle("on")};
+document.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{n=+b.dataset.n;document.querySelectorAll("[data-n]").forEach(x=>x.classList.toggle("on",x===b));render()});
+</script>
+</body>
+</html>

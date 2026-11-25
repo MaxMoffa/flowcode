@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — mostra solo il pannello (nascondi chat/terminale): varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --yellow:#e0c060; --tint:#d9a25f; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+  --page1:#2a3a4a; --page2:#e8eef4; --dur:240ms; --ease:cubic-bezier(.2,.8,.2,1);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --yellow:#a67a14; --tint:#a5652a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button,.btn{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.col{margin-bottom:40px;max-width:1100px}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);max-width:980px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;color:var(--fg-muted);font-size:12px;margin-top:10px}
+.pros b{color:var(--fg);font-weight:600}
+.try{font-size:12px;color:var(--fg-muted);margin:6px 0 0}
+.try kbd{border:1px solid var(--border);border-radius:4px;padding:0 5px;font:11px ui-monospace,monospace;color:var(--fg)}
+svg{display:block}
+
+/* ---------- finestra finta ---------- */
+.win{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg);position:relative;user-select:none}
+.head{height:40px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--bg)}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:9px;color:var(--fg-muted);font:500 12px ui-monospace,monospace;border:1px solid var(--border);width:140px;position:relative}
+.tab.act{background:color-mix(in srgb,var(--tint) 22%,transparent);border-color:color-mix(in srgb,var(--tint) 55%,transparent);color:var(--fg);font-weight:700}
+.tab .lg{width:12px;height:12px;border-radius:3px;background:var(--tint);flex:none}
+.tab .pf{margin-left:auto;color:var(--blue);opacity:0;transition:opacity var(--dur)}
+.win.focus .tab.act .pf{opacity:1}
+.wc{margin-left:auto;display:flex;gap:14px;color:var(--fg-muted);font-size:11px;padding-right:6px}
+.body{display:flex;gap:8px;padding:0 8px 8px;height:400px;position:relative}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative;min-width:0}
+.side{width:150px;flex:none;padding:10px}
+.side .row{height:14px;border-radius:4px;background:var(--track);margin-bottom:9px}
+.side .row.s{width:70%}
+.center{flex:1 1 0;display:flex;flex-direction:column;transition:flex-basis var(--dur) var(--ease),flex-grow var(--dur) var(--ease),opacity var(--dur),margin var(--dur) var(--ease)}
+.center .chat{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:9px;overflow:hidden;transition:opacity 120ms}
+.msg{max-width:88%}
+.msg.u{align-self:flex-end;background:var(--surface3);border-radius:10px;padding:7px 10px;font-size:12px}
+.msg.a{font-size:12px;color:var(--fg)}
+.ln{height:8px;border-radius:4px;background:var(--track);margin:6px 0}
+.composer{margin:0 12px 12px;border:1px solid var(--border);border-radius:10px;padding:9px 11px;color:var(--fg-muted);font-size:12px;display:flex;align-items:center;gap:8px;transition:opacity 120ms}
+.composer .send{margin-left:auto;width:22px;height:22px;border-radius:6px;background:var(--tint);opacity:.85}
+.working{display:flex;align-items:center;gap:6px;color:var(--blue);font-size:11.5px}
+.working i{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+.browser{flex:1 1 0;display:flex;flex-direction:column;transition:flex-basis var(--dur) var(--ease)}
+.bhead{height:36px;display:flex;align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--border)}
+.url{flex:1;height:24px;border-radius:7px;background:var(--surface2);color:var(--fg-muted);font-size:11.5px;display:flex;align-items:center;padding:0 9px}
+.ib{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--fg-muted);flex:none;cursor:pointer;border:0;background:transparent}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib.on{color:var(--blue);background:color-mix(in srgb,var(--blue) 16%,transparent)}
+.page{flex:1;background:var(--page2);position:relative;overflow:hidden}
+.page .nav{height:34px;background:#203040;display:flex;align-items:center;gap:14px;padding:0 14px}
+.page .nav span{width:38px;height:6px;border-radius:3px;background:#8aa4bd}
+.page .hero{margin:22px auto 0;width:70%;height:70px;border-radius:8px;background:linear-gradient(120deg,#6b8fd6,#9a7bd0)}
+.page .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:70%;margin:14px auto}
+.page .grid div{height:58px;border-radius:7px;background:#cfd9e4}
+body.light .page .grid div{background:#d6dee8}
+
+/* ---------- A: rail ---------- */
+.vA.focus .center{flex:0 0 46px}
+.vA .rail{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:12px;opacity:0;pointer-events:none;transition:opacity 160ms 80ms;cursor:pointer}
+.vA.focus .rail{opacity:1;pointer-events:auto}
+.vA.focus .chat,.vA.focus .composer{opacity:0;pointer-events:none}
+.rail .av{width:26px;height:26px;border-radius:8px;background:var(--tint);position:relative}
+.rail .av::after{content:"";position:absolute;inset:-3px;border-radius:10px;border:1.5px solid var(--blue);opacity:.7;animation:blink 1.6s infinite}
+.rail .badge{min-width:18px;height:18px;border-radius:9px;background:var(--blue);color:#0d1622;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px}
+.rail .vt{writing-mode:vertical-rl;transform:rotate(180deg);color:var(--fg-muted);font-size:11px;margin-top:4px}
+.rail:hover{background:var(--hover)}
+.peek{position:absolute;left:62px;top:12px;width:240px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateX(-6px);transition:opacity 140ms,transform 140ms var(--ease);pointer-events:none;z-index:5}
+.vA.focus .rail:hover + .peek,.vA.focus .peek:hover{opacity:1;transform:none}
+
+/* ---------- B: mini composer ---------- */
+.vB.focus .center{flex:0 0 0;margin-left:-8px;opacity:0;border-width:0}
+.mini{position:absolute;left:12px;bottom:12px;width:330px;background:color-mix(in srgb,var(--surface) 96%,transparent);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.4);padding:10px;z-index:4;
+  opacity:0;transform:translateY(10px) scale(.98);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);pointer-events:none}
+.vB.focus .mini{opacity:1;transform:none;pointer-events:auto;transition-delay:80ms}
+.mini .top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.mini .top .lg{width:14px;height:14px;border-radius:4px;background:var(--tint)}
+.mini .last{font-size:12px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px}
+.mini .in{border:1px solid var(--border);border-radius:9px;padding:7px 10px;color:var(--fg-muted);font-size:12px;display:flex;align-items:center}
+.mini .in .send{margin-left:auto;width:20px;height:20px;border-radius:6px;background:var(--tint);opacity:.85}
+.mini.pill{width:auto}
+.mini.pill .last,.mini.pill .in{display:none}
+.mini.pill .top{margin:0}
+
+/* ---------- C: PiP ---------- */
+.vC.focus .center{flex:0 0 0;margin-left:-8px;opacity:0;border-width:0}
+.pip{position:absolute;right:18px;top:56px;width:280px;height:300px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 44px rgba(0,0,0,.45);z-index:4;display:flex;flex-direction:column;overflow:hidden;
+  opacity:0;transform:scale(.94);transform-origin:top right;transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);pointer-events:none}
+.vC.focus .pip{opacity:1;transform:none;pointer-events:auto;transition-delay:80ms}
+.pip .ph{height:30px;display:flex;align-items:center;gap:7px;padding:0 6px 0 10px;border-bottom:1px solid var(--border);cursor:grab;font-size:12px}
+.pip .ph .lg{width:12px;height:12px;border-radius:3px;background:var(--tint)}
+.pip .chat{padding:10px 12px;gap:7px}
+.pip .composer{margin:0 8px 8px;padding:7px 9px}
+.pip .grip{position:absolute;right:2px;bottom:2px;width:12px;height:12px;cursor:nwse-resize;opacity:.5;background:linear-gradient(135deg,transparent 50%,var(--fg-muted) 50%,var(--fg-muted) 60%,transparent 60%,transparent 75%,var(--fg-muted) 75%,var(--fg-muted) 85%,transparent 85%)}
+
+/* ---------- D: drag to collapse ---------- */
+.vD .gutter{width:8px;margin:0 -8px;flex:none;cursor:col-resize;position:relative;z-index:3}
+.vD .gutter::after{content:"";position:absolute;left:3px;top:50%;width:2px;height:36px;margin-top:-18px;border-radius:1px;background:var(--border);transition:background 120ms}
+.vD .gutter:hover::after,.vD.drag .gutter::after{background:var(--blue)}
+.vD.drag .center,.vD.drag .browser{transition:none}
+.vD .center.near{outline:2px dashed color-mix(in srgb,var(--blue) 60%,transparent);outline-offset:-4px}
+.vD.focus .center{flex:0 0 0;margin-left:-8px;opacity:0;border-width:0}
+.vD .handle{position:absolute;left:8px;top:50%;width:18px;height:64px;margin-top:-32px;border-radius:0 8px 8px 0;background:var(--surface);border:1px solid var(--border);border-left:0;display:flex;align-items:center;justify-content:center;color:var(--fg-muted);
+  opacity:0;transform:translateX(-10px);transition:opacity 160ms,transform 160ms var(--ease);cursor:pointer;z-index:4}
+.vD.focus .handle{opacity:1;transform:none}
+.vD .handle .dot{position:absolute;top:6px;width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s infinite}
+
+/* side hidden toggle */
+body.noside .side{display:none}
+</style>
+</head>
+<body>
+<h1>Mostra solo il pannello — nascondere chat/terminale</h1>
+<p class="sub">Obiettivo: lasciare tutto lo spazio al pannello di destra (browser, ma anche PDF, immagini, e in futuro altri pannelli), nascondendo la chat o il terminale della tab <b>senza chiuderli</b>: l'agente continua a lavorare e si torna indietro con un clic o <kbd>Esc</kbd>. La modalità vale per la tab: cambiando tab, l'altra resta com'era. In tutte le varianti la stessa azione è anche nel menu ⋯ del pannello, nel menu tasto destro della tab e con una scorciatoia (es. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>). La tab mostra una piccola icona pannello quando è in questa modalità.</p>
+<div class="bar">
+  <button id="bl">Tema chiaro</button>
+  <button id="bs">Nascondi sidebar sinistra</button>
+</div>
+<div id="root"></div>
+
+<script>
+const ICON_MAX='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+const ICON_MIN='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>';
+const ICON_PANEL='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>';
+const ICON_EXP='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
+const ICON_PIP='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor"/></svg>';
+
+const chat=`<div class="chat">
+  <div class="msg u">Sistema il layout della pagina prodotti, le card sono troppo strette</div>
+  <div class="msg a">Ho aperto <code>ProductGrid.tsx</code>. Le card usano <code>minmax(140px,1fr)</code>…<div class="ln" style="width:90%"></div><div class="ln" style="width:70%"></div></div>
+  <div class="msg u">Ok, guardo nel browser</div>
+  <div class="msg a"><div class="ln" style="width:80%"></div><div class="ln" style="width:55%"></div></div>
+  <div class="working"><i></i>Claude sta modificando ProductGrid.tsx…</div>
+</div>
+<div class="composer">Scrivi all'agente…<span class="send"></span></div>`;
+
+const page=`<div class="page"><div class="nav"><span></span><span></span><span></span></div><div class="hero"></div><div class="grid"><div></div><div></div><div></div><div></div><div></div><div></div></div></div>`;
+
+function win(v, extraCenter="", extraBody="", bhExtra=""){
+  return `<div class="win v${v}">
+  <div class="head"><div class="tab act"><span class="lg"></span>shop<span class="pf">${ICON_PANEL}</span></div><div class="tab"><span class="lg" style="background:var(--blue)"></span>api</div><div class="tab"><span class="lg" style="background:var(--fg-muted)"></span>terminale</div><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+  <div class="body">
+    <div class="card side"><div class="row"></div><div class="row s"></div><div class="row"></div><div class="row s"></div><div class="row"></div></div>
+    <div class="card center">${chat}${extraCenter}</div>
+    ${v==="D"?'<div class="gutter"></div>':''}
+    <div class="card browser"><div class="bhead"><span class="ib">‹</span><span class="ib">›</span><div class="url">localhost:5173/prodotti</div>${bhExtra}<span class="ib">⋯</span></div>${page}</div>
+    ${extraBody}
+  </div></div>`;
+}
+
+const V=[
+ {id:"A",name:"A — Espandi pannello, chat a binario",rec:true,
+  d:"Pulsante ⤢ nell'intestazione del pannello. La chat si riduce a un binario stretto a sinistra (46px) con icona dell'agente, indicatore di lavoro e numero di messaggi nuovi. Passando sopra il binario compare un'anteprima dell'ultimo messaggio; un clic lo riapre.",
+  try:"Prova: clic su ⤢, poi passa col mouse sul binario, clic sul binario (o <kbd>Esc</kbd>) per tornare.",
+  pros:["<b>Pro</b> sempre visibile cosa fa l'agente, zero sovrapposizioni sulla pagina","<b>Contro</b> 46px sottratti al pannello","<b>Pro</b> funziona uguale per terminale (icona + attività)","<b>Contro</b> per scrivere all'agente bisogna riaprire"],
+  html:()=>win("A",`<div class="rail" title="Torna alla chat"><span class="av"></span><span class="badge">2</span><span class="vt">Claude · shop</span></div><div class="peek"><b>Claude</b><div style="color:var(--fg-muted);margin-top:4px">Ho allargato le card a 220px e sistemato il gap. Ricarica la pagina per vedere.</div></div>`,"",`<span class="ib act-max" title="Mostra solo il pannello">${ICON_MAX}</span>`)},
+ {id:"B",name:"B — Espandi pannello, composer in miniatura",
+  d:"Stesso pulsante ⤢, ma la chat sparisce del tutto e resta una piccola card fluttuante in basso a sinistra sopra il pannello: stato dell'agente, ultima riga della risposta e un campo per scrivere. Si può ridurre a una pillola.",
+  try:"Prova: clic su ⤢, poi sul trattino della card per ridurla a pillola, ⤢ nella card per tornare.",
+  pros:["<b>Pro</b> si continua a dare istruzioni guardando il risultato","<b>Contro</b> copre un angolo della pagina","<b>Pro</b> pannello a larghezza piena","<b>Contro</b> per il terminale servirebbe un campo diverso (input grezzo)"],
+  html:()=>win("B","",`<div class="mini"><div class="top"><span class="lg"></span><b style="font-size:12px">Claude</b><span class="working" style="margin-left:4px"><i></i>lavora</span><span style="margin-left:auto;display:flex"><span class="ib b-pill" title="Riduci">—</span><span class="ib b-back" title="Torna alla chat">${ICON_MIN}</span></span></div><div class="last">Ho allargato le card a 220px e sistemato il gap…</div><div class="in">Scrivi all'agente…<span class="send"></span></div></div>`,`<span class="ib act-max" title="Mostra solo il pannello">${ICON_MAX}</span>`)},
+ {id:"C",name:"C — Chat in finestrella (picture-in-picture)",
+  d:"Il pannello prende tutto lo spazio e la chat intera diventa una finestrella sopra di esso, spostabile e ridimensionabile, con scroll e composer completi.",
+  try:"Prova: clic sull'icona PiP, trascina la finestrella dalla barra, ridimensiona dall'angolo.",
+  pros:["<b>Pro</b> chat completa sempre a portata","<b>Contro</b> copre una parte della pagina, va spostata","<b>Pro</b> va bene anche per il terminale","<b>Contro</b> più complessa (posizione da ricordare, finestra nativa del browser da ritagliare sotto)"],
+  html:()=>win("C","",`<div class="pip"><div class="ph"><span class="lg"></span><b>Claude · shop</b><span style="margin-left:auto;display:flex"><span class="ib c-back" title="Torna">${ICON_MIN}</span></span></div>${chat}<span class="grip"></span></div>`,`<span class="ib act-max" title="Chat in finestrella">${ICON_PIP}</span>`)},
+ {id:"D",name:"D — Trascina il divisore fino in fondo",
+  d:"Nessun pulsante nuovo: trascinando il divisore tra chat e pannello verso sinistra, oltre una soglia la chat si chiude a scatto. Resta una linguetta sul bordo (con il puntino se l'agente lavora): clic o trascinamento la riapre. Si può combinare con A (pulsante + gesto).",
+  try:"Prova: trascina il divisore tra chat e browser tutto a sinistra (la chat si evidenzia quando sta per chiudersi), poi clic sulla linguetta.",
+  pros:["<b>Pro</b> gesto naturale, già usato da VS Code/IDE","<b>Contro</b> poco scopribile da solo","<b>Pro</b> nessun elemento in più nell'interfaccia","<b>Contro</b> meno informazioni sull'agente rispetto ad A"],
+  html:()=>win("D","",`<div class="handle" title="Riapri la chat">${ICON_EXP}<span class="dot"></span></div>`)},
+];
+
+const root=document.getElementById("root");
+for(const v of V){
+  const col=document.createElement("div"); col.className="col";
+  col.innerHTML=`<h2>${v.name}${v.rec?'<span class="rec">consigliata</span>':''}</h2><p class="d">${v.d}</p>${v.html()}<p class="try">${v.try}</p><div class="pros">${v.pros.map(p=>`<div>${p}</div>`).join("")}</div>`;
+  root.appendChild(col);
+}
+
+function setFocus(w,on){
+  w.classList.toggle("focus",on);
+  const b=w.querySelector(".act-max");
+  if(b){ b.classList.toggle("on",on); if(w.classList.contains("vA")||w.classList.contains("vB")) b.innerHTML=on?ICON_MIN:ICON_MAX; }
+  const c=w.querySelector(".center"); if(c&&!on){c.style.flex="";}
+}
+document.querySelectorAll(".win").forEach(w=>{
+  w.querySelector(".act-max")?.addEventListener("click",()=>setFocus(w,!w.classList.contains("focus")));
+  w.querySelector(".rail")?.addEventListener("click",()=>setFocus(w,false));
+  w.querySelector(".b-back")?.addEventListener("click",()=>{w.querySelector(".mini").classList.remove("pill");setFocus(w,false)});
+  w.querySelector(".b-pill")?.addEventListener("click",()=>w.querySelector(".mini").classList.toggle("pill"));
+  w.querySelector(".c-back")?.addEventListener("click",()=>setFocus(w,false));
+  w.querySelector(".handle")?.addEventListener("click",()=>setFocus(w,false));
+});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")document.querySelectorAll(".win.focus").forEach(w=>setFocus(w,false))});
+
+// C: drag + resize pip
+document.querySelectorAll(".vC").forEach(w=>{
+  const pip=w.querySelector(".pip"), ph=pip.querySelector(".ph"), grip=pip.querySelector(".grip"), body=w.querySelector(".body");
+  ph.addEventListener("pointerdown",e=>{
+    if(e.target.closest(".ib"))return;
+    const r=pip.getBoundingClientRect(), br=body.getBoundingClientRect(), dx=e.clientX-r.left, dy=e.clientY-r.top;
+    const mv=ev=>{pip.style.left=Math.max(8,Math.min(br.width-r.width-8,ev.clientX-br.left-dx))+"px";pip.style.top=Math.max(0,Math.min(br.height-r.height-8,ev.clientY-br.top-dy))+"px";pip.style.right="auto"};
+    const up=()=>{removeEventListener("pointermove",mv);removeEventListener("pointerup",up)};
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);
+  });
+  grip.addEventListener("pointerdown",e=>{
+    e.stopPropagation(); const r=pip.getBoundingClientRect(), sx=e.clientX, sy=e.clientY;
+    const mv=ev=>{pip.style.width=Math.max(220,r.width+ev.clientX-sx)+"px";pip.style.height=Math.max(180,r.height+ev.clientY-sy)+"px"};
+    const up=()=>{removeEventListener("pointermove",mv);removeEventListener("pointerup",up)};
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);
+  });
+});
+
+// D: gutter drag
+document.querySelectorAll(".vD").forEach(w=>{
+  const g=w.querySelector(".gutter"), c=w.querySelector(".center"), b=w.querySelector(".browser");
+  g.addEventListener("pointerdown",e=>{
+    const cr=c.getBoundingClientRect(), br=b.getBoundingClientRect(), total=cr.width+br.width, left=cr.left;
+    w.classList.add("drag");
+    const mv=ev=>{const cw=Math.max(0,Math.min(total-200,ev.clientX-left)); c.style.flex=`0 0 ${cw}px`; b.style.flex="1 1 0"; c.classList.toggle("near",cw<140)};
+    const up=ev=>{removeEventListener("pointermove",mv);removeEventListener("pointerup",up);w.classList.remove("drag");
+      const cw=c.getBoundingClientRect().width; c.classList.remove("near");
+      if(cw<140){c.style.flex="";setFocus(w,true)} };
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);
+  });
+});
+
+document.getElementById("bl").onclick=e=>{document.body.classList.toggle("light");e.target.classList.toggle("on")};
+document.getElementById("bs").onclick=e=>{document.body.classList.toggle("noside");e.target.classList.toggle("on")};
+</script>
+</body>
+</html>
