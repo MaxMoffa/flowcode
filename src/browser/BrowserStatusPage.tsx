@@ -9,7 +9,7 @@ import { defaultDiagnosisAgent, lastDiagnosisAgent, rememberDiagnosisAgent, useD
 import type { BrowserState, PageError } from "./browserStore";
 import { ErrorArt } from "./errorArt";
 import { nativeView } from "./nativeView";
-import { detailLines, detailsText, hostOfUrl, portOfUrl, statusPageFor, type StatusPageId } from "./statusPageModel";
+import { codeMeaning, detailLines, detailsText, hostOfUrl, portOfUrl, statusPageFor, type StatusPageId } from "./statusPageModel";
 import "./browser-status.css";
 
 /** How often a dead local server is asked whether it is back. */
@@ -172,7 +172,9 @@ export function BrowserStatusPage({ failure, servers, onReload, onBack, onOpenEx
   const code = error?.code ?? "about:blank";
   const lines = detailLines(pageId, error, alive, language).map((l) => ({ label: t(l.label), value: l.value }));
   const urlText = error?.url ?? t("browser.page.newtab.label");
-  const detailRows = error ? [{ label: t("browser.page.detail.kind"), value: kindLabel }, { label: t("browser.page.detail.code"), value: error.code }, { label: t("browser.page.detail.address"), value: error.url }, ...lines] : lines;
+  const meaning = error ? codeMeaning(error.code) : null;
+  const meaningRow = meaning ? [{ label: t("browser.page.detail.meaning"), value: t(meaning.key, { http: meaning.http ?? "" }) }] : [];
+  const detailRows = error ? [{ label: t("browser.page.detail.kind"), value: kindLabel }, { label: t("browser.page.detail.code"), value: error.code }, ...meaningRow, { label: t("browser.page.detail.address"), value: error.url }, ...lines] : lines;
   const prompt = error
     ? t("browser.page.prompt", { url: error.url, kind: error.kind, code: error.code, details: lines.map((l) => `${l.label}: ${l.value}`).join("\n") })
     : "";

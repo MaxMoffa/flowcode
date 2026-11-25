@@ -72,8 +72,16 @@ function withLinks(text: string, keyBase: string, open: OpenLink, label: (text: 
   });
 }
 
-/** An `inline code` span: agents write paths this way, bare file names (`useChat.ts`) included. */
-function codeSpan(code: string, key: string): ReactNode {
+/** An `inline code` span: agents write paths this way, bare file names (`useChat.ts`) included, and urls (`http://localhost:5173/`). */
+function codeSpan(code: string, key: string, open: OpenLink): ReactNode {
+  const url = code.trim();
+  if (/^https?:\/\/[^/?#\s]+\S*$/i.test(url) && url.length <= 2048) {
+    return (
+      <ChatLink key={key} url={url} open={open}>
+        <code>{code}</code>
+      </ChatLink>
+    );
+  }
   const whole = wholeCodePath(code);
   if (whole) {
     return (
@@ -93,7 +101,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string 
   const adapter = useMemo<MarkdownAdapters>(
     () => ({
       text: (text, key, label) => withLinks(text, key, open, label),
-      code: codeSpan,
+      code: (code, key) => codeSpan(code, key, open),
       image: (src, alt, key) => {
         const ref = markdownImageRef(src);
         return ref ? <ChatImageView key={key} image={{ ...ref, name: alt || undefined }} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;

@@ -41,7 +41,7 @@ import {
 
 describe("isLocalUrl", () => {
   it("accepts loopback hosts", () => {
-    for (const u of ["http://localhost:3000", "http://127.0.0.1/", "http://0.0.0.0:8080", "http://[::1]:5173", "http://app.localhost"]) {
+    for (const u of ["http://localhost:3000", "http://127.0.0.1/", "http://127.0.1.1:5199/x.html", "http://0.0.0.0:8080", "http://[::1]:5173", "http://app.localhost"]) {
       expect(isLocalUrl(u)).toBe(true);
     }
   });
@@ -469,6 +469,15 @@ describe("load errors", () => {
     vi.advanceTimersByTime(1000);
     expect(urlPage().error?.kind).toBe("timeout");
     expect(urlPage().retrying).toBe(false);
+  });
+
+  it("opening a failed page again retries it (no view yet: the error goes so one is made)", async () => {
+    const id = urlPage().id;
+    setPageError(id, { kind: "other", code: "UNKNOWN", url: "http://localhost:5173/" });
+    expect(openUrlInPreview("http://localhost:5173/")).toBe(id);
+    expect(urlPage().retrying).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(urlPage().error).toBeUndefined();
   });
 
   it("a started load on a page without error changes nothing", () => {

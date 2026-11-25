@@ -450,6 +450,7 @@ fn attach_error_handlers(app: &AppHandle, window: &str, label: &str, page_id: &s
 unsafe fn attach_webview2_errors(pw: tauri::webview::PlatformWebview, app: AppHandle, window: String, page_id: String) {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use webview2_com::{take_pwstr, NavigationCompletedEventHandler, ProcessFailedEventHandler};
+    use windows::core::Interface;
     use windows::core::PWSTR;
     use windows::core::BOOL;
 
@@ -492,7 +493,15 @@ unsafe fn attach_webview2_errors(pw: tauri::webview::PlatformWebview, app: AppHa
         if let Some(kind) = kind_for_web_error(code) {
             let mut src = PWSTR::null();
             let url = if sender.Source(&mut src).is_ok() { take_pwstr(src) } else { String::new() };
-            emit_error(&a, &w, &p, kind, code, &url);
+            // UNKNOWN covers every net error WebView2 has no status for (ERR_ABORTED by a
+            // superseding load, ERR_BLOCKED_*, an HTTP error with an empty body...): the
+            // response's HTTP status, when there was one, tells them apart in the details.
+            let mut http = 0i32;
+            let has_http = args
+                .cast::<ICoreWebView2NavigationCompletedEventArgs2>()
+                .is_ok_and(|a2| a2.HttpStatusCode(&mut http).is_ok() && http > 0);
+            let detail = if has_http { format!("{code} (HTTP {http})") } else { code.to_string() };
+            emit_error(&a, &w, &p, kind, &detail, &url);
         }
         Ok(())
     }));

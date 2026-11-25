@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PageError } from "./browserStore";
-import { detailLines, detailsText, hostOfUrl, portOfUrl, statusPageFor } from "./statusPageModel";
+import { codeMeaning, detailLines, detailsText, hostOfUrl, portOfUrl, statusPageFor } from "./statusPageModel";
 
 const err = (kind: PageError["kind"], url = "https://example.com/"): PageError => ({ kind, code: "X", url, at: 0 });
 
@@ -37,5 +37,17 @@ describe("details", () => {
   });
   it("writes plain text for the clipboard", () => {
     expect(detailsText("E", "http://x/", "", [{ label: "kind", value: "refused" }])).toBe("E · http://x/\nkind: refused");
+  });
+});
+
+describe("codeMeaning", () => {
+  it("reads the common codes", () => {
+    expect(codeMeaning("UNKNOWN")?.key).toBe("browser.page.meaning.unknown");
+    expect(codeMeaning("UNKNOWN (HTTP 200)")?.key).toBe("browser.page.meaning.unknownLoaded");
+    expect(codeMeaning("UNKNOWN (HTTP 404)")).toEqual({ key: "browser.page.meaning.http", http: "404" });
+    expect(codeMeaning("CANNOT_CONNECT")?.key).toBe("browser.page.meaning.refused");
+    expect(codeMeaning("CONNECTION_ABORTED")?.key).toBe("browser.page.meaning.dropped");
+    expect(codeMeaning("CERTIFICATE_EXPIRED")?.key).toBe("browser.page.meaning.cert");
+    expect(codeMeaning("about:blank")).toBeNull();
   });
 });

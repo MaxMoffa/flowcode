@@ -312,7 +312,7 @@ pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, repo
             let target = args.get("target").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("`target` is required")?;
             let target = chat_mcp::open_target(target, &base, &homes, distro.as_deref())?;
             crate::pty::emit_ext(&state, pty_id, OPEN_METHOD, json!({ "target": target, "cwd": base, "distro": distro }))?;
-            Ok("Sent to Flowcode. External links require user confirmation before opening.".to_string())
+            Ok(crate::chat::delegate::OPEN_REPLY.to_string())
         }
         CALL_USER => {
             let mut params = call_params(args)?;

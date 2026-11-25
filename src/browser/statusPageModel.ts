@@ -57,6 +57,45 @@ export function detailLines(page: StatusPageId, error: PageError | null, liveSer
   return lines;
 }
 
+/** A plain-words reading of an error code (WebView2 status, WebKit message, ours), with the HTTP status when the
+ * code carries one (`UNKNOWN (HTTP 404)`). null = nothing better to say than the code itself. */
+export function codeMeaning(code: string): { key: MessageKey; http?: string } | null {
+  const http = /\(HTTP (\d{3})\)/.exec(code)?.[1];
+  const name = code.split(" ")[0];
+  if (http && Number(http) >= 400) return { key: "browser.page.meaning.http", http };
+  switch (name) {
+    case "UNKNOWN":
+      return { key: http ? "browser.page.meaning.unknownLoaded" : "browser.page.meaning.unknown" };
+    case "CANNOT_CONNECT":
+    case "CONNECTION_REFUSED":
+      return { key: "browser.page.meaning.refused" };
+    case "CONNECTION_ABORTED":
+    case "CONNECTION_RESET":
+      return { key: "browser.page.meaning.dropped" };
+    case "OPERATION_CANCELED":
+      return { key: "browser.page.meaning.canceled" };
+    case "SERVER_UNREACHABLE":
+    case "DISCONNECTED":
+      return { key: "browser.page.meaning.offline" };
+    case "HOST_NAME_NOT_RESOLVED":
+      return { key: "browser.page.meaning.dns" };
+    case "TIMEOUT":
+      return { key: "browser.page.meaning.timeout" };
+    case "REDIRECT_FAILED":
+      return { key: "browser.page.meaning.redirect" };
+    case "ERROR_HTTP_INVALID_SERVER_RESPONSE":
+      return { key: "browser.page.meaning.badResponse" };
+    case "UNEXPECTED_ERROR":
+      return { key: "browser.page.meaning.engine" };
+    case "BLOCKED_LOCAL_ORIGIN":
+      return { key: "browser.page.meaning.blocked" };
+    case "RENDER_PROCESS_EXITED":
+    case "RENDER_PROCESS_UNRESPONSIVE":
+      return { key: "browser.page.meaning.crash" };
+  }
+  return name.startsWith("CERTIFICATE_") || name.startsWith("CLIENT_CERTIFICATE_") ? { key: "browser.page.meaning.cert" } : null;
+}
+
 /** Plain text of the whole dialog, for Copy. */
 export function detailsText(code: string, url: string, kindLabel: string, lines: { label: string; value: string }[]): string {
   return [`${code}${url ? ` · ${url}` : ""}`, ...(kindLabel ? [kindLabel] : []), ...lines.map((l) => `${l.label}: ${l.value}`)].join("\n");

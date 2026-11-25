@@ -30,6 +30,9 @@ const REQUEST_METHOD: &str = "_flowcode/delegate_request";
 const RESOLVED_METHOD: &str = "_flowcode/delegate_request_resolved";
 const TASK_METHOD: &str = "_flowcode/task";
 pub(crate) const OPEN_METHOD: &str = "_flowcode/open";
+/// What `open_in_browser` answers. Where the page opens is the user's Browser setting (local servers and
+/// files, external sites), so the reply must not claim a local page is waiting for a confirmation.
+pub(crate) const OPEN_REPLY: &str = "Sent to Flowcode: it opens where the user's browser settings say (local pages and files normally in Flowcode's browser; an external site may first ask the user).";
 pub(crate) const CALL_METHOD: &str = "_flowcode/call";
 /// A diagnosis chat's agent attached its diagnosis to the crash report (params: `{ reportId }`).
 const DIAGNOSIS_METHOD: &str = "_flowcode/crashdiagnosis";
@@ -655,7 +658,7 @@ fn open_in_browser(chat: &Chat, args: &Value) -> Result<String, String> {
     }
     let target = chat_mcp::open_target(string_arg(args, "target")?, &chat.cwd, &homes, chat.wsl.then_some(chat.wsl_distro.as_deref().unwrap_or("")))?;
     chat.emit(ChatBody::Ext { method: OPEN_METHOD.to_string(), params: json!({ "target": target, "cwd": chat.cwd }) });
-    Ok("Sent to Flowcode. External links require user confirmation before opening.".to_string())
+    Ok(OPEN_REPLY.to_string())
 }
 
 /// Tells the app to show the user a bubble from this chat's tab (`_flowcode/call`).

@@ -310,6 +310,9 @@ export function convertPageToPdf(id: string, url: string) {
 export function openUrlInPreview(url: string, fromTabId?: string): string {
   if (isPdfTarget(url)) return openPdfInPreview(url, fromTabId);
   const id = addOrFindPage({ kind: "url", url });
+  // Opening again a page that failed tries it again: otherwise the old error page came back and nothing
+  // ever reached the server (a link clicked, an agent's open_in_browser, all landed on the same failure).
+  retryFailedPage(id);
   if (fromTabId) updateUrlPage(id, (p) => (p.fromTabId ? p : { ...p, fromTabId }));
   showPage(id, fromTabId);
   return id;
@@ -599,6 +602,15 @@ export function clearPageError(id: string) {
   updateUrlPage(id, (p) => (p.error || p.retrying ? { ...p, error: undefined, retrying: undefined } : p));
 }
 
+/** A url page showing a load error loads again: its view reloads, or (no view, e.g. it failed before one
+ * existed) the error goes so the panel creates the view and navigates. */
+export function retryFailedPage(id: string) {
+  const page = store.get().pages.find((p) => p.id === id);
+  if (page?.kind !== "url" || !page.error) return;
+  updateUrlPage(id, (p) => ({ ...p, retrying: true }));
+  nativeView.reload(id).catch(() => clearPageError(id));
+}
+
 /** A load started: an error page stays (it is not hidden until the load works) and shows it is trying again. */
 export function pageLoadStarted(id: string) {
   updateUrlPage(id, (p) => (p.error && !p.retrying ? { ...p, retrying: true } : p));
@@ -680,7 +692,7 @@ export function isLocalUrl(url: string): boolean {
   if (host === null) return false;
   return (
     host === "localhost" ||
-    host === "127.0.0.1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host) ||
     host === "0.0.0.0" ||
     host === "[::1]" ||
     host === "[::]" ||
