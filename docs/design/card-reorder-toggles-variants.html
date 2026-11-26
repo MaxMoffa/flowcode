@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — aprire e chiudere le card riordinabili: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --yellow:#e0c060; --tint:#d9a25f; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+  --page1:#2a3a4a; --page2:#e8eef4; --dur:240ms; --ease:cubic-bezier(.2,.8,.2,1);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --yellow:#a67a14; --tint:#a5652a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button,.btn{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.btn:hover,.bar button:hover{background:var(--hover)}
+.bar button.on{background:var(--track)}
+.col{margin-bottom:40px;max-width:1100px}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);max-width:980px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;color:var(--fg-muted);font-size:12px;margin-top:10px}
+.pros b{color:var(--fg);font-weight:600}
+.try{font-size:12px;color:var(--fg-muted);margin:6px 0 0}
+kbd{border:1px solid var(--border);border-radius:4px;padding:0 5px;font:11px ui-monospace,monospace;color:var(--fg)}
+svg{display:block}
+.box{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:10px 14px;max-width:1000px;margin:0 0 22px;color:var(--fg-muted);font-size:12px}
+.box b{color:var(--fg)}
+.box ul{margin:4px 0 0;padding-left:18px}
+.box li{margin:2px 0}
+
+/* ---------- finestra finta ---------- */
+.win{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg);position:relative;user-select:none}
+.head{height:40px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--bg)}
+.hcl,.hcr{display:flex;gap:2px;align-items:center}
+.sp{flex:1}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:9px;color:var(--fg-muted);font:500 12px ui-monospace,monospace;border:1px solid var(--border);width:130px}
+.tab.act{background:color-mix(in srgb,var(--tint) 22%,transparent);border-color:color-mix(in srgb,var(--tint) 55%,transparent);color:var(--fg);font-weight:700}
+.tab .lg{width:12px;height:12px;border-radius:3px;background:var(--tint);flex:none}
+.wc{display:flex;gap:14px;color:var(--fg-muted);font-size:11px;padding:0 6px 0 8px}
+.body{display:flex;gap:8px;padding:0 8px 8px;height:400px;position:relative;--gb:8px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative;min-width:0;display:flex;flex-direction:column}
+.card.closed{display:none}
+.card.lift{box-shadow:0 18px 40px rgba(0,0,0,.45);z-index:6;cursor:grabbing;border-color:color-mix(in srgb,var(--blue) 60%,var(--border))}
+.card.hl{outline:2px solid var(--yellow);outline-offset:-2px}
+.side{width:150px;flex:none}
+.side .sb{padding:10px}
+.side .row{height:14px;border-radius:4px;background:var(--track);margin-bottom:9px}
+.side .row.s{width:70%}
+.center{flex:1 1 0}
+.center .chat{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.msg{max-width:88%}
+.msg.u{align-self:flex-end;background:var(--surface3);border-radius:10px;padding:7px 10px;font-size:12px}
+.msg.a{font-size:12px;color:var(--fg)}
+.ln{height:8px;border-radius:4px;background:var(--track);margin:6px 0}
+.composer{margin:0 12px 12px;border:1px solid var(--border);border-radius:10px;padding:9px 11px;color:var(--fg-muted);font-size:12px;display:flex;align-items:center;gap:8px}
+.composer .send{margin-left:auto;width:22px;height:22px;border-radius:6px;background:var(--tint);opacity:.85}
+.working{display:flex;align-items:center;gap:6px;color:var(--blue);font-size:11.5px}
+.working i{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+.browser{flex:1 1 0}
+.bhead{height:34px;flex:none;display:flex;align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--border)}
+.url{flex:1;height:24px;border-radius:7px;background:var(--surface2);color:var(--fg-muted);font-size:11.5px;display:flex;align-items:center;padding:0 9px}
+.ib{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--fg-muted);flex:none;cursor:pointer;border:0;background:transparent;font:inherit}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib.on{color:var(--blue);background:color-mix(in srgb,var(--blue) 16%,transparent)}
+.tg[data-id=browser].on{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.tg[data-id=side].on{color:var(--tint);background:color-mix(in srgb,var(--tint) 16%,transparent)}
+.page{flex:1;background:var(--page2);position:relative;overflow:hidden}
+.page .nav{height:34px;background:#203040;display:flex;align-items:center;gap:14px;padding:0 14px}
+.page .nav span{width:38px;height:6px;border-radius:3px;background:#8aa4bd}
+.page .hero{margin:22px auto 0;width:70%;height:70px;border-radius:8px;background:linear-gradient(120deg,#6b8fd6,#9a7bd0)}
+.page .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:70%;margin:14px auto}
+.page .grid div{height:58px;border-radius:7px;background:#cfd9e4}
+
+/* testata della card (variante A: maniglia + trascinamento) */
+.chead{height:26px;flex:none;display:flex;align-items:center;gap:6px;padding:0 4px 0 8px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--fg-muted);touch-action:none;cursor:grab}
+.chead b{color:var(--fg);font-weight:600}
+.chead .grip{width:14px;height:14px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity var(--dur)}
+.card:hover .grip,.card.lift .grip{opacity:1}
+.chead .ib{margin-left:auto;width:22px;height:22px}
+.chead .lk{margin-left:auto;width:22px;height:22px;display:flex;align-items:center;justify-content:center;opacity:.55;cursor:default}
+
+.ghost,.dropline{position:absolute;top:0;bottom:var(--gb,0);pointer-events:none;opacity:0;transition:opacity 100ms}
+.ghost{border:2px dashed color-mix(in srgb,var(--blue) 55%,transparent);border-radius:10px;background:color-mix(in srgb,var(--blue) 6%,transparent)}
+.dropline{width:3px;border-radius:2px;background:var(--blue);box-shadow:0 0 8px var(--blue);z-index:7}
+.dragging > .ghost,.dragging > .dropline{opacity:1}
+
+/* T2: la card chiusa diventa un binario sul bordo del suo slot */
+.vT2 .card.closed{display:flex;flex:none;width:28px;align-items:center;justify-content:center;background:var(--surface2);cursor:pointer;transition:background var(--dur)}
+.vT2 .card.closed > *{display:none}
+.vT2 .card.closed::before{content:"+  " attr(data-name);writing-mode:vertical-rl;font-size:11.5px;letter-spacing:.03em;color:var(--fg-muted)}
+.vT2 .card.closed:hover,.vT2 .card.closed:focus-visible{background:color-mix(in srgb,var(--tint) 18%,var(--surface2));outline:none}
+.vT2 .card.closed:hover::before{color:var(--fg)}
+
+/* T4: la card chiusa lascia solo una traccia tratteggiata del proprio slot */
+.vT4 .card.closed{display:block;flex:none;width:8px;border:1px dashed color-mix(in srgb,var(--fg-muted) 55%,transparent);background:transparent;border-radius:6px}
+.vT4 .card.closed > *{display:none}
+.vT4 .card.closed.hl{border-color:var(--yellow);background:color-mix(in srgb,var(--yellow) 14%,transparent);outline:none}
+
+/* T3: popover «Pannelli» con mini-mappa */
+.lay.wide{width:auto;padding:0 8px;gap:5px;font-size:11.5px}
+.lay.wide .cnt{font:11px ui-monospace,monospace}
+.pop{position:absolute;right:8px;top:42px;width:350px;z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 38px rgba(0,0,0,.42);padding:12px;display:none}
+.pop.open{display:block}
+.pop .pt{font-weight:600;font-size:12.5px;margin-bottom:8px}
+.map{display:flex;gap:8px;position:relative;height:56px;--gb:0}
+.chip{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border);background:var(--surface3);border-radius:8px;font-size:11.5px;cursor:grab;touch-action:none;position:relative;transition:opacity var(--dur)}
+.chip[data-id=side]{flex:.8 1 0}
+.chip.off{opacity:.5}
+.chip.off .nm{text-decoration:line-through;text-decoration-color:var(--fg-muted)}
+.chip.lift{box-shadow:0 10px 24px rgba(0,0,0,.45);z-index:6;cursor:grabbing}
+.ck{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--fg-muted);flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;color:transparent}
+.ck.on{background:var(--accent);border-color:var(--accent);color:#17210f}
+.chip .clk{opacity:.7;display:flex}
+.pop .ph2{color:var(--fg-muted);font-size:11.5px;margin:8px 0}
+.pop .pre{display:flex;gap:6px;flex-wrap:wrap}
+.pop .pre .btn{font-size:11.5px;padding:3px 9px}
+
+.toast{position:absolute;left:50%;bottom:46px;transform:translate(-50%,8px);background:var(--surface3);border:1px solid var(--border);border-radius:999px;padding:5px 14px;font-size:12px;opacity:0;pointer-events:none;transition:opacity var(--dur),transform var(--dur) var(--ease);z-index:30;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.foot{display:flex;align-items:center;gap:10px;padding:6px 10px 8px;color:var(--fg-muted);font-size:11.5px;background:var(--bg)}
+.foot b{color:var(--fg);font-weight:600}
+.foot .btn{margin-left:auto;font-size:11.5px;padding:2px 9px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--fg-muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+@media (prefers-reduced-motion: reduce){*{transition-duration:0ms !important;animation-duration:0ms !important}}
+</style>
+</head>
+<body>
+<h1>Aprire e chiudere le card, ora che si riordinano</h1>
+<p class="sub">Punto di partenza: scelta la <b>variante A</b> per il riordino (si trascina dalla testata con la maniglia, le altre card scorrono in diretta, linea di rilascio, <kbd>Esc</kbd> annulla). Nuovo problema: ora Esplora e il pannello destro (browser) possono stare <em>ovunque</em> nell'ordine, quindi i pulsanti che li aprono e chiudono non possono più dare per scontato «Esplora a sinistra, browser a destra». Regole: la <b>card centrale (chat o terminale) è sempre aperta</b> e non ha comandi di chiusura, ma si può trascinare; le due card laterali si possono chiudere e riaprire. Ogni finestra qui sotto ha il trascinamento funzionante e un modello diverso di apertura/chiusura.</p>
+
+<div class="box"><b>Com'è oggi (letto nel codice)</b>
+<ul>
+  <li><b>Esplora:</b> icona «pannello a sinistra» fissa in alto a sinistra (<code>sidebarToggle</code> in <code>HeaderTools.tsx</code>); clic destro sceglie la modalità (auto / ancorata / fluttuante); scorciatoia <kbd>Ctrl</kbd>+<kbd>B</kbd>; punto con i cambiamenti Git quando è chiusa.</li>
+  <li><b>Browser:</b> nessun pulsante fisso: è l'azione rapida «toggleBrowser» (plugin, nella riga di scorciatoie in alto a destra, configurabile e quindi non sempre presente), la <b>×</b> nella barra indirizzi (<code>setBrowserOpen(false)</code> in <code>BrowserPanel.tsx</code>) e <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>.</li>
+  <li><b>Stato a tre valori già esistente:</b> <code>usePanelLayout</code> distingue <em>aperta</em>, <em>chiusa</em> e <em>parcheggiata</em> (voluta ma senza spazio: il pulsante prende <code>is-parked</code>, un clic la porta avanti). Le flag aperto/chiuso restano la fonte di verità; aperto/chiuso è per scheda (<code>usePerTabPanels</code>).</li>
+  <li><b>Stretto (sotto soglia):</b> i pannelli sono overlay temporanei, l'ordine non si applica; lì i comandi di oggi restano com'erano.</li>
+</ul></div>
+
+<div class="box"><b>Cosa deve garantire il modello scelto</b>
+<ul>
+  <li>Il pulsante deve far capire <em>quale</em> card comanda anche quando le card cambiano posto.</li>
+  <li>Una card chiusa e riaperta torna nel <b>suo slot</b> (non in un posto di default).</li>
+  <li>Con entrambe le laterali chiuse il centro riempie tutto; con una chiusa, trascinare l'altra deve restare naturale.</li>
+  <li>Il centro non ha mai una × né un interruttore: niente stati impossibili.</li>
+</ul></div>
+
+<div class="bar">
+  <button id="bl">Tema chiaro</button>
+  <span style="color:var(--fg-muted);font-size:12px">Scenari su tutte le finestre:</span>
+  <button data-sc="browser">Chiudi/riapri Browser</button>
+  <button data-sc="side">Chiudi/riapri Esplora</button>
+  <button data-sc="both">Chiudi entrambe (il centro riempie)</button>
+  <button data-sc="right">Esplora a destra, Browser chiuso</button>
+  <button data-sc="reset">Tutto com'è oggi</button>
+</div>
+<div id="root"></div>
+
+<div class="col" id="final">
+  <h2>Proposta finale: A + toggle posizionali</h2>
+  <p class="d">Cosa costruiremmo, in sintesi.</p>
+  <div class="pros" style="grid-template-columns:1fr">
+    <div><b>Riordino:</b> variante A come approvata (testata con maniglia, scorrimento live, linea di rilascio, <kbd>Esc</kbd>, congelamento del browser nativo durante il gesto).</div>
+    <div><b>Toggle posizionali (T1):</b> i due interruttori (Esplora, Browser) vivono nell'intestazione e si dispongono <em>dalla parte della propria card</em>: a sinistra del centro quelli delle card a sinistra, a destra quelli delle card a destra, nello stesso ordine delle card. Seguono il trascinamento in diretta. Sostituiscono sia l'icona fissa di Esplora sia l'azione rapida «toggleBrowser» (quest'ultima resta disponibile ma viene nascosta se esiste già l'interruttore integrato, per non duplicare). Clic destro su Esplora: modalità, come oggi.</div>
+    <div><b>Tre stati sull'icona:</b> aperta = zona piena, chiusa = solo contorno, parcheggiata (voluta ma senza spazio) = contorno tratteggiato, come l'attuale <code>is-parked</code>. Il pallino dei cambiamenti Git resta su Esplora chiusa.</div>
+    <div><b>Chiudere dalla card (aggiunta quasi gratuita):</b> una piccola <b>×</b> nella testata delle card laterali, accanto alla maniglia (la testata c'è già per via di A; sul browser sostituisce la × della barra indirizzi). Nessun binario di riapertura: si riapre dall'interruttore o con la scorciatoia. Nel centro, al posto della ×, un lucchetto discreto con tooltip «Sempre aperta».</div>
+    <div><b>Scorciatoie invariate:</b> <kbd>Ctrl</kbd>+<kbd>B</kbd> (Esplora) e <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (Browser) già esistono e restano; non dipendono dalla posizione. A ogni apertura un breve annuncio dice dove: «Browser riaperto a destra».</div>
+    <div><b>Slot memory:</b> si salva un solo ordine globale con tutte e tre le card, anche chiuse (<code>panelOrder: ["sidebar","center","browser"]</code>, accanto alle larghezze dei pannelli). Chiudere non tocca l'ordine; riaprire riusa l'indice. Aperto/chiuso resta per scheda come oggi (<code>usePerTabPanels</code>), l'ordine è uguale in tutte le schede.</div>
+    <div><b>Due laterali chiuse:</b> il centro occupa tutto; i due interruttori restano nell'intestazione, vuoti, ognuno dal lato in cui riapparirà la card. Nessun elemento extra sulla tela.</div>
+    <div><b>Ripristino:</b> «Ripristina ordine predefinito» in ⋯ e in Impostazioni → Aspetto riporta l'ordine a Esplora · Chat · Browser senza cambiare cosa è aperto o chiuso.</div>
+    <div><b>Dove non vale:</b> finestra stretta e barra laterale fluttuante: interruttori nella posizione di oggi, ordine ignorato (ma conservato).</div>
+    <div><b>Possibile ripiego se T1 sembra troppo mobile:</b> T3 (menu «Pannelli») come pulsante unico, senza interruttori che si spostano.</div>
+  </div>
+</div>
+
+<script>
+/* ---------- utilità comuni ---------- */
+const cs=getComputedStyle(document.documentElement);
+const REDUCED=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const DUR=REDUCED?0:(parseFloat(cs.getPropertyValue("--dur"))||240);
+const EASE=cs.getPropertyValue("--ease").trim()||"ease";
+const NAMES={side:"Esplora",center:"Chat",browser:"Browser"};
+const KEYS={side:"Ctrl+B",browser:"Ctrl+Shift+B"};
+const DEFAULT=["side","center","browser"];
+let ACTIVE=null;
+
+const DOTS='<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="4" cy="2.5" r="1.1"/><circle cx="8" cy="2.5" r="1.1"/><circle cx="4" cy="6" r="1.1"/><circle cx="8" cy="6" r="1.1"/><circle cx="4" cy="9.5" r="1.1"/><circle cx="8" cy="9.5" r="1.1"/></svg>';
+const LOCK='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+const ICON_LAYOUT='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>';
+
+/* icona di interruttore: il riquadro pieno sta dalla parte della card; vuoto = chiusa */
+function ico(id,side,open){
+  const w=id==="side"?6:9, dv=side==="l"?3.5+w:20.5-w;
+  const zx=side==="l"?4.3:dv, zw=w-.8;
+  return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M${dv} 4.5v15"/>${open?`<rect x="${zx}" y="5.3" width="${zw}" height="13.4" fill="currentColor" stroke="none" opacity=".55"/>`:""}</svg>`;
+}
+
+const chatHtml=`<div class="chat">
+  <div class="msg u">Sistema il layout della pagina prodotti, le card sono troppo strette</div>
+  <div class="msg a">Ho aperto <code>ProductGrid.tsx</code>. Le card usano <code>minmax(140px,1fr)</code>…<div class="ln" style="width:90%"></div><div class="ln" style="width:70%"></div></div>
+  <div class="msg u">Ok, guardo nel browser</div>
+  <div class="msg a"><div class="ln" style="width:80%"></div><div class="ln" style="width:55%"></div></div>
+  <div class="working"><i></i>Claude sta modificando ProductGrid.tsx…</div>
+</div>
+<div class="composer">Scrivi all'agente…<span class="send"></span></div>`;
+const pageHtml=`<div class="page"><div class="nav"><span></span><span></span><span></span></div><div class="hero"></div><div class="grid"><div></div><div></div><div></div><div></div><div></div><div></div></div></div>`;
+
+function cardHtml(id,v){
+  const grip=`<span class="grip" title="Trascina per spostare">${DOTS}</span>`;
+  const ctl=id==="center"
+    ? `<span class="lk" title="Sempre aperta: si può spostare, non chiudere" aria-label="Sempre aperta">${LOCK}</span>`
+    : (v==="T2")?`<button class="ib cl" data-close="${id}" title="Chiudi ${NAMES[id]}" aria-label="Chiudi ${NAMES[id]}">✕</button>`:"";
+  const head=t=>`<div class="chead">${grip}<b>${t}</b>${ctl}</div>`;
+  const att=`data-id="${id}" data-name="${NAMES[id]}"`+(v==="T2"&&id!=="center"?` tabindex="-1"`:"");
+  if(id==="side") return `<div class="card side" ${att}>${head("Esplora")}<div class="sb"><div class="row"></div><div class="row s"></div><div class="row"></div><div class="row s"></div><div class="row"></div></div></div>`;
+  if(id==="center") return `<div class="card center" ${att}>${head("Chat · shop")}${chatHtml}</div>`;
+  return `<div class="card browser" ${att}>${head("Browser")}<div class="bhead"><span class="ib">‹</span><span class="ib">›</span><div class="url">localhost:5173/prodotti</div><span class="ib">⋯</span></div>${pageHtml}</div>`;
+}
+
+function winHtml(v){
+  const hasTg=v!=="T3";
+  const tg=id=>`<button class="ib tg" data-id="${id}" aria-label="${NAMES[id]}" aria-pressed="true" title="${NAMES[id]} · ${KEYS[id]}"></button>`;
+  const lay=`<button class="ib lay wide" title="Pannelli" aria-label="Pannelli">${ICON_LAYOUT}<span class="cnt">3/3</span></button>`;
+  const pop=v==="T3"?`<div class="pop"><div class="pt">Pannelli</div>
+      <div class="map">${DEFAULT.map(id=>`<div class="chip" data-id="${id}">${id==="center"?`<span class="clk" title="Sempre aperta">${LOCK}</span>`:`<span class="ck on" role="checkbox" aria-checked="true" aria-label="Mostra ${NAMES[id]}">✓</span>`}<span class="nm">${NAMES[id]}</span></div>`).join("")}</div>
+      <div class="ph2">Spunta per mostrare o nascondere. Trascina i riquadri per l'ordine: la finestra si aggiorna al rilascio. Il centro è bloccato: si sposta, non si nasconde.</div>
+      <div class="pre"><button class="btn" data-p="reset">Ripristina ordine</button></div></div>`:"";
+  return `<div class="win v${v}" data-v="${v}">
+    <div class="head"><div class="hcl">${hasTg?tg("side"):""}</div><div class="tab act"><span class="lg"></span>shop</div><div class="tab"><span class="lg" style="background:var(--blue)"></span>api</div><div class="tab"><span class="lg" style="background:var(--fg-muted)"></span>terminale</div><span class="sp"></span><div class="hcr">${hasTg?tg("browser"):lay}</div><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+    <div class="body">${DEFAULT.map(id=>cardHtml(id,v)).join("")}</div>
+    <div class="foot"><span>Ordine: <b class="ord"></b></span><button class="btn rst">Ripristina</button></div>
+    <div class="toast" role="status" aria-live="polite"></div>
+    ${pop}
+  </div>`;
+}
+
+/* ---------- FLIP ---------- */
+function flip(container,els,mutate,liftEl){
+  const first=new Map(els.map(e=>[e,e.getBoundingClientRect()]));
+  mutate();
+  els.forEach(e=>e.getAnimations().forEach(a=>a.cancel()));
+  els.forEach(e=>{
+    const a=first.get(e), b=e.getBoundingClientRect();
+    if(!a.width||!b.width) return;
+    const dx=a.left-b.left, dy=a.top-b.top;
+    if(Math.abs(dx)<.5&&Math.abs(dy)<.5) return;
+    const t=`translate(${dx}px,${dy}px)`;
+    e.animate([{transform:e===liftEl?t+" scale(1.02)":t},{transform:"none"}],{duration:DUR,easing:EASE});
+  });
+  const w=container.closest(".win"); if(w) sync(w);
+}
+const cardsOf=body=>[...body.querySelectorAll(":scope > .card")];
+const isClosed=c=>c.classList.contains("closed");
+const cardOf=(body,id)=>body.querySelector(`:scope > [data-id="${id}"]`);
+function place(item,others,idx){
+  if(!others.length) return;
+  if(idx>=others.length) others[others.length-1].after(item); else others[idx].before(item);
+}
+function sync(win){
+  const body=win.querySelector(".body");
+  const o=win.querySelector(".ord"); if(!o) return;
+  o.textContent=cardsOf(body).map(c=>NAMES[c.dataset.id]+(isClosed(c)?" (chiuso)":"")).join(" → ");
+}
+function applyOrder(body,ids){
+  flip(body,cardsOf(body),()=>ids.forEach(id=>body.appendChild(cardOf(body,id))));
+}
+function mapOrder(win,ids){
+  const map=win.querySelector(".map"); if(!map) return;
+  flip(map,[...map.querySelectorAll(":scope > .chip")],()=>ids.forEach(id=>map.appendChild(map.querySelector(`:scope > [data-id="${id}"]`))));
+}
+function slotOf(body,id){
+  const o=cardsOf(body).map(c=>c.dataset.id), i=o.indexOf(id), ci=o.indexOf("center");
+  return i<ci?"a sinistra":i>ci?"a destra":"al centro";
+}
+function toast(win,msg){
+  const t=win.querySelector(".toast"); if(!t) return;
+  t.textContent=msg;t.classList.add("show");
+  clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),1900);
+}
+
+/* ---------- stato: apri/chiudi, mantiene lo slot ---------- */
+function refresh(win){sync(win);if(win._upd)win._upd()}
+function setClosed(win,id,closed,quiet){
+  if(id==="center") return; /* il centro non si chiude mai */
+  const body=win.querySelector(".body"), c=cardOf(body,id);
+  if(!c||isClosed(c)===closed) return;
+  const slot=slotOf(body,id);
+  flip(body,cardsOf(body).filter(x=>x!==c),()=>c.classList.toggle("closed",closed));
+  if(!closed&&c.getBoundingClientRect().width&&DUR) c.animate([{opacity:0,transform:"scale(.97)"},{opacity:1,transform:"none"}],{duration:DUR,easing:EASE});
+  if(!quiet) toast(win,closed?`${NAMES[id]} chiuso · si riapre ${slot}`:`${NAMES[id]} riaperto ${slot}, dov'era`);
+  refresh(win);
+}
+function setState(win,order,closedIds){
+  const body=win.querySelector(".body");
+  flip(body,cardsOf(body),()=>{
+    order.forEach(id=>body.appendChild(cardOf(body,id)));
+    cardsOf(body).forEach(c=>c.classList.toggle("closed",closedIds.includes(c.dataset.id)));
+  });
+  refresh(win);
+}
+
+/* ---------- interruttori nell'intestazione (T1 posizionali; T2 e T4 fissi) ---------- */
+function updToggles(win,mirror){
+  const body=win.querySelector(".body"), head=win.querySelector(".head");
+  const hcl=win.querySelector(".hcl"), hcr=win.querySelector(".hcr");
+  const ord=cardsOf(body).map(c=>c.dataset.id), ci=ord.indexOf("center");
+  const btns=[...win.querySelectorAll(".tg")];
+  flip(head,[...btns,...head.querySelectorAll(".tab")],()=>{
+    btns.forEach(b=>{
+      const id=b.dataset.id, open=!isClosed(cardOf(body,id));
+      const side=mirror?(ord.indexOf(id)<ci?"l":"r"):(id==="side"?"l":"r");
+      b._side=side;
+      b.innerHTML=ico(id,side,open);
+      b.classList.toggle("on",open);
+      b.setAttribute("aria-pressed",String(open));
+    });
+    if(mirror){
+      const byOrd=(a,b)=>ord.indexOf(a.dataset.id)-ord.indexOf(b.dataset.id);
+      btns.filter(b=>b._side==="l").sort(byOrd).forEach(b=>hcl.appendChild(b));
+      btns.filter(b=>b._side==="r").sort(byOrd).forEach(b=>hcr.appendChild(b));
+    }
+  });
+}
+function wireToggles(win){
+  const body=win.querySelector(".body");
+  win.querySelector(".head").addEventListener("click",e=>{
+    const b=e.target.closest(".tg"); if(!b) return;
+    setClosed(win,b.dataset.id,!isClosed(cardOf(body,b.dataset.id)));
+  });
+}
+
+/* ---------- motore di riordino per inserimento (variante A) ---------- */
+function sorter(o){
+  const {container,sel,pick,indicator,onDrop,onChange}=o;
+  let ghost=null,line=null;
+  if(indicator){
+    ghost=document.createElement("div");ghost.className="ghost";
+    line=document.createElement("div");line.className="dropline";
+    container.append(ghost,line);
+  }
+  const items=()=>[...container.querySelectorAll(":scope > "+sel)].filter(e=>!e.classList.contains("closed"));
+  container.addEventListener("pointerdown",e=>{
+    if(e.button!==0||ACTIVE) return;
+    const item=pick(e.target); if(!item) return;
+    e.preventDefault();
+    const st={item,x0:e.clientX,off0:item.offsetLeft,moved:false,tx:0,origIdx:items().indexOf(item)};
+    const mv=ev=>{
+      const dx=ev.clientX-st.x0;
+      if(!st.moved){
+        if(Math.abs(dx)<4) return;
+        st.moved=true;
+        item.getAnimations().forEach(a=>a.cancel());
+        item.classList.add("lift");
+        container.classList.add("dragging");
+      }
+      const others=items().filter(x=>x!==item);
+      const c=st.off0+dx+item.offsetWidth/2;
+      const idx=others.filter(x=>x.offsetLeft+x.offsetWidth/2<c).length;
+      if(idx!==items().indexOf(item)){
+        flip(container,others,()=>place(item,others,idx));
+        if(onChange) onChange();
+      }
+      st.tx=dx+st.off0-item.offsetLeft;
+      item.style.transform=`translateX(${st.tx}px) scale(1.02)`;
+      if(indicator){
+        ghost.style.left=item.offsetLeft+"px";ghost.style.width=item.offsetWidth+"px";
+        line.style.left=(item.offsetLeft-4)+"px";
+      }
+    };
+    const end=cancel=>{
+      removeEventListener("pointermove",mv);removeEventListener("pointerup",up);removeEventListener("pointercancel",cx);
+      ACTIVE=null;
+      if(!st.moved) return;
+      const all=items();
+      flip(container,all,()=>{
+        item.classList.remove("lift");item.style.transform="";container.classList.remove("dragging");
+        if(cancel) place(item,all.filter(x=>x!==item),st.origIdx);
+      },item);
+      if(onChange) onChange();
+      if(!cancel&&onDrop) onDrop([...container.querySelectorAll(":scope > "+sel)].map(x=>x.dataset.id));
+    };
+    const up=()=>end(false), cx=()=>end(true);
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);addEventListener("pointercancel",cx);
+    ACTIVE={cancel:()=>end(true)};
+  });
+}
+function wireDrag(win){
+  sorter({container:win.querySelector(".body"),sel:".card",indicator:true,onChange:()=>refresh(win),
+    pick:t=>{if(t.closest(".ib"))return null;const h=t.closest(".chead");return h?h.closest(".card"):null}});
+}
+
+/* ---------- varianti ---------- */
+const V=[
+ {id:"T1",name:"T1 — Interruttori posizionali nell'intestazione",rec:true,
+  d:"Gli interruttori di Esplora e Browser restano nell'intestazione, ma <b>si dispongono dalla parte della propria card</b>: quelli delle card a sinistra del centro stanno a sinistra delle schede, quelli delle card a destra stanno a destra, nello stesso ordine delle card. Sposti Esplora a destra e il suo interruttore attraversa l'intestazione insieme a lei (anche durante il trascinamento: le schede scorrono per fargli posto). L'icona mostra lo stato: riquadro pieno dal lato della card = aperta, solo contorno = chiusa. Chiusa e riaperta, la card torna nel suo slot e un breve annuncio lo dice. Il centro non ha interruttore. Nessun elemento sulla tela: con le due laterali chiuse il centro riempie tutto e restano solo i due contorni in alto.",
+  try:"Prova: trascina «Esplora» oltre «Browser» e guarda il suo interruttore passare a destra; chiudi il Browser (interruttore o scenari in alto) e riaprilo; chiudi entrambe e riaprile una alla volta; chiudi una laterale e trascina l'altra attorno al centro.",
+  pros:["<b>Pro</b> l'interruttore sta sempre dalla parte della card che comanda: vale anche quando l'ordine cambia","<b>Contro</b> i pulsanti si spostano (mai da soli, ma possono sorprendere dopo un riordino)","<b>Pro</b> nessuna interfaccia in più sulla tela, nessun binario ai bordi","<b>Contro</b> una card chiusa non lascia traccia sulla tela: serve l'intestazione per ritrovarla","<b>Pro</b> si accorda con le scorciatoie esistenti (<kbd>Ctrl</kbd>+<kbd>B</kbd> e <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) e con i tre stati (aperta, chiusa, parcheggiata)","<b>Contro</b> sostituisce l'icona fissa di Esplora e il pulsante «toggleBrowser» del plugin: va gestito il doppione"],
+  setup(w){wireDrag(w);wireToggles(w);w._upd=()=>updToggles(w,true)}},
+ {id:"T2",name:"T2 — × nella testata e binario sul bordo per riaprire",
+  d:"I pulsanti nell'intestazione restano <b>com'è oggi</b>: Esplora in alto a sinistra, Browser a destra, indipendentemente da dove stanno le card. In più, ogni card laterale ha una <b>×</b> nella testata, accanto alla maniglia; il centro ha un lucchetto al suo posto (nessuna ×). Chiusa, una card lascia un sottile <b>binario verticale</b> sul proprio slot con «+ Nome»: un clic la riapre esattamente lì. Il binario rende visibile cosa è chiuso e dove tornerà; con le due laterali chiuse ci sono due binari ai lati del centro. I binari non sono trascinabili (si riordina riaprendo e poi trascinando).",
+  try:"Prova: clicca la × di Esplora, poi il binario «+ Esplora» per riaprirla; trascina il Browser a sinistra, chiudilo e guarda dove nasce il binario; chiudi entrambe.",
+  pros:["<b>Pro</b> chiusura locale, sulla card stessa; il binario dice cosa è chiuso e dove si riapre","<b>Contro</b> ruba 28 px per binario (tolti al centro) e aggiunge rumore visivo permanente","<b>Pro</b> gli interruttori in intestazione non cambiano: nessuna rieducazione","<b>Contro</b> l'icona fissa a sinistra non corrisponde più alla card quando Esplora è a destra: ambiguo","<b>Pro</b> la × sfrutta la testata già prevista da A (sul browser sostituisce la × della barra indirizzi)","<b>Contro</b> due modi per fare la stessa cosa (×, interruttore) più i binari da mantenere: più stati da testare, anche col browser nativo (la webview va riposizionata)"],
+  setup(w){
+    wireDrag(w);wireToggles(w);w._upd=()=>updToggles(w,false);
+    const body=w.querySelector(".body");
+    body.addEventListener("click",e=>{
+      const x=e.target.closest(".cl"); if(x){setClosed(w,x.dataset.close,true);return}
+      const r=e.target.closest(".card.closed"); if(r) setClosed(w,r.dataset.id,false);
+    });
+    body.addEventListener("keydown",e=>{
+      if(e.key!=="Enter"&&e.key!==" ") return;
+      const r=e.target.closest&&e.target.closest(".card.closed"); if(r){e.preventDefault();setClosed(w,r.dataset.id,false)}
+    });
+  }},
+ {id:"T3",name:"T3 — Un solo menu «Pannelli»",
+  d:"Nell'intestazione c'è un solo pulsante «Pannelli» con un contatore (aperte/totali). Apre un popover con la mini-mappa delle card in ordine: ogni riquadro ha una <b>casella</b> per mostrare o nascondere, si trascina per riordinare (stesso motore di A, ma sulla mappa) e il <b>centro ha un lucchetto</b> al posto della casella. Le card chiuse restano nella mappa, sfumate, nel loro slot: da lì si vede dove riapriranno. Il trascinamento dalla testata sulla finestra funziona comunque. Non si sposta mai nulla nell'intestazione, ma si perde il comando a un clic: servono due passaggi.",
+  try:"Prova: apri «Pannelli», togli la spunta a Browser e rimettila; trascina un riquadro nella mappa (anche uno chiuso); poi trascina una card dalla testata e riapri il popover per vedere la mappa aggiornata.",
+  pros:["<b>Pro</b> un solo punto fisso, nessun pulsante che si muove, scala con altri pannelli futuri","<b>Contro</b> due clic per aprire o chiudere (apri menu, spunta): più lento di un interruttore","<b>Pro</b> panoramica chiara di cosa è aperto, in che ordine, e perché il centro non si chiude (lucchetto)","<b>Contro</b> togli l'accesso rapido a Esplora (oggi un clic) e al browser","<b>Pro</b> riordino e visibilità nello stesso posto, utile anche per tastiera e tocco","<b>Contro</b> le scorciatoie restano l'unico percorso veloce: da rendere ben visibili nel popover"],
+  setup(w){
+    wireDrag(w);
+    const body=w.querySelector(".body"), pop=w.querySelector(".pop"), btn=w.querySelector(".lay"), map=w.querySelector(".map"), cnt=w.querySelector(".cnt");
+    btn.addEventListener("click",()=>{btn.classList.toggle("on",pop.classList.toggle("open"))});
+    sorter({container:map,sel:".chip",indicator:true,
+      pick:t=>(t.closest(".ck")||t.closest(".clk"))?null:t.closest(".chip"),
+      onDrop:ids=>{applyOrder(body,ids);refresh(w)}});
+    map.addEventListener("click",e=>{
+      const k=e.target.closest(".ck"); if(!k) return;
+      const id=k.closest(".chip").dataset.id;
+      setClosed(w,id,!isClosed(cardOf(body,id)));
+    });
+    map.addEventListener("pointerover",e=>{const c=e.target.closest(".chip"); if(!c) return; const k=cardOf(body,c.dataset.id); if(k&&!isClosed(k)) k.classList.add("hl")});
+    map.addEventListener("pointerout",e=>{const c=e.target.closest(".chip"); if(!c) return; const k=cardOf(body,c.dataset.id); if(k) k.classList.remove("hl")});
+    pop.querySelector("[data-p=reset]").addEventListener("click",()=>{
+      const closed=cardsOf(body).filter(isClosed).map(c=>c.dataset.id);
+      setState(w,DEFAULT,closed);toast(w,"Ordine ripristinato");
+    });
+    w._upd=()=>{
+      const cards=cardsOf(body);
+      mapOrder(w,cards.map(c=>c.dataset.id));
+      cards.forEach(c=>{
+        const ch=map.querySelector(`:scope > [data-id="${c.dataset.id}"]`), off=isClosed(c);
+        ch.classList.toggle("off",off);
+        const ck=ch.querySelector(".ck"); if(ck){ck.classList.toggle("on",!off);ck.setAttribute("aria-checked",String(!off))}
+      });
+      cnt.textContent=cards.filter(c=>!isClosed(c)).length+"/3";
+    };
+  }},
+ {id:"T4",name:"T4 — Scorciatoie e traccia dello slot",
+  d:"Nessun elemento nuovo da cliccare: gli interruttori restano <b>fissi come oggi</b> e si fa tutto con le scorciatoie che esistono già, <kbd>Ctrl</kbd>+<kbd>B</kbd> per Esplora e <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> per il Browser, che non dipendono dalla posizione. Ciò che cambia è il feedback: la card chiusa lascia una <b>traccia tratteggiata</b> sottile (8 px) nel suo slot, che si illumina passando sul suo interruttore, e all'apertura compare «riaperto a destra, dov'era». Il centro non ha scorciatoia di chiusura. È pensata come complemento a un altro modello, non come soluzione autonoma.",
+  try:"Prova: clicca nella finestra e premi <kbd>Ctrl</kbd>+<kbd>B</kbd> e <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>; passa col mouse sull'interruttore di una card chiusa; trascina Esplora a destra e richiudila: la traccia nasce a destra.",
+  pros:["<b>Pro</b> zero nuova interfaccia, costa pochissimo; le scorciatoie ci sono già e sono personalizzabili","<b>Contro</b> i pulsanti fissi in alto non corrispondono alla posizione delle card: stesso problema di T2","<b>Pro</b> la traccia dello slot rende evidente la «memoria» senza rubare spazio","<b>Contro</b> poco scopribile: chi non conosce le scorciatoie non sa come riaprire dalla tela","<b>Pro</b> si combina con qualunque altro modello (è già nella proposta finale)","<b>Contro</b> la traccia è quasi invisibile su schermi chiari o con poco contrasto"],
+  setup(w){
+    wireDrag(w);wireToggles(w);w._upd=()=>updToggles(w,false);
+    const body=w.querySelector(".body");
+    w.querySelectorAll(".tg").forEach(b=>{
+      b.addEventListener("mouseenter",()=>{const c=cardOf(body,b.dataset.id); if(c) c.classList.add("hl")});
+      b.addEventListener("mouseleave",()=>{const c=cardOf(body,b.dataset.id); if(c) c.classList.remove("hl")});
+    });
+    document.addEventListener("keydown",e=>{
+      if(!e.ctrlKey||e.altKey||e.metaKey||e.key.toLowerCase()!=="b") return;
+      e.preventDefault();
+      const id=e.shiftKey?"browser":"side";
+      setClosed(w,id,!isClosed(cardOf(body,id)));
+    });
+  }},
+];
+
+const root=document.getElementById("root");
+const WINS=[];
+for(const v of V){
+  const col=document.createElement("div");col.className="col";
+  col.innerHTML=`<h2>${v.name}${v.rec?'<span class="rec">consigliata, con le scorciatoie di T4 e la × di T2 nella testata</span>':''}</h2><p class="d">${v.d}</p>${winHtml(v.id)}<p class="try">${v.try}</p><div class="pros">${v.pros.map(p=>`<div>${p}</div>`).join("")}</div>`;
+  root.appendChild(col);
+  const w=col.querySelector(".win");
+  v.setup(w);
+  w.querySelector(".rst").addEventListener("click",()=>setState(w,DEFAULT,[]));
+  refresh(w);
+  WINS.push(w);
+}
+
+/* ---------- Esc, click fuori, scenari ---------- */
+function closeAll(){
+  document.querySelectorAll(".pop.open").forEach(p=>{p.classList.remove("open");const b=p.closest(".win").querySelector(".lay");if(b)b.classList.remove("on")});
+}
+addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  if(ACTIVE){ACTIVE.cancel();return}
+  closeAll();
+});
+document.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".pop,.lay")) return;
+  closeAll();
+});
+document.getElementById("bl").onclick=e=>{document.body.classList.toggle("light");e.target.classList.toggle("on")};
+const stateOf=w=>{const b=w.querySelector(".body");return cardsOf(b).filter(isClosed).map(c=>c.dataset.id)};
+document.querySelectorAll("[data-sc]").forEach(b=>b.addEventListener("click",()=>{
+  const sc=b.dataset.sc;
+  WINS.forEach(w=>{
+    const body=w.querySelector(".body");
+    if(sc==="browser"||sc==="side"){const c=cardOf(body,sc);setClosed(w,sc,!isClosed(c))}
+    else if(sc==="both") setState(w,cardsOf(body).map(c=>c.dataset.id),["side","browser"]);
+    else if(sc==="right") setState(w,["center","side","browser"],["browser"]);
+    else setState(w,DEFAULT,[]);
+  });
+}));
+</script>
+</body>
+</html>

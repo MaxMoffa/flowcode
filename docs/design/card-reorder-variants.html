@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — riordinare le card della finestra: varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --blue:#7fb0e0; --yellow:#e0c060; --tint:#d9a25f; --track:rgba(232,184,128,.12); --hover:rgba(232,184,128,.07);
+  --page1:#2a3a4a; --page2:#e8eef4; --dur:240ms; --ease:cubic-bezier(.2,.8,.2,1);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --blue:#2f6fae; --yellow:#a67a14; --tint:#a5652a; --track:rgba(120,80,36,.12); --hover:rgba(140,88,32,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center}
+.bar button,.btn{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.btn:hover,.bar button:hover{background:var(--hover)}
+.bar button.on{background:var(--track)}
+.col{margin-bottom:40px;max-width:1100px}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);max-width:980px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:#17210f;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;color:var(--fg-muted);font-size:12px;margin-top:10px}
+.pros b{color:var(--fg);font-weight:600}
+.try{font-size:12px;color:var(--fg-muted);margin:6px 0 0}
+kbd{border:1px solid var(--border);border-radius:4px;padding:0 5px;font:11px ui-monospace,monospace;color:var(--fg)}
+svg{display:block}
+.box{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:10px 14px;max-width:1000px;margin:0 0 22px;color:var(--fg-muted);font-size:12px}
+.box b{color:var(--fg)}
+.box ul{margin:4px 0 0;padding-left:18px}
+.box li{margin:2px 0}
+
+/* ---------- finestra finta ---------- */
+.win{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg);position:relative;user-select:none}
+.head{height:40px;display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--bg)}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:9px;color:var(--fg-muted);font:500 12px ui-monospace,monospace;border:1px solid var(--border);width:140px}
+.tab.act{background:color-mix(in srgb,var(--tint) 22%,transparent);border-color:color-mix(in srgb,var(--tint) 55%,transparent);color:var(--fg);font-weight:700}
+.tab .lg{width:12px;height:12px;border-radius:3px;background:var(--tint);flex:none}
+.wc{margin-left:auto;display:flex;gap:14px;color:var(--fg-muted);font-size:11px;padding-right:6px}
+.head .lay{margin-left:auto}
+.head .lay + .wc{margin-left:8px}
+.body{display:flex;gap:8px;padding:0 8px 8px;height:400px;position:relative;--gb:8px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative;min-width:0;display:flex;flex-direction:column}
+.card.closed{display:none}
+.card.lift{box-shadow:0 18px 40px rgba(0,0,0,.45);z-index:6;cursor:grabbing;border-color:color-mix(in srgb,var(--blue) 60%,var(--border))}
+.card.hl{outline:2px solid var(--yellow);outline-offset:-2px}
+.side{width:150px;flex:none}
+.side .sb{padding:10px}
+.side .row{height:14px;border-radius:4px;background:var(--track);margin-bottom:9px}
+.side .row.s{width:70%}
+.center{flex:1 1 0}
+.center .chat{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.msg{max-width:88%}
+.msg.u{align-self:flex-end;background:var(--surface3);border-radius:10px;padding:7px 10px;font-size:12px}
+.msg.a{font-size:12px;color:var(--fg)}
+.ln{height:8px;border-radius:4px;background:var(--track);margin:6px 0}
+.composer{margin:0 12px 12px;border:1px solid var(--border);border-radius:10px;padding:9px 11px;color:var(--fg-muted);font-size:12px;display:flex;align-items:center;gap:8px}
+.composer .send{margin-left:auto;width:22px;height:22px;border-radius:6px;background:var(--tint);opacity:.85}
+.working{display:flex;align-items:center;gap:6px;color:var(--blue);font-size:11.5px}
+.working i{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+.browser{flex:1 1 0}
+.bhead{height:34px;flex:none;display:flex;align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--border)}
+.url{flex:1;height:24px;border-radius:7px;background:var(--surface2);color:var(--fg-muted);font-size:11.5px;display:flex;align-items:center;padding:0 9px}
+.ib{width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--fg-muted);flex:none;cursor:pointer;border:0;background:transparent;font:inherit}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib.on{color:var(--blue);background:color-mix(in srgb,var(--blue) 16%,transparent)}
+.page{flex:1;background:var(--page2);position:relative;overflow:hidden}
+.page .nav{height:34px;background:#203040;display:flex;align-items:center;gap:14px;padding:0 14px}
+.page .nav span{width:38px;height:6px;border-radius:3px;background:#8aa4bd}
+.page .hero{margin:22px auto 0;width:70%;height:70px;border-radius:8px;background:linear-gradient(120deg,#6b8fd6,#9a7bd0)}
+.page .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:70%;margin:14px auto}
+.page .grid div{height:58px;border-radius:7px;background:#cfd9e4}
+
+/* testata della card */
+.chead{height:26px;flex:none;display:flex;align-items:center;gap:6px;padding:0 4px 0 8px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--fg-muted);touch-action:none}
+.chead b{color:var(--fg);font-weight:600}
+.chead .grip{width:14px;height:14px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity var(--dur)}
+.chead .ib{margin-left:auto;width:22px;height:22px}
+.vA .chead,.vD .chead{cursor:grab}
+.vA .card:hover .grip,.vD .card:hover .grip{opacity:1}
+.vA .card.lift .grip,.vD .card.lift .grip{opacity:1}
+.vB .card:focus{outline:2px solid var(--blue);outline-offset:-2px}
+
+/* indicatori di trascinamento */
+.ghost,.dropline{position:absolute;top:0;bottom:var(--gb,0);pointer-events:none;opacity:0;transition:opacity 100ms}
+.ghost{border:2px dashed color-mix(in srgb,var(--blue) 55%,transparent);border-radius:10px;background:color-mix(in srgb,var(--blue) 6%,transparent)}
+.dropline{width:3px;border-radius:2px;background:var(--blue);box-shadow:0 0 8px var(--blue);z-index:7}
+.dragging > .ghost,.dragging > .dropline{opacity:1}
+
+/* D: scambio */
+.card.swap::after{content:attr(data-swap);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;
+  background:color-mix(in srgb,var(--blue) 16%,transparent);border:2px dashed var(--blue);border-radius:10px;color:var(--fg);font-weight:600;font-size:12.5px;z-index:3}
+
+/* B: menu e toast */
+.menu{position:absolute;z-index:20;min-width:236px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.4);padding:4px;display:none}
+.menu.open{display:block}
+.mi{display:flex;width:100%;gap:14px;align-items:center;justify-content:space-between;padding:6px 10px;border:0;background:transparent;color:var(--fg);font:inherit;font-size:12px;border-radius:6px;cursor:pointer;text-align:left}
+.mi:hover:not(:disabled),.mi:focus-visible{background:var(--hover);outline:none}
+.mi:disabled{opacity:.4;cursor:default}
+.mi kbd{font-size:10.5px;color:var(--fg-muted)}
+.sep{height:1px;background:var(--border);margin:4px 2px}
+.toast{position:absolute;left:50%;bottom:44px;transform:translate(-50%,8px);background:var(--surface3);border:1px solid var(--border);border-radius:999px;padding:5px 14px;font-size:12px;opacity:0;pointer-events:none;transition:opacity var(--dur),transform var(--dur) var(--ease);z-index:30}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* C: popover mini-mappa */
+.pop{position:absolute;right:8px;top:42px;width:340px;z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 38px rgba(0,0,0,.42);padding:12px;display:none}
+.pop.open{display:block}
+.pop .pt{font-weight:600;font-size:12.5px;margin-bottom:8px}
+.map{display:flex;gap:8px;position:relative;height:56px;--gb:0}
+.chip{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border);background:var(--surface3);border-radius:8px;font-size:11.5px;cursor:grab;touch-action:none;position:relative}
+.chip[data-id=side]{flex:.62 1 0}
+.chip i{width:8px;height:8px;border-radius:2px;background:var(--tint)}
+.chip[data-id=center] i{background:var(--blue)}
+.chip[data-id=browser] i{background:var(--accent)}
+.chip.lift{box-shadow:0 10px 24px rgba(0,0,0,.45);z-index:6;cursor:grabbing}
+.pop .ph2{color:var(--fg-muted);font-size:11.5px;margin:8px 0}
+.pre{display:flex;gap:6px;flex-wrap:wrap}
+.pre .btn{font-size:11.5px;padding:3px 9px}
+
+/* piede della finestra */
+.foot{display:flex;align-items:center;gap:10px;padding:6px 10px 8px;color:var(--fg-muted);font-size:11.5px;background:var(--bg)}
+.foot b{color:var(--fg);font-weight:600}
+.foot .btn{margin-left:auto;font-size:11.5px;padding:2px 9px}
+</style>
+</head>
+<body>
+<h1>Riordinare le card della finestra</h1>
+<p class="sub">Obiettivo: far scegliere all'utente in che ordine stanno, da sinistra a destra, le card della finestra: <b>Esplora</b> (barra laterale con File / Git / Agente), <b>Chat o terminale</b> (centro) e il <b>pannello destro</b> (browser, che ospita anche PDF e immagini). Oggi l'ordine è fisso: Esplora · Chat · Browser. In tutte le varianti l'ordine è modificabile con un gesto o un comando, si anima in modo fluido e si può ripristinare. Le finestre qui sotto sono prototipi funzionanti.</p>
+
+<div class="box"><b>Vincoli trovati nel codice (valgono per tutte le varianti)</b>
+<ul>
+  <li><b>Le card ancorate sono 3, non di più:</b> Esplora (<code>sidebar</code>), centro e un solo pannello destro (<code>browser</code>). PDF e immagini sono schede dentro il pannello browser, non card separate: lo spazio reale è di 6 permutazioni. Se un domani nascono altri pannelli, le varianti scalano (liste di N card).</li>
+  <li><b>Priorità ≠ posizione:</b> <code>solvePanels</code> assegna lo spazio per <em>recenza</em> (l'ultimo pannello toccato vince). L'ordine visivo va quindi salvato a parte e passato solo al rendering, senza toccare la priorità.</li>
+  <li><b>Parcheggio:</b> un pannello senza spazio è nascosto, non chiuso. Deve restare nel suo slot e tornare lì quando lo spazio riappare; stesso per un pannello chiuso e riaperto.</li>
+  <li><b>Larghezze minime:</b> il centro tiene almeno 320 px (chat) o 360 px (terminale); il browser è il pannello elastico che cede spazio per primo. Le larghezze sono <em>per pannello</em>, non per slot: spostando una card la sua larghezza la segue.</li>
+  <li><b>Dove l'ordine non si applica:</b> barra laterale in modalità «fluttuante» (è un overlay, non ancorata) e finestra stretta (sotto la soglia i pannelli diventano overlay).</li>
+  <li><b>Browser nativo:</b> la pagina è una webview figlia sovrapposta alla card: durante il trascinamento va congelata (fermo immagine) e riposizionata a fine animazione.</li>
+  <li><b>Modalità «mostra solo il pannello»:</b> la chat ridotta a binario deve restare nel proprio slot, non tornare al centro.</li>
+</ul></div>
+
+<div class="bar">
+  <button id="bl">Tema chiaro</button>
+  <button id="bb">Chiudi il pannello browser</button>
+  <span style="color:var(--fg-muted);font-size:12px">chiudi/riapri per vedere che il browser mantiene il suo slot</span>
+</div>
+<div id="root"></div>
+
+<div class="col" id="save">
+  <h2>Cosa salviamo</h2>
+  <p class="d">Proposta di persistenza e comportamento, uguale per qualunque variante scelta.</p>
+  <div class="pros" style="grid-template-columns:1fr">
+    <div><b>Ordine globale, non per tab.</b> Una sola lista (es. <code>["sidebar","center","browser"]</code>) salvata insieme alle larghezze dei pannelli: l'utente costruisce la propria finestra una volta. Per tab sarebbe disorientante e moltiplicherebbe i casi (chat vs terminale, PC remoto).</div>
+    <div><b>Ripristino.</b> «Ripristina ordine predefinito» nel menu ⋯ delle card e in Impostazioni → Aspetto, accanto alle altre voci sul layout. Disattivato quando l'ordine è già quello di default.</div>
+    <div><b>Una card che si chiude o si apre mantiene il suo slot.</b> Chiudere il browser non rimescola nulla; riaprendolo torna dov'era. Lo stesso vale per un pannello parcheggiato per mancanza di spazio.</div>
+    <div><b>Priorità separata.</b> Il solver continua a ragionare per recenza; l'ordine salvato decide soltanto dove viene disegnata ogni card. Nessun cambio alle regole sulle larghezze minime.</div>
+    <div><b>Dove non vale.</b> Con la barra laterale fluttuante e sotto la soglia di finestra stretta l'ordine viene ignorato (restano gli overlay di oggi), ma non va perso.</div>
+    <div><b>Il centro non scompare mai dall'elenco.</b> Si può spostare, non nascondere con questa funzione: nascondere resta compito di «mostra solo il pannello».</div>
+  </div>
+</div>
+
+<script>
+/* ---------- utilità comuni ---------- */
+const cs=getComputedStyle(document.documentElement);
+const REDUCED=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const DUR=REDUCED?0:(parseFloat(cs.getPropertyValue("--dur"))||240);
+const EASE=cs.getPropertyValue("--ease").trim()||"ease";
+const NAMES={side:"Esplora",center:"Chat",browser:"Browser"};
+const DEFAULT=["side","center","browser"];
+let ACTIVE=null;
+
+const DOTS='<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="4" cy="2.5" r="1.1"/><circle cx="8" cy="2.5" r="1.1"/><circle cx="4" cy="6" r="1.1"/><circle cx="8" cy="6" r="1.1"/><circle cx="4" cy="9.5" r="1.1"/><circle cx="8" cy="9.5" r="1.1"/></svg>';
+const ICON_LAYOUT='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>';
+
+const chatHtml=`<div class="chat">
+  <div class="msg u">Sistema il layout della pagina prodotti, le card sono troppo strette</div>
+  <div class="msg a">Ho aperto <code>ProductGrid.tsx</code>. Le card usano <code>minmax(140px,1fr)</code>…<div class="ln" style="width:90%"></div><div class="ln" style="width:70%"></div></div>
+  <div class="msg u">Ok, guardo nel browser</div>
+  <div class="msg a"><div class="ln" style="width:80%"></div><div class="ln" style="width:55%"></div></div>
+  <div class="working"><i></i>Claude sta modificando ProductGrid.tsx…</div>
+</div>
+<div class="composer">Scrivi all'agente…<span class="send"></span></div>`;
+const pageHtml=`<div class="page"><div class="nav"><span></span><span></span><span></span></div><div class="hero"></div><div class="grid"><div></div><div></div><div></div><div></div><div></div><div></div></div></div>`;
+
+function cardHtml(id,v){
+  const mk=v==="B"?`<button class="ib mk" title="Sposta" aria-label="Sposta ${NAMES[id]}">⋯</button>`:"";
+  const grip=(v==="A"||v==="D")?`<span class="grip" title="Trascina per spostare">${DOTS}</span>`:"";
+  const head=(t)=>`<div class="chead">${grip}<b>${t}</b>${mk}</div>`;
+  const tab=v==="B"?' tabindex="0"':"";
+  if(id==="side") return `<div class="card side" data-id="side"${tab}>${head("Esplora")}<div class="sb"><div class="row"></div><div class="row s"></div><div class="row"></div><div class="row s"></div><div class="row"></div></div></div>`;
+  if(id==="center") return `<div class="card center" data-id="center"${tab}>${head("Chat · shop")}${chatHtml}</div>`;
+  return `<div class="card browser" data-id="browser"${tab}>${head("Browser")}<div class="bhead"><span class="ib">‹</span><span class="ib">›</span><div class="url">localhost:5173/prodotti</div><span class="ib">⋯</span></div>${pageHtml}</div>`;
+}
+
+function winHtml(v){
+  const lay=v==="C"?`<button class="ib lay" title="Layout delle card" aria-label="Layout delle card">${ICON_LAYOUT}</button>`:"";
+  const extra={
+    B:`<div class="menu" role="menu"></div><div class="toast" role="status" aria-live="polite"></div>`,
+    C:`<div class="pop"><div class="pt">Layout delle card</div>
+      <div class="map">${DEFAULT.map(id=>`<div class="chip" data-id="${id}"><i></i>${NAMES[id]}</div>`).join("")}</div>
+      <div class="ph2">Trascina i riquadri per cambiare l'ordine: la finestra si aggiorna al rilascio.</div>
+      <div class="pre">
+        <button class="btn" data-p="side,center,browser">Predefinito</button>
+        <button class="btn" data-p="center,browser,side">Explorer a destra</button>
+        <button class="btn" data-p="browser,side,center">Browser a sinistra</button>
+      </div></div>`,
+    A:"",D:""
+  }[v];
+  return `<div class="win v${v}" data-v="${v}">
+    <div class="head"><div class="tab act"><span class="lg"></span>shop</div><div class="tab"><span class="lg" style="background:var(--blue)"></span>api</div><div class="tab"><span class="lg" style="background:var(--fg-muted)"></span>terminale</div>${lay}<span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+    <div class="body">${DEFAULT.map(id=>cardHtml(id,v)).join("")}</div>
+    <div class="foot"><span>Ordine: <b class="ord"></b></span><button class="btn rst">Ripristina ordine</button></div>
+    ${extra}
+  </div>`;
+}
+
+/* ---------- FLIP ---------- */
+function flip(container,els,mutate,liftEl){
+  const first=new Map(els.map(e=>[e,e.getBoundingClientRect()]));
+  mutate();
+  els.forEach(e=>e.getAnimations().forEach(a=>a.cancel()));
+  els.forEach(e=>{
+    const a=first.get(e), b=e.getBoundingClientRect();
+    if(!a.width||!b.width) return;
+    const dx=a.left-b.left, dy=a.top-b.top;
+    if(Math.abs(dx)<.5&&Math.abs(dy)<.5) return;
+    const t=`translate(${dx}px,${dy}px)`;
+    e.animate([{transform:e===liftEl?t+" scale(1.02)":t},{transform:"none"}],{duration:DUR,easing:EASE});
+  });
+  const w=container.closest(".win"); if(w) sync(w);
+}
+const cardsOf=body=>[...body.querySelectorAll(":scope > .card")];
+const visOf=body=>cardsOf(body).filter(c=>!c.classList.contains("closed"));
+function place(item,others,idx){
+  if(!others.length) return;
+  if(idx>=others.length) others[others.length-1].after(item); else others[idx].before(item);
+}
+function sync(win){
+  const body=win.querySelector(".body");
+  const o=win.querySelector(".ord"); if(!o) return;
+  o.textContent=cardsOf(body).map(c=>NAMES[c.dataset.id]+(c.classList.contains("closed")?" (chiuso)":"")).join(" → ");
+}
+function applyOrder(body,ids){
+  flip(body,cardsOf(body),()=>ids.forEach(id=>body.appendChild(body.querySelector(`:scope > [data-id="${id}"]`))));
+}
+function mapOrder(win,ids){
+  const map=win.querySelector(".map"); if(!map) return;
+  flip(map,[...map.querySelectorAll(":scope > .chip")],()=>ids.forEach(id=>map.appendChild(map.querySelector(`:scope > [data-id="${id}"]`))));
+}
+function setOrder(win,ids){applyOrder(win.querySelector(".body"),ids);mapOrder(win,ids)}
+
+/* ---------- motore di riordino per inserimento (A e C) ---------- */
+function sorter(o){
+  const {container,sel,pick,indicator,onDrop}=o;
+  let ghost=null,line=null;
+  if(indicator){
+    ghost=document.createElement("div");ghost.className="ghost";
+    line=document.createElement("div");line.className="dropline";
+    container.append(ghost,line);
+  }
+  const items=()=>[...container.querySelectorAll(":scope > "+sel)].filter(e=>!e.classList.contains("closed"));
+  container.addEventListener("pointerdown",e=>{
+    if(e.button!==0||ACTIVE) return;
+    const item=pick(e.target); if(!item) return;
+    e.preventDefault();
+    const st={item,x0:e.clientX,off0:item.offsetLeft,moved:false,tx:0,origIdx:items().indexOf(item)};
+    const mv=ev=>{
+      const dx=ev.clientX-st.x0;
+      if(!st.moved){
+        if(Math.abs(dx)<4) return;
+        st.moved=true;
+        item.getAnimations().forEach(a=>a.cancel());
+        item.classList.add("lift");
+        container.classList.add("dragging");
+      }
+      const others=items().filter(x=>x!==item);
+      const c=st.off0+dx+item.offsetWidth/2;
+      const idx=others.filter(x=>x.offsetLeft+x.offsetWidth/2<c).length;
+      if(idx!==items().indexOf(item)) flip(container,others,()=>place(item,others,idx));
+      st.tx=dx+st.off0-item.offsetLeft;
+      item.style.transform=`translateX(${st.tx}px) scale(1.02)`;
+      if(indicator){
+        ghost.style.left=item.offsetLeft+"px";ghost.style.width=item.offsetWidth+"px";
+        line.style.left=(item.offsetLeft-4)+"px";
+      }
+    };
+    const end=cancel=>{
+      removeEventListener("pointermove",mv);removeEventListener("pointerup",up);removeEventListener("pointercancel",cx);
+      ACTIVE=null;
+      if(!st.moved) return;
+      const all=items();
+      flip(container,all,()=>{
+        item.classList.remove("lift");item.style.transform="";container.classList.remove("dragging");
+        if(cancel) place(item,all.filter(x=>x!==item),st.origIdx);
+      },item);
+      if(!cancel&&onDrop) onDrop(items().map(x=>x.dataset.id));
+    };
+    const up=()=>end(false), cx=()=>end(true);
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);addEventListener("pointercancel",cx);
+    ACTIVE={cancel:()=>end(true)};
+  });
+}
+
+/* ---------- D: scambio ---------- */
+function swapper(win){
+  const body=win.querySelector(".body");
+  body.addEventListener("pointerdown",e=>{
+    if(e.button!==0||ACTIVE) return;
+    if(e.target.closest(".ib")) return;
+    const h=e.target.closest(".chead"); if(!h) return;
+    const item=h.closest(".card");
+    e.preventDefault();
+    const st={moved:false,target:null,x0:e.clientX,y0:e.clientY};
+    const clearSwap=()=>cardsOf(body).forEach(c=>{c.classList.remove("swap");c.removeAttribute("data-swap")});
+    const mv=ev=>{
+      const dx=ev.clientX-st.x0, dy=ev.clientY-st.y0;
+      if(!st.moved){
+        if(Math.hypot(dx,dy)<4) return;
+        st.moved=true;
+        item.getAnimations().forEach(a=>a.cancel());
+        item.classList.add("lift");body.classList.add("dragging");
+      }
+      item.style.transform=`translate(${dx}px,${dy}px) scale(1.02)`;
+      let tgt=null;
+      for(const c of visOf(body)){
+        if(c===item) continue;
+        const r=c.getBoundingClientRect();
+        if(ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom){tgt=c;break}
+      }
+      if(tgt!==st.target){
+        clearSwap();
+        st.target=tgt;
+        if(tgt){tgt.classList.add("swap");tgt.setAttribute("data-swap","↔ Scambia con "+NAMES[item.dataset.id]);}
+      }
+    };
+    const end=cancel=>{
+      removeEventListener("pointermove",mv);removeEventListener("pointerup",up);removeEventListener("pointercancel",cx);
+      ACTIVE=null;
+      if(!st.moved) return;
+      const tgt=cancel?null:st.target;
+      flip(body,cardsOf(body),()=>{
+        item.classList.remove("lift");item.style.transform="";body.classList.remove("dragging");
+        clearSwap();
+        if(tgt){const ph=document.createElement("span");item.before(ph);tgt.before(item);ph.replaceWith(tgt);}
+      },item);
+    };
+    const up=()=>end(false), cx=()=>end(true);
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);addEventListener("pointercancel",cx);
+    ACTIVE={cancel:()=>end(true)};
+  });
+}
+
+/* ---------- B: menu Sposta + scorciatoie ---------- */
+function toast(win,msg){
+  const t=win.querySelector(".toast"); if(!t) return;
+  t.textContent=msg;t.classList.add("show");
+  clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),1700);
+}
+function moveCard(win,card,mode){
+  const body=win.querySelector(".body"), list=visOf(body), i=list.indexOf(card);
+  let j=mode==="l"?i-1:mode==="r"?i+1:mode==="first"?0:list.length-1;
+  j=Math.max(0,Math.min(list.length-1,j));
+  if(j===i){toast(win,NAMES[card.dataset.id]+" è già al limite");return}
+  const others=list.filter(x=>x!==card);
+  flip(body,list,()=>place(card,others,j));
+  toast(win,`${NAMES[card.dataset.id]} spostato: posizione ${j+1} di ${list.length}`);
+  card.focus({preventScroll:true});
+}
+function openMenu(win,card,x,y){
+  const body=win.querySelector(".body"), list=visOf(body), i=list.indexOf(card), last=list.length-1;
+  const menu=win.querySelector(".menu");
+  const isDef=cardsOf(body).map(c=>c.dataset.id).join()===DEFAULT.join();
+  menu.innerHTML=`
+    <button class="mi" data-m="l" role="menuitem"${i<=0?" disabled":""}><span>Sposta a sinistra</span><kbd>Ctrl Alt ←</kbd></button>
+    <button class="mi" data-m="r" role="menuitem"${i>=last?" disabled":""}><span>Sposta a destra</span><kbd>Ctrl Alt →</kbd></button>
+    <div class="sep"></div>
+    <button class="mi" data-m="first" role="menuitem"${i<=0?" disabled":""}><span>Sposta in prima posizione</span><kbd>Ctrl Alt Home</kbd></button>
+    <button class="mi" data-m="last" role="menuitem"${i>=last?" disabled":""}><span>Sposta in ultima posizione</span><kbd>Ctrl Alt Fine</kbd></button>
+    <div class="sep"></div>
+    <button class="mi" data-m="reset" role="menuitem"${isDef?" disabled":""}><span>Ripristina ordine predefinito</span></button>`;
+  menu._card=card;
+  menu.classList.add("open");
+  const wr=win.getBoundingClientRect();
+  menu.style.left=Math.max(6,Math.min(x-wr.left,wr.width-menu.offsetWidth-6))+"px";
+  menu.style.top=Math.max(6,Math.min(y-wr.top,wr.height-menu.offsetHeight-6))+"px";
+  const first=menu.querySelector(".mi:not(:disabled)"); if(first) first.focus({preventScroll:true});
+}
+function menuB(win){
+  const body=win.querySelector(".body"), menu=win.querySelector(".menu");
+  body.addEventListener("click",e=>{
+    const b=e.target.closest(".mk"); if(!b) return;
+    const r=b.getBoundingClientRect();
+    openMenu(win,b.closest(".card"),r.left,r.bottom+4);
+  });
+  body.addEventListener("contextmenu",e=>{
+    const h=e.target.closest(".chead"); if(!h) return;
+    e.preventDefault();
+    openMenu(win,h.closest(".card"),e.clientX,e.clientY);
+  });
+  menu.addEventListener("click",e=>{
+    const b=e.target.closest(".mi"); if(!b||b.disabled) return;
+    const card=menu._card;
+    menu.classList.remove("open");
+    if(b.dataset.m==="reset"){setOrder(win,DEFAULT);toast(win,"Ordine ripristinato")}
+    else moveCard(win,card,b.dataset.m);
+  });
+  win.addEventListener("keydown",e=>{
+    if(!(e.ctrlKey&&e.altKey)) return;
+    const card=document.activeElement&&document.activeElement.closest?document.activeElement.closest(".card"):null;
+    if(!card||!win.contains(card)) return;
+    const mode={ArrowLeft:"l",ArrowRight:"r",Home:"first",End:"last"}[e.key];
+    if(!mode) return;
+    e.preventDefault();
+    moveCard(win,card,mode);
+  });
+}
+
+/* ---------- C: mini-mappa ---------- */
+function mapC(win){
+  const body=win.querySelector(".body"), pop=win.querySelector(".pop"), btn=win.querySelector(".lay"), map=win.querySelector(".map");
+  btn.addEventListener("click",()=>{btn.classList.toggle("on",pop.classList.toggle("open"))});
+  sorter({container:map,sel:".chip",indicator:true,pick:t=>t.closest(".chip"),onDrop:ids=>applyOrder(body,ids)});
+  map.addEventListener("pointerover",e=>{const c=e.target.closest(".chip"); if(!c) return; const k=body.querySelector(`:scope > [data-id="${c.dataset.id}"]`); if(k) k.classList.add("hl")});
+  map.addEventListener("pointerout",e=>{const c=e.target.closest(".chip"); if(!c) return; const k=body.querySelector(`:scope > [data-id="${c.dataset.id}"]`); if(k) k.classList.remove("hl")});
+  pop.querySelectorAll("[data-p]").forEach(b=>b.addEventListener("click",()=>setOrder(win,b.dataset.p.split(","))));
+}
+
+/* ---------- varianti ---------- */
+const V=[
+ {id:"A",name:"A — Trascina dalla testata",rec:true,
+  d:"Ogni card ha una sottile testata in alto: passandoci sopra compare la maniglia (sei puntini). Si afferra la testata e la card si solleva (ombra, leggero ingrandimento) seguendo il puntatore, mentre le altre scorrono di lato in tempo reale per fare posto. Una linea blu tra gli slot e un contorno tratteggiato mostrano dove atterrerà; al rilascio la card si assesta con animazione, <kbd>Esc</kbd> annulla e rimette tutto com'era. Rispetta i vincoli: sposta solo l'ordine, ogni card conserva la propria larghezza (Esplora resta stretta ovunque), la priorità del solver non cambia e il browser nativo viene congelato per la durata del gesto. Si presta bene a chi sposta le card di rado ma vuole vedere subito il risultato.",
+  try:"Prova: passa su una testata, trascina «Esplora» oltre «Browser», prova <kbd>Esc</kbd> a metà gesto; poi chiudi il browser (barra in alto) e riaprilo: ritrova il suo slot.",
+  pros:["<b>Pro</b> gesto diretto e familiare (schede, pannelli IDE), anteprima live del risultato","<b>Contro</b> non scopribile senza passare col mouse sulla testata","<b>Pro</b> nessun menu né impostazione in più, nessuna ambiguità sulla destinazione","<b>Contro</b> richiede il mouse: va affiancata a B per tastiera e accessibilità","<b>Pro</b> annullabile con Esc a metà gesto","<b>Contro</b> sulla card browser la testata si somma alla barra indirizzi (+26 px) o va fusa con essa"],
+  setup(w){sorter({container:w.querySelector(".body"),sel:".card",indicator:true,pick:t=>{if(t.closest(".ib"))return null;const h=t.closest(".chead");return h?h.closest(".card"):null}})}},
+ {id:"B",name:"B — Menu «Sposta» e scorciatoie",
+  d:"Nessun trascinamento: dal ⋯ nella testata della card (o dal menu tasto destro sulla testata) si sceglie «Sposta a sinistra / a destra / in prima / in ultima posizione». Le voci impossibili sono disattivate. In più, con una card a fuoco, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> (e <kbd>Home</kbd>/<kbd>Fine</kbd>) la spostano; un annuncio breve conferma la nuova posizione, letto anche dagli screen reader. La card si muove con la stessa animazione di A. Vale per tutti i vincoli come A (solo ordine, larghezze per pannello, priorità invariata).",
+  try:"Prova: clic su ⋯ di una card, oppure clic sul corpo di una card (si evidenzia) e <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>→</kbd>; tasto destro sulla testata per il menu.",
+  pros:["<b>Pro</b> accessibile, utilizzabile da tastiera e touch","<b>Contro</b> meno diretto: si ragiona per passi, non per destinazione","<b>Pro</b> comando preciso, nessun rischio di rilasciare nello slot sbagliato","<b>Contro</b> <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+frecce può essere intercettato da driver grafici o dal sistema (da verificare per piattaforma)","<b>Pro</b> «Ripristina ordine» a portata nello stesso menu","<b>Contro</b> richiede la card a fuoco: serve un segnale chiaro del fuoco"],
+  setup(w){menuB(w)}},
+ {id:"C",name:"C — Mini-mappa del layout",
+  d:"Un pulsante «Layout» nella barra in alto apre un popover con lo schema delle card come riquadri. Si trascinano i riquadri per cambiare ordine (stesso motore di A, ma su uno schema piccolo e senza rischi); passando sul riquadro la card corrispondente si evidenzia nella finestra. Al rilascio la finestra si anima. Tre preset rapidi: «Predefinito», «Explorer a destra», «Browser a sinistra». Pensata per chi ama impostare il layout in un posto solo, e si estende bene se arrivano altri pannelli.",
+  try:"Prova: apri «Layout» (icona a tre colonne in alto a destra), trascina un riquadro, poi prova un preset; passa sui riquadri per vedere la card evidenziata.",
+  pros:["<b>Pro</b> panoramica chiara, preset a un clic, nessuna interferenza col browser nativo (si trascinano solo i riquadri)","<b>Contro</b> un livello in più: pulsante, popover, poi gesto","<b>Pro</b> scala con più card e con preset futuri (es. layout per attività)","<b>Contro</b> serve spazio in una barra già affollata; poco scopribile","<b>Pro</b> adatto anche alle impostazioni (stessa mappa in Aspetto)","<b>Contro</b> l'effetto si vede solo al rilascio, non durante il gesto"],
+  setup(w){mapC(w)}},
+ {id:"D",name:"D — Scambia trascinando su un'altra card",
+  d:"Idea diversa: invece di inserire, si <b>scambia</b>. Si afferra la testata e si porta la card sopra un'altra: questa si illumina con «Scambia con …» e, al rilascio, le due si scambiano di posto. Le altre card non si muovono mai durante il gesto, quindi il risultato è prevedibile e la finestra resta stabile. Con sole 3 card copre tutti i casi in al più due mosse. Attenzione ai vincoli: se si scambiano card di larghezza diversa (Esplora stretta, Chat larga) ogni card tiene la larghezza del suo pannello, quindi le dimensioni dei due slot cambiano e il browser nativo va riposizionato a fine gesto.",
+  try:"Prova: trascina «Esplora» sopra «Browser» e rilascia; prova a trascinare su di una card e poi <kbd>Esc</kbd>.",
+  pros:["<b>Pro</b> risultato prevedibile, le altre card non si muovono durante il gesto","<b>Contro</b> con più di 3 card diventa meno naturale dell'inserimento","<b>Pro</b> gesto semplice da spiegare («cambia con questa»)","<b>Contro</b> scambiare card di larghezze diverse fa «saltare» le larghezze","<b>Pro</b> un solo bersaglio evidente, niente linee di inserimento da interpretare","<b>Contro</b> per spostare di un posto con 3 card può servire più di una mossa"],
+  setup(w){swapper(w)}},
+];
+
+const root=document.getElementById("root");
+for(const v of V){
+  const col=document.createElement("div");col.className="col";
+  col.innerHTML=`<h2>${v.name}${v.rec?'<span class="rec">consigliata, con B come complemento da tastiera</span>':''}</h2><p class="d">${v.d}</p>${winHtml(v.id)}<p class="try">${v.try}</p><div class="pros">${v.pros.map(p=>`<div>${p}</div>`).join("")}</div>`;
+  root.appendChild(col);
+  const w=col.querySelector(".win");
+  v.setup(w);
+  w.querySelector(".rst").addEventListener("click",()=>setOrder(w,DEFAULT));
+  sync(w);
+}
+
+/* ---------- Esc, click fuori, barra ---------- */
+function closeAll(){
+  document.querySelectorAll(".menu.open").forEach(m=>m.classList.remove("open"));
+  document.querySelectorAll(".pop.open").forEach(p=>{p.classList.remove("open");const b=p.closest(".win").querySelector(".lay");if(b)b.classList.remove("on")});
+}
+addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  if(ACTIVE){ACTIVE.cancel();return}
+  closeAll();
+});
+document.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".menu,.pop,.lay,.mk")) return;
+  closeAll();
+});
+document.getElementById("bl").onclick=e=>{document.body.classList.toggle("light");e.target.classList.toggle("on")};
+let browserClosed=false;
+document.getElementById("bb").onclick=e=>{
+  browserClosed=!browserClosed;
+  e.target.classList.toggle("on",browserClosed);
+  e.target.textContent=browserClosed?"Riapri il pannello browser":"Chiudi il pannello browser";
+  document.querySelectorAll(".win").forEach(w=>{
+    const body=w.querySelector(".body");
+    flip(body,cardsOf(body),()=>{const b=body.querySelector(":scope > .browser");if(b)b.classList.toggle("closed",browserClosed)});
+  });
+};
+</script>
+</body>
+</html>
