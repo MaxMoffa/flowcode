@@ -22,6 +22,7 @@ pub async fn chat_start(
     shell: Option<String>,
     tools: Option<ToolsConfig>,
     diagnosis: Option<String>,
+    acp_v2: Option<bool>,
 ) -> Result<ChatStarted, String> {
     let owner = window.label().to_string();
     // A diagnosis chat (the id of the crash report it investigates) gets the diagnosis tool whatever the settings say.
@@ -29,7 +30,7 @@ pub async fn chat_start(
         return Err("this crash report no longer exists".to_string());
     }
     let tools = ToolsConfig { diagnosis: diagnosis.clone(), ..tools.unwrap_or_default() };
-    let extras = Extras { tools, link: None };
+    let extras = Extras { tools, link: None, acp_v2: acp_v2.unwrap_or(false) };
     let (chat, started) = {
         let app = app.clone();
         crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false), shell, extras))

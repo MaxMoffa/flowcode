@@ -192,7 +192,7 @@ impl ChatState {
         if let Some(asked) = asked {
             chat.goal_asked(&asked);
         }
-        let id = match chat.register(Pending::Prompt) {
+        let id = match chat.register(if chat.protocol == AcpProtocol::V2 { Pending::PromptV2 } else { Pending::Prompt }) {
             Ok(id) => id,
             Err(message) => {
                 chat.prompt_failed(message.clone(), false);
@@ -281,12 +281,18 @@ impl ChatState {
         let chat = self.get(chat_id)?;
         let running = matches!(*lock(&chat.status), ChatStatus::Busy | ChatStatus::Waiting);
         let sent = if running { chat.notify("session/cancel", json!({ "sessionId": chat.session_id()? })) } else { Ok(()) };
-        // A turn the agent began by itself has no prompt response to end it.
         if running {
-            chat.end_autonomous("cancelled");
+            if chat.protocol == AcpProtocol::V2 {
+                // The agent ends the work with `idle cancelled` (it says so itself, also for work it began): not ended
+                // here, unless it never comes (`v2_cancelled`).
+                chat.v2_cancelled();
+            } else {
+                // A turn the agent began by itself has no prompt response to end it.
+                chat.end_autonomous("cancelled");
+            }
         }
         // ACP: every permission request still open when a turn is cancelled
-        // is answered as cancelled.
+        // is answered as cancelled. After the `session/cancel`, so a v2 agent reads them as the abort, not as refusals.
         chat.cancel_permissions();
         sent
     }
@@ -358,6 +364,7 @@ impl ChatState {
             thought: thought.as_ref().map(ThoughtLevels::to_json),
             loaded: false,
             wsl_distro: chat.wsl_distro.clone(),
+            acp_version: chat.protocol.version(),
         })
     }
 
@@ -368,8 +375,7 @@ impl ChatState {
     pub(crate) async fn set_mode(&self, chat_id: &str, mode_id: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || {
-            let session_id = chat.session_id()?;
-            chat.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)?;
+            chat.request_mode(&mode_id)?;
             *lock(&chat.current_mode) = Some(mode_id.clone());
             chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode_id }) });
             Ok(())
@@ -781,12 +787,16 @@ pub(super) fn session_in_use(error: &str) -> bool {
 
 pub(super) fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> {
     let mcp = chat.mcp_servers();
-    let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": mcp }), SETUP_TIMEOUT)?;
+    let v2 = chat.protocol == AcpProtocol::V2;
+    let params = if v2 { acp_v2::new_session_params(cwd, &mcp) } else { json!({ "cwd": cwd, "mcpServers": mcp }) };
+    let result = chat.request("session/new", params, SETUP_TIMEOUT)?;
     let session_id = result
         .get("sessionId")
         .and_then(Value::as_str)
         .ok_or_else(|| "session/new returned no sessionId".to_string())?
         .to_string();
+    // v2 answers without `modes`/`models`: the setup is made v1-shaped here, for everything that reads it.
+    let result = if v2 { chat.v2_setup(&result, &session_id) } else { result };
     Ok((result, session_id, false))
 }
 
@@ -915,6 +925,7 @@ pub(super) fn log_native_subagent(chat_id: &str, params: &Value, update: &Value)
 pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate: &mut Option<StartGate>) -> Result<(Value, String, bool), String> {
     // Experiment: `FLOWCODE_NATIVE_SUBAGENTS=1` declares `subagents` (ACP RFD #1992), so the adapters send
     // `subagent_update` / `session_message` instead of only the Agent tool call. See `log_native_subagent`.
+    let v2 = chat.protocol == AcpProtocol::V2;
     let mut capabilities = json!({ "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "elicitation": { "form": {} }, "_meta": { "subagent-transcript": true } });
     // Claude only: Codex then sends no launch message (its tool calls vanish) and puts the child's model options on the main stream.
     if native_subagents_enabled() && chat.agent == "claude" {
@@ -925,23 +936,34 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
         capabilities["_meta"]["opencode/child-session-updates"] = json!(true);
     }
     let t_init = std::time::Instant::now();
-    let init = chat.request(
-        "initialize",
+    let init_params = if v2 {
+        acp_v2::initialize_params("flowcode", env!("CARGO_PKG_VERSION"))
+    } else {
         json!({
             "protocolVersion": 1,
             // `session.compaction`: the adapters send `compaction_update` events (not a generic tool call) only to clients that declare it.
             "clientCapabilities": capabilities,
             "clientInfo": { "name": "flowcode", "version": env!("CARGO_PKG_VERSION") },
-        }),
-        SETUP_TIMEOUT,
-    )?;
+        })
+    };
+    let init = chat.request("initialize", init_params, SETUP_TIMEOUT);
+    let init = if v2 { init.map_err(|e| v2_initialize_error(chat, e))? } else { init? };
     // The agent opened its state store to answer `initialize`: others may start now.
     drop(gate.take());
     eprintln!("chat: timing {} initialize {} ms", chat.agent, t_init.elapsed().as_millis());
-    let images = init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false);
+    let (images, can_close, can_load) = if v2 {
+        // An agent that answers another version is restarted on v1 (`acp_v2_fallback`, see `start_blocking`).
+        let caps = acp_v2::caps_from_initialize(&init)?;
+        (caps.prompt_images, caps.can_close, caps.can_load)
+    } else {
+        (
+            init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false),
+            init.pointer("/agentCapabilities/sessionCapabilities/close").is_some_and(|v| !v.is_null()),
+            init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false),
+        )
+    };
     chat.prompt_images.store(images, Ordering::Release);
-    chat.can_close.store(init.pointer("/agentCapabilities/sessionCapabilities/close").is_some_and(|v| !v.is_null()), Ordering::Release);
-    let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
+    chat.can_close.store(can_close, Ordering::Release);
     if strict && !can_load && resume.as_deref().is_some_and(|id| !id.is_empty()) {
         return Err("resume_unsupported: the agent can't resume a session".into());
     }
@@ -949,23 +971,36 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
         Some(session_id) => {
             let mut loaded = Err(String::new());
             let t_load = std::time::Instant::now();
+            // v2 replays through `session/resume` + `replayFrom`: its user messages are history until the answer.
+            if v2 {
+                let mut run = lock(&chat.v2);
+                run.state.main = Some(session_id.clone());
+                run.state.replaying = true;
+            }
             // A terminal that just handed its session over, or the agent a restart replaces, may still
             // be letting go of it (Codex: "already has an active writer"): a resume tries again briefly.
             for attempt in 0..=LOAD_RETRIES {
                 if attempt > 0 {
                     std::thread::sleep(LOAD_RETRY_DELAY);
                 }
-                loaded = chat.request(
-                    "session/load",
-                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": chat.mcp_servers() }),
-                    SETUP_TIMEOUT,
-                );
+                loaded = if v2 {
+                    chat.request("session/resume", acp_v2::resume_params(&session_id, cwd, &chat.mcp_servers()), SETUP_TIMEOUT)
+                } else {
+                    chat.request("session/load", json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": chat.mcp_servers() }), SETUP_TIMEOUT)
+                };
                 if !loaded.as_ref().err().is_some_and(|e| session_in_use(e)) || chat.exited.load(Ordering::Acquire) {
                     break;
                 }
             }
             eprintln!("chat: timing {} session/load {} ms (ok: {})", chat.agent, t_load.elapsed().as_millis(), loaded.is_ok());
+            if v2 {
+                lock(&chat.v2).state.replaying = false;
+            }
             match loaded {
+                Ok(result) if v2 => {
+                    let setup = chat.v2_setup(&result, &session_id);
+                    Ok((setup, session_id, true))
+                }
                 Ok(result) => Ok((result, session_id, true)),
                 // An agent that died explains itself better than a
                 // `session/new` it can no longer answer.
@@ -1015,6 +1050,24 @@ pub(super) struct Extras {
     pub(super) tools: ToolsConfig,
     /// Set for a chat that carries out a delegated task.
     pub(super) link: Option<TaskLink>,
+    /// The experimental ACP v2 flag (`chat_start`'s `acp_v2`). It only takes effect for the agents that
+    /// offer it (`offers_acp_v2`); a delegated child never gets it (`start_child`).
+    pub(super) acp_v2: bool,
+}
+
+/// What the handshake says when the agent's answer to a v2 `initialize` is an error. An agent that cannot
+/// parse it is restarted on v1; a dead or slow one, or one asking to sign in, keeps its own error.
+fn v2_initialize_error(chat: &Chat, error: String) -> String {
+    if chat.exited.load(Ordering::Acquire) || error.contains("timed out") || error.starts_with("auth_required") {
+        error
+    } else {
+        format!("acp_v2_fallback: the agent refused the v2 initialize: {error}")
+    }
+}
+
+/// Whether a failed start is the v2 handshake's refusal: the chat is started again on v1.
+pub(super) fn is_v2_fallback(error: &str) -> bool {
+    error.contains("acp_v2_fallback")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1027,7 +1080,7 @@ pub(super) fn start_blocking(
     resume: Option<String>,
     strict: bool,
     shell: Option<String>,
-    extras: Extras,
+    mut extras: Extras,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let mut attempt = 0;
     loop {
@@ -1038,6 +1091,11 @@ pub(super) fn start_blocking(
         }
         let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone(), extras.clone(), gate);
         match started {
+            // The agent does not serve v2 after all (answered another version, or refused the initialize): kill, start on v1.
+            Err(e) if extras.acp_v2 && is_v2_fallback(&e) => {
+                eprintln!("chat: {agent} did not take ACP v2 ({e}); restarting it on v1");
+                extras.acp_v2 = false;
+            }
             Err(e) if attempt < START_RETRIES && transient_start_failure(&agent, &e) => {
                 attempt += 1;
                 eprintln!("chat: {agent} could not start ({e}); trying again ({attempt}/{START_RETRIES})");
@@ -1061,6 +1119,7 @@ pub(super) fn start_once(
     extras: Extras,
     mut gate: Option<StartGate>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
+    let protocol = if extras.acp_v2 && offers_acp_v2(&agent) { AcpProtocol::V2 } else { AcpProtocol::V1 };
     let wsl = wsl_target(&cwd, shell.as_deref());
     let wsl_tag = wsl.is_some().then(|| uuid::Uuid::new_v4().to_string());
     let t_spawn = std::time::Instant::now();
@@ -1146,6 +1205,8 @@ pub(super) fn start_once(
         last_event_at: AtomicU64::new(0),
         autonomous_watch: AtomicBool::new(false),
         ready_at: AtomicU64::new(0),
+        protocol,
+        v2: Mutex::new(v2_turn::V2Run::default()),
     });
     {
         let chat = Arc::clone(&chat);
@@ -1173,6 +1234,7 @@ pub(super) fn start_once(
             let thought = result.get("configOptions").and_then(thought_from_config_options);
             *lock(&chat.thought) = thought.clone();
             chat.started();
+            chat.v2_started();
             if goal::supported(&chat.agent) {
                 let (first, watcher) = (Arc::clone(&chat), Arc::downgrade(&chat));
                 std::thread::spawn(move || first.refresh_goal_first());
@@ -1186,6 +1248,7 @@ pub(super) fn start_once(
                 thought: thought.as_ref().map(ThoughtLevels::to_json),
                 loaded,
                 wsl_distro: wsl.as_ref().and_then(|w| w.distro.clone().or_else(crate::util::wsl_default_distro)),
+                acp_version: chat.protocol.version(),
             };
             Ok((chat, started))
         }
@@ -1298,6 +1361,20 @@ mod tests {
         assert!(!falls_back(false, "auth_required: Authentication required"));
         assert!(!falls_back(true, "auth_required: Authentication required"));
         assert!(!falls_back(false, "thread already has an active writer"));
+    }
+
+    #[test]
+    fn a_v2_answer_of_another_version_restarts_the_chat_on_v1() {
+        // The handshake's error, as `start_once` wraps it for the caller of `start_blocking`.
+        let refused = acp_v2::caps_from_initialize(&json!({ "protocolVersion": 1, "agentCapabilities": {} })).unwrap_err();
+        assert!(refused.starts_with("acp_v2_fallback"));
+        assert!(is_v2_fallback(&format!("`node adapter`: {refused}")));
+        assert!(acp_v2::caps_from_initialize(&json!({ "protocolVersion": 2, "capabilities": {} })).is_ok());
+        // Other start failures are not a fallback (a retry on v1 would only repeat them).
+        assert!(!is_v2_fallback("auth_required: Authentication required"));
+        assert!(!is_v2_fallback("initialize timed out after 180s"));
+        // The flag is off unless asked for: children and everything built without it stay on v1.
+        assert!(!Extras::default().acp_v2);
     }
 
     #[test]

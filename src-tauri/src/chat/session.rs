@@ -31,6 +31,11 @@ pub(super) fn accumulate_answer(answer: &mut String, body: &ChatBody) {
     }
 }
 
+/// `emit_when`'s gate for an event that only means something inside a turn.
+fn in_turn(status: ChatStatus, _autonomous: bool) -> Result<(), String> {
+    if matches!(status, ChatStatus::Busy | ChatStatus::Waiting) { Ok(()) } else { Err(String::new()) }
+}
+
 /// Env var tagging the processes of a WSL chat's agent (carried in by WSLENV).
 pub(super) const WSL_TAG_ENV: &str = "FLOWCODE_CHAT_TAG";
 
@@ -142,6 +147,11 @@ pub(super) struct Chat {
     pub(super) autonomous_watch: AtomicBool,
     /// When the handshake ended (ms): output just after it is the agent's startup notices, not a turn.
     pub(super) ready_at: AtomicU64,
+    /// The ACP version this agent process speaks, fixed for its life (a flagged chat that the agent refused
+    /// to serve on v2 is restarted on v1 as a new `Chat`).
+    pub(super) protocol: AcpProtocol,
+    /// The v2 codec's state and the turn rules on top of it (untouched on v1).
+    pub(super) v2: Mutex<v2_turn::V2Run>,
 }
 
 /// An autonomous turn with no event for this long is ended (the adapter sent no end marker).
@@ -175,7 +185,8 @@ impl Chat {
 
     /// Starts the thread that ends an autonomous turn the agent leaves hanging, unless one already runs.
     pub(super) fn watch_autonomous(self: &Arc<Self>) {
-        if self.autonomous.load(Ordering::Acquire) && !self.autonomous_watch.swap(true, Ordering::AcqRel) {
+        // On v2 the agent says when its work ends: no fallback timer.
+        if self.protocol == AcpProtocol::V1 && self.autonomous.load(Ordering::Acquire) && !self.autonomous_watch.swap(true, Ordering::AcqRel) {
             let weak = Arc::downgrade(self);
             std::thread::spawn(move || watch_autonomous_turn(weak));
         }
@@ -199,9 +210,10 @@ impl Chat {
             let permissions_pending = !lock(&self.permissions).is_empty() || !lock(&self.asks).is_empty();
             // A delegated child works only on its task's prompt: an update before that prompt must not open a
             // turn of its own, whose synthetic end would finish the task early.
-            let idle_update = before == ChatStatus::Idle && matches!(body, ChatBody::Update { .. });
+            // (v1 only: on v2 an update never opens a turn, so there is nothing to guard.)
+            let idle_update = self.protocol == AcpProtocol::V1 && before == ChatStatus::Idle && matches!(body, ChatBody::Update { .. });
             let startup_notice = idle_update && now_ms().saturating_sub(self.ready_at.load(Ordering::Relaxed)) < STARTUP_GRACE_MS;
-            *status = if idle_update && (self.link.is_some() || startup_notice) { before } else { next_status(before, &body, permissions_pending) };
+            *status = if idle_update && (self.link.is_some() || startup_notice) { before } else { next_status(before, &body, permissions_pending, self.protocol) };
             if *status != before {
                 self.status_at.store(now_ms(), Ordering::Relaxed);
             }
@@ -216,7 +228,8 @@ impl Chat {
         };
         self.last_event_at.store(now_ms(), Ordering::Relaxed);
         // The adapter's result of an autonomous cycle; with a prompt of ours pending, its response ends the turn instead.
-        let ends_autonomous = self.autonomous.load(Ordering::Acquire)
+        let ends_autonomous = self.protocol == AcpProtocol::V1
+            && self.autonomous.load(Ordering::Acquire)
             && is_autonomous_end_marker(&body)
             && !lock(&self.pending).values().any(|p| matches!(p, Pending::Prompt));
         let live = is_live(before, &body);
@@ -307,7 +320,8 @@ impl Chat {
             *lock(&self.stale_session) = Some(old.to_string());
             // Until the new session exists, a prompt (from a phone) fails instead of reaching the closed one.
             *lock(&self.session_id) = None;
-            lock(&self.pending).retain(|_, pending| !matches!(pending, Pending::Prompt));
+            lock(&self.pending).retain(|_, pending| !matches!(pending, Pending::Prompt | Pending::PromptV2));
+            lock(&self.v2).reset();
             log.reset();
             lock(&self.cline_tools).clear();
             *lock(&self.cline_spawns) = cline::Spawns::default();
@@ -447,16 +461,14 @@ impl Chat {
             models.via.clone()
         };
         let result = match &via {
+            // v2 has no `session/set_model`: its models are a config option.
+            ModelVia::Models if self.protocol == AcpProtocol::V2 => return Err("the agent offers no model option to change".to_string()),
             ModelVia::Models => self.request(
                 "session/set_model",
                 json!({ "sessionId": session_id, "modelId": model_id }),
                 MODE_TIMEOUT,
             )?,
-            ModelVia::ConfigOption { config_id } => self.request(
-                "session/set_config_option",
-                json!({ "sessionId": session_id, "configId": config_id, "value": model_id }),
-                MODE_TIMEOUT,
-            )?,
+            ModelVia::ConfigOption { config_id } => self.set_config_option(&session_id, config_id, json!(model_id))?,
         };
         let next = {
             let mut models = lock(&self.models);
@@ -467,6 +479,29 @@ impl Chat {
         };
         self.models_changed(Some(&next));
         self.update_thought(|before| thought_after_set(before, &result, None));
+        Ok(())
+    }
+
+    /// `session/set_config_option`; the answer is in the v1 shape either way (v2's value is tagged and
+    /// its options are named `configId`/`groupId`, see `acp_v2`).
+    pub(super) fn set_config_option(&self, session_id: &str, config_id: &str, value: Value) -> Result<Value, String> {
+        if self.protocol == AcpProtocol::V2 {
+            let result = self.request("session/set_config_option", acp_v2::set_config_option_params(session_id, config_id, &value), MODE_TIMEOUT)?;
+            return Ok(acp_v2::config_result_to_v1(&result));
+        }
+        self.request("session/set_config_option", json!({ "sessionId": session_id, "configId": config_id, "value": value }), MODE_TIMEOUT)
+    }
+
+    /// Asks the agent to switch to the mode `mode_id`: `session/set_mode`, or on v2 (which has none) the
+    /// config option of category `mode`. The caller records and announces the change.
+    pub(super) fn request_mode(&self, mode_id: &str) -> Result<(), String> {
+        let session_id = self.session_id()?;
+        if self.protocol == AcpProtocol::V2 {
+            let config_id = lock(&self.v2).mode_config.clone().ok_or_else(|| "the agent offers no mode to choose".to_string())?;
+            self.set_config_option(&session_id, &config_id, json!(mode_id))?;
+        } else {
+            self.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)?;
+        }
         Ok(())
     }
 
@@ -483,11 +518,7 @@ impl Chat {
             }
             thought.config_id.clone()
         };
-        let result = self.request(
-            "session/set_config_option",
-            json!({ "sessionId": session_id, "configId": config_id, "value": value }),
-            MODE_TIMEOUT,
-        )?;
+        let result = self.set_config_option(&session_id, &config_id, json!(value))?;
         self.update_thought(|before| thought_after_set(before, &result, Some(value)));
         Ok(())
     }
@@ -507,6 +538,11 @@ impl Chat {
     /// The agent pushed new config options: stores the model and thinking
     /// parts, if they moved.
     pub(super) fn config_options_changed(&self, options: &Value) {
+        if self.protocol == AcpProtocol::V2 {
+            if let Some(id) = acp_v2::mode_config_id(options) {
+                lock(&self.v2).mode_config = Some(id);
+            }
+        }
         if let Some(mode) = options.as_array().and_then(|options| options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some("mode"))) {
             *lock(&self.current_mode) = mode.get("currentValue").and_then(Value::as_str).map(str::to_string);
         }
@@ -541,7 +577,7 @@ impl Chat {
 
     /// Tells the views the goal (`None`: there is none).
     pub(super) fn emit_goal(&self, goal: Option<&goal::Goal>) {
-        let params = json!({ "goal": goal, "actions": goal::actions(&self.agent) });
+        let params = json!({ "goal": goal, "actions": goal::actions(&self.agent, self.protocol) });
         self.emit(ChatBody::Ext { method: GOAL_EXT_METHOD.to_string(), params });
     }
 
@@ -593,7 +629,7 @@ impl Chat {
 
     /// Pauses, resumes or clears the goal (`_session/goal`; works mid-turn).
     pub(super) fn goal_action(self: &Arc<Self>, action: &str) -> Result<(), String> {
-        if !goal::actions(&self.agent).contains(&action) {
+        if !goal::actions(&self.agent, self.protocol).contains(&action) {
             return Err(format!("unsupported goal action: {action}"));
         }
         let session_id = self.session_id()?;
@@ -611,6 +647,7 @@ impl Chat {
         match incoming {
             Incoming::Response { id, result } => {
                 let Some(pending) = lock(&self.pending).remove(&id) else { return };
+                let error_code = result.as_ref().err().map(|e| e.code);
                 let limit = result.as_ref().err().is_some_and(is_limit_error);
                 let gone = result.as_ref().err().is_some_and(is_session_gone);
                 let result = result.map_err(|e| error_text(&e));
@@ -618,6 +655,7 @@ impl Chat {
                     Pending::Waiter(tx) => {
                         let _ = tx.send(result);
                     }
+                    Pending::PromptV2 => self.prompt_v2_answered(result, error_code, limit, gone),
                     Pending::Prompt => {
                         // The turn is over (ended, failed or cancelled): no spawn call is running any more.
                         if self.agent == "cline" {
@@ -640,6 +678,8 @@ impl Chat {
                 }
             }
             Incoming::Request { id, method, params } => {
+                // v2 words the request differently (`subject.toolCall`, a `title`): the code below reads v1's.
+                let params = if self.protocol == AcpProtocol::V2 && method == "session/request_permission" { acp_v2::permission_params(&params) } else { params };
                 // Asked by the session `/clear` replaced: nobody is left to answer.
                 if matches!(method.as_str(), "session/request_permission" | "elicitation/create") && self.is_stale(&params) {
                     let result = if method == "elicitation/create" { json!({ "action": "cancel" }) } else { json!({ "outcome": { "outcome": "cancelled" } }) };
@@ -695,40 +735,11 @@ impl Chat {
             Incoming::Notification { method, params } => {
                 if method == "session/update" {
                     if let Some(update) = params.get("update") {
-                        if update.get("sessionUpdate").and_then(Value::as_str) == Some("current_mode_update") && !self.is_stale(&params) {
-                            *lock(&self.current_mode) = update.get("currentModeId").and_then(Value::as_str).map(str::to_string);
+                        if self.protocol == AcpProtocol::V2 {
+                            self.handle_v2_update(&params, update);
+                        } else {
+                            self.handle_update(&params, update);
                         }
-                        log_native_subagent(&self.id.to_string(), &params, update);
-                        if self.agent == "opencode" {
-                            let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
-                            note_opencode_launch(&mut lock(&self.launches), &mut lock(&self.children), session, update);
-                        }
-                        if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
-                            && !self.is_stale(&params)
-                        {
-                            if let Some(options) = update.get("configOptions") {
-                                self.config_options_changed(options);
-                            }
-                        }
-                        // The staleness is checked under the log lock, so a
-                        // late update can't pass it, then land after the
-                        // `forget_session` that emptied the log.
-                        let stale = |_, _| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
-                        // Pictures go to disk before the log lock is taken.
-                        let mut update = update.clone();
-                        if self.agent == "cline" {
-                            cline::normalize_cline_tool(&mut update, &mut lock(&self.cline_tools));
-                            cline::mark_spawns(&mut update, &mut lock(&self.cline_spawns));
-                        }
-                        if !route_child_update(&mut lock(&self.children), &params, &mut update) {
-                            return;
-                        }
-                        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
-                            crate::context::note_agent_window(session, &update);
-                        }
-                        crate::chat_images::stash_images(&mut update);
-                        let _ = self.emit_when(ChatBody::Update { update }, stale);
-                        self.watch_autonomous();
                     }
                 } else if method.trim_start_matches('_') == OPENCODE_CHILD_UPDATE {
                     // OpenCode (sub-agents): the children's work comes as extension notifications, not `session/update`.
@@ -749,6 +760,256 @@ impl Chat {
                 }
             }
         }
+    }
+
+    /// One v1-shaped `session/update` of the chat (a v2 one arrives translated, see `handle_v2_update`):
+    /// logged, shown, and the config/mode/subagent bookkeeping it carries.
+    fn handle_update(self: &Arc<Self>, params: &Value, update: &Value) {
+        // A native subagent's own config chatter (v2 always has them) must not move the chat's model or mode.
+        let of_child = self.protocol == AcpProtocol::V2
+            && params.get("sessionId").and_then(Value::as_str).is_some_and(|session| lock(&self.children).contains_key(session));
+        if update.get("sessionUpdate").and_then(Value::as_str) == Some("current_mode_update") && !self.is_stale(params) && !of_child {
+            *lock(&self.current_mode) = update.get("currentModeId").and_then(Value::as_str).map(str::to_string);
+        }
+        log_native_subagent(&self.id.to_string(), params, update);
+        if self.agent == "opencode" {
+            let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+            note_opencode_launch(&mut lock(&self.launches), &mut lock(&self.children), session, update);
+        }
+        if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
+            && !self.is_stale(params)
+            && !of_child
+        {
+            if let Some(options) = update.get("configOptions") {
+                self.config_options_changed(options);
+            }
+        }
+        // The staleness is checked under the log lock, so a
+        // late update can't pass it, then land after the
+        // `forget_session` that emptied the log.
+        let stale = |_, _| if self.is_stale(params) { Err(String::new()) } else { Ok(()) };
+        // Pictures go to disk before the log lock is taken.
+        let mut update = update.clone();
+        if self.agent == "cline" {
+            cline::normalize_cline_tool(&mut update, &mut lock(&self.cline_tools));
+            cline::mark_spawns(&mut update, &mut lock(&self.cline_spawns));
+        }
+        if !route_child_update(&mut lock(&self.children), params, &mut update) {
+            return;
+        }
+        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+            crate::context::note_agent_window(session, &update);
+        }
+        crate::chat_images::stash_images(&mut update);
+        let _ = self.emit_when(ChatBody::Update { update }, stale);
+        self.watch_autonomous();
+    }
+
+    // --- ACP v2 ------------------------------------------------------------------------------------------
+
+    /// A v2 `session/update`: translated by the codec into the v1-shaped updates the rest of the chat reads,
+    /// plus the agent's own turn states, which alone move the turn (see `v2_turn`).
+    fn handle_v2_update(self: &Arc<Self>, params: &Value, update: &Value) {
+        // History a replaced session still streams.
+        if self.is_stale(params) {
+            return;
+        }
+        let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+        let outs = acp_v2::translate(&mut lock(&self.v2).state, session, update);
+        let terminal_output = matches!(update.get("sessionUpdate").and_then(Value::as_str), Some("terminal_update" | "terminal_output_chunk"))
+            && update.get("exitStatus").is_none_or(Value::is_null);
+        for out in outs {
+            match out {
+                acp_v2::Out::Update(translated) => {
+                    let call_id = translated.get("toolCallId").and_then(Value::as_str).map(str::to_string);
+                    let Some(call_id) = call_id else {
+                        self.handle_update(params, &translated);
+                        continue;
+                    };
+                    let now = now_ms();
+                    if !terminal_output {
+                        // Another update of the call (status, exit) supersedes the output held back.
+                        lock(&self.v2).throttle.sent(&call_id, now);
+                        self.handle_update(params, &translated);
+                        continue;
+                    }
+                    let offered = lock(&self.v2).throttle.offer(&call_id, params.clone(), translated, now);
+                    match offered {
+                        v2_turn::Offer::Now(params, translated) => self.handle_update(&params, &translated),
+                        v2_turn::Offer::Held { first: true, wait_ms } => {
+                            let weak = Arc::downgrade(self);
+                            std::thread::spawn(move || {
+                                std::thread::sleep(Duration::from_millis(wait_ms));
+                                if let Some(chat) = weak.upgrade() {
+                                    let held = lock(&chat.v2).throttle.take(&call_id, now_ms());
+                                    if let Some((params, translated)) = held {
+                                        chat.handle_update(&params, &translated);
+                                    }
+                                }
+                            });
+                        }
+                        v2_turn::Offer::Held { first: false, .. } => {}
+                    }
+                }
+                acp_v2::Out::Running => {
+                    lock(&self.v2).running = true;
+                    self.open_agent_turn();
+                }
+                acp_v2::Out::RequiresAction => lock(&self.v2).running = true,
+                acp_v2::Out::Idle { stop_reason, error, background } => self.v2_idle(stop_reason, error, background),
+            }
+        }
+    }
+
+    /// The agent says it started work: a turn of its own (no prompt of ours) opens, as the views' working
+    /// state, exactly where `emit_when` would have opened one from the agent's output on v1. Nothing when a
+    /// turn is already open (our prompt's) or the chat is still starting (`v2_started` looks again then).
+    /// Under the log lock, as `emit_when`, so no event slips between the status move and its marker.
+    pub(super) fn open_agent_turn(&self) {
+        if self.protocol != AcpProtocol::V2 {
+            return;
+        }
+        let mut log = lock(&self.log);
+        {
+            let mut status = lock(&self.status);
+            if *status != ChatStatus::Idle {
+                return;
+            }
+            let permissions_pending = !lock(&self.permissions).is_empty() || !lock(&self.asks).is_empty();
+            *status = if permissions_pending { ChatStatus::Waiting } else { ChatStatus::Busy };
+            self.autonomous.store(true, Ordering::Release);
+            self.status_at.store(now_ms(), Ordering::Relaxed);
+        }
+        self.last_event_at.store(now_ms(), Ordering::Relaxed);
+        let event = log.push(ChatBody::Ext { method: AUTONOMOUS_EXT_METHOD.into(), params: json!({}) }, now_ms());
+        if self.feed.receiver_count() > 0 {
+            let _ = self.feed.send(event.clone());
+        }
+        if !self.closed.load(Ordering::Relaxed) {
+            let _ = self.app.emit_to(&self.owner, "chat-event", json!({ "chatId": self.id, "event": event }));
+        }
+        drop(log);
+        self.changed();
+    }
+
+    /// The handshake is over: work the agent was already doing (a resume's snapshot said `running`) opens its turn now.
+    pub(super) fn v2_started(&self) {
+        if self.protocol == AcpProtocol::V2 && lock(&self.v2).running {
+            self.open_agent_turn();
+        }
+    }
+
+    /// A v2 setup answer (`session/new`, `session/resume`): remembers the session and its mode for the codec and returns the
+    /// setup in the v1 shape. v2 sends the commands in the answer, v1 as an update: that update is made here.
+    pub(super) fn v2_setup(&self, result: &Value, session_id: &str) -> Value {
+        let setup = acp_v2::setup_from_response(result);
+        {
+            let mut run = lock(&self.v2);
+            run.state.main = Some(session_id.to_string());
+            run.state.observe_setup(&setup);
+        }
+        if setup.get("availableCommands").and_then(Value::as_array).is_some_and(|commands| !commands.is_empty()) {
+            self.emit(ChatBody::Update { update: json!({ "sessionUpdate": "available_commands_update", "availableCommands": setup["availableCommands"] }) });
+        }
+        setup
+    }
+
+    /// A `state_update` idle. A stop reason ends the turn (unless background subagents hold it, see `Hold`), an error fails
+    /// it, a snapshot or repeat means nothing.
+    fn v2_idle(self: &Arc<Self>, stop_reason: Option<String>, error: Option<RpcError>, background: Option<Vec<Value>>) {
+        let step = {
+            let mut run = lock(&self.v2);
+            if stop_reason.is_some() || error.is_some() {
+                run.running = false;
+            }
+            if error.is_some() {
+                run.hold.observe(background.as_deref());
+                None
+            } else {
+                Some(run.hold.on_idle(stop_reason.as_deref(), background.as_deref()))
+            }
+        };
+        match (error, step) {
+            (Some(error), _) => self.v2_fail(&error),
+            (None, Some(v2_turn::IdleStep::End(reason, released))) => {
+                if released {
+                    eprintln!("chat {}: acp v2 turn released after its background subagents ({reason})", self.id);
+                }
+                self.v2_end_turn(&reason);
+            }
+            (None, Some(v2_turn::IdleStep::Held)) => eprintln!("chat {}: acp v2 idle held for background subagents", self.id),
+            _ => {}
+        }
+    }
+
+    /// Ends the turn the agent's `idle` ended: only a chat still in one (a late idle after a forced end, or after the
+    /// failed prompt's own error, ends nothing).
+    pub(super) fn v2_end_turn(self: &Arc<Self>, stop_reason: &str) {
+        let ended = self.emit_when(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() }, in_turn);
+        lock(&self.v2).turn_over();
+        if ended.is_ok() {
+            self.refresh_goal_soon();
+        }
+    }
+
+    /// The turn failed (`idle` with an `error`): shown as a failed prompt on v1 is; an agent whose session is gone is ended.
+    fn v2_fail(&self, error: &RpcError) {
+        let (message, limit) = (error_text(error), is_limit_error(error));
+        let shown = self.emit_when(ChatBody::Error { message: message.clone(), limit }, in_turn);
+        lock(&self.v2).turn_over();
+        if shown.is_ok() {
+            delegate::prompt_failed(self, &message);
+        }
+        if is_session_gone(error) {
+            self.end_dead_session();
+        }
+    }
+
+    /// The answer of a v2 `session/prompt`: `{messageId}` only says the agent took it in.
+    fn prompt_v2_answered(&self, result: Result<Value, String>, error_code: Option<i64>, limit: bool, gone: bool) {
+        let running = lock(&self.v2).running;
+        match v2_turn::prompt_v2_outcome(error_code, running) {
+            v2_turn::PromptV2::Inserted | v2_turn::PromptV2::WaitForIdle => {}
+            v2_turn::PromptV2::EndCancelled => {
+                let _ = self.emit_when(ChatBody::TurnEnd { stop_reason: "cancelled".into() }, in_turn);
+                lock(&self.v2).turn_over();
+            }
+            v2_turn::PromptV2::Failed { reopen } => {
+                let message = result.err().unwrap_or_else(|| "the prompt failed".to_string());
+                self.prompt_failed(message, limit);
+                lock(&self.v2).turn_over();
+                if gone {
+                    self.end_dead_session();
+                } else if reopen {
+                    // The prompt was refused but the agent still works on its own: the views keep showing it.
+                    self.open_agent_turn();
+                }
+            }
+        }
+    }
+
+    /// After a v2 `session/cancel`: the agent's `idle cancelled` ends the turn. Should it not come in `CANCEL_GRACE_MS`
+    /// (the agent had nothing to stop) the turn is ended here. An agent already idle, its turn only held for background
+    /// subagents, has nothing to answer: ended at once.
+    pub(super) fn v2_cancelled(self: &Arc<Self>) {
+        let (generation, held) = {
+            let mut run = lock(&self.v2);
+            (run.arm_cancel(), run.hold.is_held())
+        };
+        if held {
+            self.v2_end_turn("cancelled");
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(v2_turn::CANCEL_GRACE_MS));
+            if let Some(chat) = weak.upgrade() {
+                if lock(&chat.v2).cancel == Some(generation) {
+                    eprintln!("chat {}: acp v2 cancel got no idle, ending the turn", chat.id);
+                    chat.v2_end_turn("cancelled");
+                }
+            }
+        });
     }
 
     /// The agent withdrew a request it sent (`$/cancel_request`: codex-acp's
@@ -858,7 +1119,7 @@ impl Chat {
                 Pending::Waiter(tx) => {
                     let _ = tx.send(Err(message.clone()));
                 }
-                Pending::Prompt => self.emit(ChatBody::Error { message: message.clone(), limit: false }),
+                Pending::Prompt | Pending::PromptV2 => self.emit(ChatBody::Error { message: message.clone(), limit: false }),
             }
         }
         self.emit(ChatBody::Exit { code });

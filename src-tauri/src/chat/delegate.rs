@@ -730,7 +730,7 @@ fn fail_task(app: &AppHandle, task: &Task, message: &str) {
 /// Puts a new chat in the mode `inherited_mode` chose (none: the agent's own default stays).
 fn set_start_mode(chat: &Chat, mode: Result<Option<String>, String>) -> Result<(), String> {
     if let Some(mode) = mode? {
-        chat.request("session/set_mode", json!({ "sessionId": chat.session_id()?, "modeId": mode }), super::MODE_TIMEOUT)?;
+        chat.request_mode(&mode)?;
         *lock(&chat.current_mode) = Some(mode.clone());
         chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode }) });
     }
@@ -763,7 +763,8 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Ta
     let same_agent = parent.agent.as_deref() == Some(task.agent.as_str());
     let profile = parent.profile.clone().filter(|_| same_agent);
     let link = TaskLink { task_id: task.id.clone(), parent: parent.owner.clone() };
-    let extras = Extras { tools: parent.tools.clone(), link: Some(link) };
+    // Children speak v1 whatever the parent does (see the v2 plan, phase 6).
+    let extras = Extras { tools: parent.tools.clone(), link: Some(link), acp_v2: false };
     let (child, _) =
         start_blocking(app.clone(), parent.window.clone(), task.agent.clone(), parent.cwd.clone(), profile, None, false, parent.shell.clone(), extras)?;
     // The parent or the script may have gone away while the adapter started.

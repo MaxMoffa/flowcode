@@ -23,6 +23,7 @@ use crate::util::{lock, now_ms};
 pub(crate) mod delegate;
 pub(crate) mod goal;
 mod acp_v2;
+mod v2_turn;
 mod attachments;
 mod cline;
 mod commands;
@@ -44,6 +45,7 @@ pub(crate) use models::*;
 pub(crate) use peer::*;
 pub(crate) use session::*;
 pub(crate) use state::*;
+pub(crate) use acp_v2::AcpProtocol;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -221,7 +223,10 @@ impl ChatStatus {
 /// permission outside one (it is still recorded, and answerable) - none of
 /// that may make an idle chat look busy, or a prompt would be refused as
 /// `agent_busy` with nothing ever ending the phantom turn.
-fn next_status(before: ChatStatus, body: &ChatBody, permissions_pending: bool) -> ChatStatus {
+///
+/// On ACP v2 the heuristic opening is off: the agent says when it starts work
+/// (`state_update` running, `Chat::open_agent_turn`), so output never opens a turn.
+fn next_status(before: ChatStatus, body: &ChatBody, permissions_pending: bool, protocol: AcpProtocol) -> ChatStatus {
     use ChatStatus::*;
     let in_turn = if permissions_pending { Waiting } else { Busy };
     match (before, body) {
@@ -233,7 +238,7 @@ fn next_status(before: ChatStatus, body: &ChatBody, permissions_pending: bool) -
         (_, ChatBody::Ext { .. }) => before,
         (Idle, ChatBody::User { .. }) => in_turn,
         // The agent started a turn by itself (a cross-session message, a finished background task).
-        (Idle, ChatBody::Update { update }) if starts_autonomous_turn(update) => in_turn,
+        (Idle, ChatBody::Update { update }) if protocol == AcpProtocol::V1 && starts_autonomous_turn(update) => in_turn,
         (Idle, _) => Idle,
         (Busy | Waiting, _) => in_turn,
     }
@@ -333,6 +338,8 @@ pub struct ChatStarted {
     pub loaded: bool,
     /// The WSL distro the agent runs in; `None` for a chat running on Windows.
     pub wsl_distro: Option<String>,
+    /// The ACP version the chat's agent speaks (1, or 2 when the experimental flag took effect).
+    pub acp_version: u8,
 }
 
 #[cfg(test)]
@@ -402,9 +409,9 @@ mod tests {
             json!({ "kind": "askResolved", "requestId": 3, "action": "accept", "content": { "a": "b" } })
         );
         // An open ask makes a turn wait, like an open permission.
-        assert_eq!(next_status(Busy, &ask, true), Waiting);
-        assert_eq!(next_status(Waiting, &resolved, false), Busy);
-        assert_eq!(next_status(Idle, &ask, true), Idle);
+        assert_eq!(next_status(Busy, &ask, true, AcpProtocol::V1), Waiting);
+        assert_eq!(next_status(Waiting, &resolved, false, AcpProtocol::V1), Busy);
+        assert_eq!(next_status(Idle, &ask, true, AcpProtocol::V1), Idle);
     }
 
     #[test]
@@ -420,34 +427,34 @@ mod tests {
         let exit = ChatBody::Exit { code: Some(0) };
 
         // Only the user's prompt starts a turn.
-        assert_eq!(next_status(Idle, &user, false), Busy);
-        assert_eq!(next_status(Idle, &user, true), Waiting);
+        assert_eq!(next_status(Idle, &user, false, AcpProtocol::V1), Busy);
+        assert_eq!(next_status(Idle, &user, true, AcpProtocol::V1), Waiting);
         for body in [&update, &permission, &resolved, &ext] {
-            assert_eq!(next_status(Idle, body, false), Idle, "{body:?}");
-            assert_eq!(next_status(Idle, body, true), Idle, "{body:?}");
+            assert_eq!(next_status(Idle, body, false, AcpProtocol::V1), Idle, "{body:?}");
+            assert_eq!(next_status(Idle, body, true, AcpProtocol::V1), Idle, "{body:?}");
         }
         // In a turn: waiting exactly while a permission is open.
         for before in [Busy, Waiting] {
             for body in [&user, &update, &permission, &resolved] {
-                assert_eq!(next_status(before, body, true), Waiting, "{before:?} {body:?}");
-                assert_eq!(next_status(before, body, false), Busy, "{before:?} {body:?}");
+                assert_eq!(next_status(before, body, true, AcpProtocol::V1), Waiting, "{before:?} {body:?}");
+                assert_eq!(next_status(before, body, false, AcpProtocol::V1), Busy, "{before:?} {body:?}");
             }
-            assert_eq!(next_status(before, &ext, false), before);
-            assert_eq!(next_status(before, &ext, true), before);
+            assert_eq!(next_status(before, &ext, false, AcpProtocol::V1), before);
+            assert_eq!(next_status(before, &ext, true, AcpProtocol::V1), before);
         }
         // The turn ends, the agent exits.
         for before in [Idle, Busy, Waiting] {
-            assert_eq!(next_status(before, &turn_end, true), Idle);
-            assert_eq!(next_status(before, &error, false), Idle);
-            assert_eq!(next_status(before, &exit, false), Exited);
+            assert_eq!(next_status(before, &turn_end, true, AcpProtocol::V1), Idle);
+            assert_eq!(next_status(before, &error, false, AcpProtocol::V1), Idle);
+            assert_eq!(next_status(before, &exit, false, AcpProtocol::V1), Exited);
         }
         // Nothing moves while starting (a resumed session replays history) but the exit.
         for body in [&user, &update, &permission, &resolved, &ext, &turn_end, &error] {
-            assert_eq!(next_status(Starting, body, false), Starting, "{body:?}");
-            assert_eq!(next_status(Exited, body, false), Exited, "{body:?}");
+            assert_eq!(next_status(Starting, body, false, AcpProtocol::V1), Starting, "{body:?}");
+            assert_eq!(next_status(Exited, body, false, AcpProtocol::V1), Exited, "{body:?}");
         }
-        assert_eq!(next_status(Starting, &exit, false), Exited);
-        assert_eq!(next_status(Exited, &exit, false), Exited);
+        assert_eq!(next_status(Starting, &exit, false, AcpProtocol::V1), Exited);
+        assert_eq!(next_status(Exited, &exit, false, AcpProtocol::V1), Exited);
     }
 
     #[test]
@@ -486,20 +493,43 @@ mod tests {
         let upd = |v: Value| ChatBody::Update { update: v };
         for kind in ["agent_message_chunk", "agent_thought_chunk", "tool_call"] {
             let body = upd(json!({ "sessionUpdate": kind }));
-            assert_eq!(next_status(Idle, &body, false), Busy, "{kind}");
-            assert_eq!(next_status(Idle, &body, true), Waiting, "{kind}");
+            assert_eq!(next_status(Idle, &body, false, AcpProtocol::V1), Busy, "{kind}");
+            assert_eq!(next_status(Idle, &body, true, AcpProtocol::V1), Waiting, "{kind}");
             // A null parent is still the main conversation.
             let main = upd(json!({ "sessionUpdate": kind, "_meta": { "claudeCode": { "parentToolUseId": null } } }));
-            assert_eq!(next_status(Idle, &main, false), Busy, "{kind}");
+            assert_eq!(next_status(Idle, &main, false, AcpProtocol::V1), Busy, "{kind}");
             // A native subagent's output doesn't.
             let sub = upd(json!({ "sessionUpdate": kind, "_meta": { "claudeCode": { "parentToolUseId": "toolu_1" } } }));
-            assert_eq!(next_status(Idle, &sub, false), Idle, "{kind}");
+            assert_eq!(next_status(Idle, &sub, false, AcpProtocol::V1), Idle, "{kind}");
             // Nor while starting (history replay).
-            assert_eq!(next_status(Starting, &body, false), Starting, "{kind}");
+            assert_eq!(next_status(Starting, &body, false, AcpProtocol::V1), Starting, "{kind}");
         }
         for kind in ["usage_update", "available_commands_update", "session_info_update", "tool_call_update", "current_mode_update"] {
-            assert_eq!(next_status(Idle, &upd(json!({ "sessionUpdate": kind })), false), Idle, "{kind}");
+            assert_eq!(next_status(Idle, &upd(json!({ "sessionUpdate": kind })), false, AcpProtocol::V1), Idle, "{kind}");
         }
+    }
+
+    #[test]
+    fn on_v2_the_status_moves_only_with_our_prompt_and_the_turn_end() {
+        use ChatStatus::*;
+        let v2 = AcpProtocol::V2;
+        let upd = |v: Value| ChatBody::Update { update: v };
+        // No heuristic opening: the agent's output while idle opens nothing (`Chat::open_agent_turn` does, on `running`).
+        for kind in ["agent_message_chunk", "agent_thought_chunk", "tool_call", "usage_update", "tool_call_update"] {
+            let body = upd(json!({ "sessionUpdate": kind }));
+            assert_eq!(next_status(Idle, &body, false, v2), Idle, "{kind}");
+            assert_eq!(next_status(Idle, &body, true, v2), Idle, "{kind}");
+            assert_eq!(next_status(Busy, &body, false, v2), Busy, "{kind}");
+            assert_eq!(next_status(Busy, &body, true, v2), Waiting, "{kind}");
+        }
+        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new(), peer: None };
+        assert_eq!(next_status(Idle, &user, false, v2), Busy);
+        // The turn ends with the agent's idle (a TurnEnd), an error or the exit; a repeat idle (no event) changes nothing.
+        let end = ChatBody::TurnEnd { stop_reason: "end_turn".into() };
+        assert_eq!(next_status(Busy, &end, false, v2), Idle);
+        assert_eq!(next_status(Idle, &end, false, v2), Idle);
+        assert_eq!(next_status(Starting, &upd(json!({ "sessionUpdate": "agent_message_chunk" })), false, v2), Starting);
+        assert_eq!(next_status(Busy, &ChatBody::Exit { code: None }, false, v2), Exited);
     }
 
     #[test]

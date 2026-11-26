@@ -14,6 +14,13 @@ pub(super) fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'s
     })
 }
 
+/// Whether Flowcode may speak ACP v2 (experimental) to this agent: only the adapters known to serve it
+/// (the pinned Claude and Codex ones). Any other agent never gets a v2 `initialize`: it would take it
+/// for a v1 client with no declared capabilities.
+pub(super) fn offers_acp_v2(agent: &str) -> bool {
+    matches!(agent, "claude" | "codex")
+}
+
 /// Where a chat's agent runs when it runs inside WSL: the distro (`None`: the default one) and the cwd as a Linux path.
 pub(super) struct WslTarget {
     pub(super) distro: Option<String>,
@@ -89,6 +96,14 @@ mod tests {
         assert!(wsl_target(r"C:\a", Some("powershell")).is_none());
         assert!(wsl_target(r"C:\a", Some("system")).is_none());
         assert!(wsl_target(r"C:\a", None).is_none());
+    }
+
+    #[test]
+    fn only_claude_and_codex_offer_acp_v2() {
+        assert!(offers_acp_v2("claude") && offers_acp_v2("codex"));
+        for agent in ["gemini", "opencode", "cline", "vibe", "", "Claude"] {
+            assert!(!offers_acp_v2(agent), "{agent}");
+        }
     }
 
     #[test]

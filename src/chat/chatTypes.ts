@@ -153,6 +153,8 @@ export interface ChatStartResult {
   loaded: boolean;
   /** The WSL distro the agent runs in (its paths are Linux ones); null/absent for a Windows chat. */
   wslDistro?: string | null;
+  /** The ACP version the agent speaks: 1, or 2 when the experimental flag took effect. */
+  acpVersion?: number;
 }
 
 export type ChatStatus = "starting" | "idle" | "busy" | "waiting" | "exited";

@@ -8,6 +8,9 @@ pub(super) enum Pending {
     Waiter(mpsc::Sender<Result<Value, String>>),
     /// A `session/prompt`: its answer ends (or fails) the turn.
     Prompt,
+    /// A `session/prompt` on ACP v2: its answer only says the prompt was taken in (`{messageId}`) or
+    /// rejected; the turn ends with the agent's `idle` state.
+    PromptV2,
 }
 
 pub(super) struct RpcError {

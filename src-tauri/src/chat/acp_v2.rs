@@ -21,10 +21,20 @@ use super::*;
 
 /// Which ACP version a chat's agent speaks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum AcpProtocol {
+pub(crate) enum AcpProtocol {
     #[default]
     V1,
     V2,
+}
+
+impl AcpProtocol {
+    /// The protocol version number, as `ChatStarted.acpVersion` tells it.
+    pub(crate) fn version(self) -> u8 {
+        match self {
+            AcpProtocol::V1 => 1,
+            AcpProtocol::V2 => 2,
+        }
+    }
 }
 
 pub(super) const V2_PROTOCOL_VERSION: u64 = 2;
@@ -144,6 +154,16 @@ fn option_to_v1(option: &Value) -> Value {
         }
     }
     Value::Object(out)
+}
+
+/// A `session/set_config_option` answer in the v1 shape (`configOptions` renamed), which the
+/// readers of it (`models_after_set`, `thought_after_set`) know.
+pub(super) fn config_result_to_v1(result: &Value) -> Value {
+    let mut out = result.clone();
+    if let Some(options) = result.get("configOptions").filter(|o| o.is_array()) {
+        out["configOptions"] = config_options_to_v1(options);
+    }
+    out
 }
 
 /// The select option of category `mode`, in v2 or v1 naming.

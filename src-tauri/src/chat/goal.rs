@@ -53,9 +53,11 @@ impl Goal {
     }
 }
 
-/// The goal actions the agent's `_session/goal` accepts.
-pub(crate) fn actions(agent: &str) -> &'static [&'static str] {
+/// The goal actions the agent's `_session/goal` accepts. Claude's adapter does not serve it on ACP v2
+/// (method not found): no action there, the chip still shows from the transcript.
+pub(crate) fn actions(agent: &str, protocol: super::AcpProtocol) -> &'static [&'static str] {
     match agent {
+        "claude" if protocol == super::AcpProtocol::V2 => &[],
         "claude" => &["clear"],
         "codex" => &["pause", "resume", "clear"],
         _ => &[],
@@ -63,7 +65,7 @@ pub(crate) fn actions(agent: &str) -> &'static [&'static str] {
 }
 
 pub(crate) fn supported(agent: &str) -> bool {
-    !actions(agent).is_empty()
+    !actions(agent, super::AcpProtocol::V1).is_empty()
 }
 
 /// What a `/goal ...` prompt asks for.
@@ -387,7 +389,10 @@ mod tests {
         assert_eq!(parse_prompt("codex", "/goal stop"), Some(PromptGoal::Set("stop".into())));
         assert_eq!(parse_prompt("codex", &format!("/goal {}", "x".repeat(4001))), None);
         assert_eq!(parse_prompt("gemini", "/goal x"), None);
-        assert!(actions("opencode").is_empty());
+        assert!(actions("opencode", crate::chat::AcpProtocol::V1).is_empty());
+        assert_eq!(actions("claude", crate::chat::AcpProtocol::V1), &["clear"]);
+        assert!(actions("claude", crate::chat::AcpProtocol::V2).is_empty());
+        assert_eq!(actions("codex", crate::chat::AcpProtocol::V2), &["pause", "resume", "clear"]);
     }
 
     #[test]
