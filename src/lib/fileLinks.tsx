@@ -223,7 +223,7 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
 }
 
 /** The path menu at a right click, whatever the Browser settings say for a left click. */
-function usePathMenu(): (event: { clientX: number; clientY: number }, target: PathTarget, line?: number) => void {
+export function usePathMenu(): (event: { clientX: number; clientY: number }, target: PathTarget, line?: number) => void {
   const { show } = useContextMenu();
   const actions = useContext(FileLinkActionsContext);
   return useCallback((event, target, line) => show(event.clientX, event.clientY, pathMenuItems(target, actions, line)), [actions, show]);

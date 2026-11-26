@@ -12,11 +12,11 @@ import { attachPty, detachPty, forgetPty, killPty, MAX_PTY_QUEUED_BYTES, onPtyWr
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
-import { useOpenLink } from "./useOpenLink";
+import { useLinkMenu, useOpenLink } from "./useOpenLink";
 import { addDetectedServer, extractLocalServers, openUrlInPreview, removeServersOfTab, stripAnsi } from "../browser/browserStore";
 import { getBrowserSettings } from "../browser/browserSettings";
 import { createPathLinkProvider } from "./pathLinkProvider";
-import { checkPath, useOpenPath, type PathTarget } from "../lib/fileLinks";
+import { checkPath, useOpenPath, usePathMenu, type PathTarget } from "../lib/fileLinks";
 import { parsePathToken } from "../lib/filePaths";
 import {
   FROG_HEIGHT,
@@ -145,6 +145,9 @@ interface TerminalViewProps {
 
 // memo: the parent re-renders on every title/agent-poll change, and a
 // terminal has nothing to redraw unless one of its own props moved.
+/** A link under the pointer: a web / OSC 8 uri, or a path found in the text. */
+type HoverLink = { uri: string } | { target: PathTarget; line?: number };
+
 export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, interceptCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach, wslDistro = null, onOpenDelegate }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,6 +231,10 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   };
   const liveCwdRef = useRef(cwd);
   liveCwdRef.current = cwd;
+  // The link under the pointer (web/OSC 8 uri or path): a right click on it opens its menu, not the clipboard one.
+  const hoverLinkRef = useRef<HoverLink | null>(null);
+  const linkMenu = useLinkMenu();
+  const pathMenu = usePathMenu();
   const fontSize = getTabFontSize(tabId);
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;
@@ -762,9 +769,10 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // Plain URLs detected in the text, plus OSC 8 hyperlinks (link text that
     // isn't the URL itself - Claude Code and others emit these); both go
     // through the same confirm menu.
-    term.loadAddon(new WebLinksAddon((event, uri) => linkClickRef.current(event, uri)));
+    const hoverUri = { hover: (_e: MouseEvent, uri: string) => (hoverLinkRef.current = { uri }), leave: () => (hoverLinkRef.current = null) };
+    term.loadAddon(new WebLinksAddon((event, uri) => linkClickRef.current(event, uri), hoverUri));
     // Non-http schemes reach the handler too (xterm drops them otherwise): it opens only http(s) and `file:`.
-    term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri), allowNonHttpProtocols: true };
+    term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri), allowNonHttpProtocols: true, ...hoverUri };
     // File paths (never urls: those stay the web links above), linked only
     // once the disk confirms they exist; a click opens the path menu.
     term.registerLinkProvider(
@@ -772,6 +780,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         () => term.buffer.active,
         (path) => checkPath(path, liveCwdRef.current),
         (event, target, line) => pathClickRef.current(event, target, line),
+        (hit) => (hoverLinkRef.current = hit),
       ),
     );
     term.open(hostRef.current!);
@@ -1326,7 +1335,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         e.preventDefault();
         e.stopPropagation();
         const term = xtermRef.current;
-        showMenu(e.clientX, e.clientY, [
+        const at = { clientX: e.clientX, clientY: e.clientY };
+        const clipboardMenu = () => showMenu(at.clientX, at.clientY, [
           {
             label: t("edit.copy"),
             icon: MenuIcons.duplicate,
@@ -1353,6 +1363,14 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           { label: "terminal-menu-separator", separator: true },
           { label: t("plugin.clearTerminal"), icon: MenuIcons.clear, onSelect: () => clearTerminal(term) },
         ]);
+        // On a link (xterm shows the pointer cursor only while one is hovered): that link's menu.
+        const hovered = term?.element?.querySelector(".xterm-cursor-pointer") ? hoverLinkRef.current : null;
+        if (!hovered) return clipboardMenu();
+        if ("target" in hovered) return pathMenu(at, hovered.target, hovered.line);
+        if (/^https?:\/\//i.test(hovered.uri)) return linkMenu(at, hovered.uri);
+        const parsed = /^file:\/\//i.test(hovered.uri) ? parsePathToken(hovered.uri) : null;
+        if (!parsed) return clipboardMenu();
+        void checkPath(parsed.path, liveCwdRef.current).then((target) => (target ? pathMenu(at, target, parsed.line) : clipboardMenu()));
       }}
       style={{
         display: hidden ? "none" : "flex",

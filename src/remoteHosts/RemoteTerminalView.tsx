@@ -2,7 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } 
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { FileLinkResolverContext, useOpenPath, type PathTarget } from "../lib/fileLinks";
+import { FileLinkResolverContext, useOpenPath, usePathMenu, type PathTarget } from "../lib/fileLinks";
 import { createPathLinkProvider } from "../terminal/pathLinkProvider";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
@@ -11,7 +11,7 @@ import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { readTermColors } from "../terminal/termColors";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
-import { useOpenLink } from "../terminal/useOpenLink";
+import { useLinkMenu, useOpenLink } from "../terminal/useOpenLink";
 import { onHostMessages, sendToHost, setFrontRemoteTerminal, useHost, type RemoteTerminalHandle } from "./remoteHosts";
 import "@xterm/xterm/css/xterm.css";
 import "../terminal/terminal.css";
@@ -59,6 +59,10 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
   const cwdRef = useRef(cwd ?? null);
   cwdRef.current = cwd ?? null;
   const openPath = useOpenPath();
+  // The link under the pointer: a right click on it opens its menu (as in a local terminal).
+  const hoverLinkRef = useRef<{ uri: string } | { target: PathTarget; line?: number } | null>(null);
+  const linkMenu = useLinkMenu();
+  const pathMenu = usePathMenu();
   const pathClickRef = useRef<(event: MouseEvent, target: PathTarget, line?: number) => void>(() => {});
   pathClickRef.current = (event, target, line) => {
     if (event.button === 0) openPath(event, target, line);
@@ -100,14 +104,16 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     const fit = new FitAddon();
     term.loadAddon(fit);
     // OSC 8 hyperlinks: http(s) only, through the app's own link menu - never xterm's default confirm() + window.open.
-    term.options.linkHandler = { activate: (event, uri) => openLinkRef.current(event, uri) };
+    const hoverUri = { hover: (_e: MouseEvent, uri: string) => (hoverLinkRef.current = { uri }), leave: () => (hoverLinkRef.current = null) };
+    term.options.linkHandler = { activate: (event, uri) => openLinkRef.current(event, uri), ...hoverUri };
     // Plain addresses in the text (its dev servers go through the tunnel, see LinkRewriteContext); only the left button opens them.
-    term.loadAddon(new WebLinksAddon((event, uri) => event.button === 0 && openLinkRef.current(event, uri)));
+    term.loadAddon(new WebLinksAddon((event, uri) => event.button === 0 && openLinkRef.current(event, uri), hoverUri));
     term.registerLinkProvider(
       createPathLinkProvider(
         () => term.buffer.active,
         (path) => resolverRef.current?.(path, cwdRef.current) ?? Promise.resolve(null),
         (event, target, line) => pathClickRef.current(event, target, line),
+        (hit) => (hoverLinkRef.current = hit),
       ),
     );
     term.open(el);
@@ -283,6 +289,10 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
         e.preventDefault();
         e.stopPropagation();
         const term = termRef.current;
+        // On a link (xterm shows the pointer cursor only while one is hovered): that link's menu.
+        const hovered = term?.element?.querySelector(".xterm-cursor-pointer") ? hoverLinkRef.current : null;
+        if (hovered && "target" in hovered) return pathMenu(e, hovered.target, hovered.line);
+        if (hovered && /^https?:\/\//i.test(hovered.uri)) return linkMenu(e, hovered.uri);
         show(e.clientX, e.clientY, [
           {
             label: t("edit.copy"),

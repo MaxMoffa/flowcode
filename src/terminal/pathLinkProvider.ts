@@ -51,6 +51,8 @@ export function createPathLinkProvider(
   getBuffer: () => IBuffer,
   check: (path: string) => Promise<PathTarget | null>,
   activate: (event: MouseEvent, target: PathTarget, line?: number) => void,
+  /** The link under the pointer (`null` once it leaves): a right click there opens the path menu. */
+  hover?: (hit: { target: PathTarget; line?: number } | null) => void,
 ): ILinkProvider {
   return {
     provideLinks(y, callback) {
@@ -70,6 +72,8 @@ export function createPathLinkProvider(
             text: line.text.slice(m.start, m.end),
             decorations: { underline: true, pointerCursor: true },
             activate: (event) => activate(event, target, m.line),
+            hover: () => hover?.({ target, line: m.line }),
+            leave: () => hover?.(null),
           });
         });
         callback(links.length > 0 ? links : undefined);
