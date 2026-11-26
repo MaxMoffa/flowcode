@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { TERMINAL_FONT } from "../terminal/terminalFont";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -96,7 +97,7 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     const term = new XTerm({
       cursorBlink: true,
       fontSize,
-      fontFamily: "Menlo, Consolas, monospace",
+      fontFamily: TERMINAL_FONT,
       theme: readTermColors(container),
       allowProposedApi: true,
       minimumContrastRatio: 4.5,

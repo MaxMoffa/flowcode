@@ -1,4 +1,5 @@
 import { memo, useEffect, useImperativeHandle, useRef, useState, forwardRef, type CSSProperties } from "react";
+import { TERMINAL_FONT } from "./terminalFont";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -748,7 +749,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     const term = new XTerm({
       cursorBlink: true,
       fontSize: initialFontSizeRef.current,
-      fontFamily: "Menlo, Consolas, monospace",
+      fontFamily: TERMINAL_FONT,
       theme: readTermColors(containerRef.current),
       // buffer.active.type (used below to detect an alternate-screen app
       // like Claude Code before collapsing rows) is gated behind this flag
