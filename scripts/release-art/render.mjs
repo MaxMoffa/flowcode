@@ -304,6 +304,59 @@ const COVERS = {
     for (const [x, y] of [[20, 44], [104, 34], [150, 50], [56, 36]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.41.1 "Tidy history, steadier links": the History list on a big pad, one chat row
+   * dropping out of it into a pixel trash can on the water; a folder next to the list
+   * (show in file manager); the frog on a side pad watches the clean-up. */
+  "v0.41.1"() {
+    const c = nightPond(411);
+    wordmark(c, "0.41.1");
+    reeds(c, 4, 86, 14, 1); reeds(c, 151, 86, 12, -1);
+    lilyPad(c, 96, 84, 26, 5);
+    lilyPad(c, 34, 82, 14, 4);
+    lilyPad(c, 140, 72, 12, 4);
+    // the History panel (x 82..111, y 32..79): search bar, rows with agent dots
+    const L = 82, T = 32, R = 111, B = 79;
+    c.rect(L - 1, T - 1, R - L + 3, B - T + 3, C.shadow);
+    c.rect(L, T, R - L + 1, B - T + 1, C.screenEdge);
+    c.rect(L + 1, T + 1, R - L - 1, B - T - 1, C.screen);
+    c.rect(L + 3, T + 3, R - L - 10, 3, C.screenEdgeDark);
+    c.rect(R - 5, T + 3, 3, 3, C.screenEdgeDark); // the ⋯ tools button
+    const row = (y, dot) => {
+      c.rect(L + 3, y, 2, 2, dot);
+      c.hline(L + 7, L + 22, y, C.inkDim);
+      c.hline(L + 7, L + 15, y + 2, C.screenEdgeDark);
+    };
+    row(T + 10, "#d9825b"); row(T + 17, "#c9c2b6");
+    // the gap the deleted row left, dotted
+    for (let x = L + 3; x <= L + 24; x += 2) c.set(x, T + 25, C.screenEdgeDark);
+    row(T + 30, "#7fb0e0"); row(T + 37, C.moss);
+    // the menu dots on the gap row, lit
+    for (const dx of [0, 2, 4]) c.set(R - 7 + dx, T + 25, C.amber);
+    // the deleted row falling out to the left, toward the trash can
+    c.dots(curve(L - 2, T + 25, 58, 34, 35, 57), 2, C.amber);
+    c.rect(50, 43, 16, 6, C.shadow);
+    c.rect(51, 44, 14, 4, C.screenEdge);
+    c.rect(52, 45, 2, 2, "#e0a050");
+    c.hline(56, 62, 46, C.screenEdgeDark);
+    // the trash can on the small left pad
+    const tx = 28, ty = 62;
+    c.rect(tx - 1, ty - 1, 15, 3, C.shadow);
+    c.rect(tx, ty, 13, 2, C.inkDim);
+    c.rect(tx + 4, ty - 2, 5, 2, C.inkDim);
+    c.rect(tx + 1, ty + 2, 11, 14, C.screenEdge);
+    for (const vx of [tx + 3, tx + 6, tx + 9]) for (let y = ty + 4; y < ty + 14; y++) c.set(vx, y, C.screenEdgeDark);
+    // a folder next to the panel: "show in file manager"
+    const fx = 115, fy = 40;
+    c.rect(fx - 1, fy - 1, 14, 11, C.shadow);
+    c.rect(fx, fy, 5, 2, C.amber);
+    c.rect(fx, fy + 2, 12, 7, C.amber);
+    c.hline(fx, fx + 11, fy + 2, "#f0cc7a");
+    c.hline(48, 60, 86, C.rippleHi); c.hline(20, 46, 88, C.ripple); c.hline(78, 108, 88, C.ripple);
+    frog(c, 130, 56, { cols: 20, rows: 16 });
+    for (const [x, y] of [[20, 40], [70, 34], [152, 52], [46, 44]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
