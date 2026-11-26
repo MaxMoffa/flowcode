@@ -94,6 +94,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [target.'cfg(target_os = "linux")'.dependencies]
 # Exact version wry resolves to (Cargo.lock): load-error signals in browser_view.rs.
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+# Same gtk wry/tao use (Cargo.lock): floats child webviews over the main one (browser_view.rs).
+gtk = "0.18"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"

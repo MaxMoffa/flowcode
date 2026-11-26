@@ -1657,6 +1657,7 @@ dependencies = [
  "flowcode-shared",
  "futures-lite",
  "getrandom 0.3.4",
+ "gtk",
  "http-body-util",
  "hyper",
  "hyper-util",

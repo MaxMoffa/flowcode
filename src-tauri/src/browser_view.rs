@@ -70,7 +70,7 @@ use std::time::Duration;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::window::Color;
 use tauri::{
-    AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl, Window,
+    AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl, Window,
 };
 
 /// The app theme's surface colour (`browser_view_theme`): painted by a child
@@ -279,11 +279,86 @@ pub async fn browser_probe_local(url: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || probe_loopback(&url)).await.map_err(|e| e.to_string())?
 }
 
-fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
-    Rect {
+#[cfg(not(target_os = "linux"))]
+fn rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
+    tauri::Rect {
         position: LogicalPosition::new(x, y).into(),
         size: LogicalSize::new(w.max(1.0), h.max(1.0)).into(),
     }
+}
+
+/// Puts a child webview at a window-relative logical rectangle.
+#[cfg(not(target_os = "linux"))]
+fn place(wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    wv.set_bounds(rect(x, y, w, h)).map_err(|e| e.to_string())
+}
+
+/// Linux: tauri-runtime-wry builds a child with `build_gtk(default_vbox)`, and wry
+/// `pack_start`s it into that GtkBox (wry-0.55 webkitgtk/mod.rs `add_to_container`).
+/// A GtkBox stacks, so the page lands below the app and `set_bounds` (which only
+/// acts for a GtkFixed parent) does nothing. So the first child turns the box's
+/// main webview into `GtkOverlay { main, GtkFixed }` and every child lives in that
+/// GtkFixed, moved / sized here. The overlay is pass-through: clicks outside a
+/// child reach the main webview.
+#[cfg(target_os = "linux")]
+fn place(wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    use gtk::prelude::*;
+    wv.with_webview(move |pw| linux_float(pw.inner().upcast(), x.round() as i32, y.round() as i32, w.max(1.0).round() as i32, h.max(1.0).round() as i32))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_float(child: gtk::Widget, x: i32, y: i32, w: i32, h: i32) {
+    use gtk::prelude::*;
+    const FIXED: &str = "flowcode-browser-fixed";
+    const OVERLAY: &str = "flowcode-browser-overlay";
+    const CHILD: &str = "flowcode-browser-child";
+
+    child.set_widget_name(CHILD);
+    child.set_size_request(w, h);
+    let Some(parent) = child.parent() else { return };
+    if let Some(fixed) = parent.downcast_ref::<gtk::Fixed>() {
+        fixed.move_(&child, x, y);
+        return;
+    }
+    let Some(vbox) = parent.downcast_ref::<gtk::Box>() else { return };
+
+    let existing = vbox.children().into_iter().find(|c| c.widget_name() == OVERLAY);
+    let overlay = match existing {
+        Some(o) => o,
+        None => {
+            // The window's own webview: the one packed child that is not ours.
+            let Some(main) = vbox
+                .children()
+                .into_iter()
+                .find(|c| c.widget_name() != CHILD && c.is::<webkit2gtk::WebView>())
+            else {
+                return;
+            };
+            let overlay = gtk::Overlay::new();
+            overlay.set_widget_name(OVERLAY);
+            let fixed = gtk::Fixed::new();
+            fixed.set_widget_name(FIXED);
+            fixed.set_halign(gtk::Align::Fill);
+            fixed.set_valign(gtk::Align::Fill);
+            vbox.remove(&main);
+            overlay.add(&main);
+            overlay.add_overlay(&fixed);
+            overlay.set_overlay_pass_through(&fixed, true);
+            vbox.pack_start(&overlay, true, true, 0);
+            overlay.show_all();
+            overlay.upcast()
+        }
+    };
+    let Some(fixed) = overlay
+        .downcast_ref::<gtk::Overlay>()
+        .and_then(|o| o.children().into_iter().find(|c| c.widget_name() == FIXED))
+        .and_then(|f| f.downcast::<gtk::Fixed>().ok())
+    else {
+        return;
+    };
+    vbox.remove(&child);
+    fixed.put(&child, x, y);
 }
 
 fn webview_of(app: &AppHandle, label: &str) -> Result<tauri::Webview, String> {
@@ -405,9 +480,11 @@ fn build_child(
     }
 
     let (x, y, w, h) = bounds;
-    window
+    let child = window
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))
         .map_err(|e| e.to_string())?;
+    // Linux: wry packed the child into the window's GtkBox (below the app); lift it out.
+    place(&child, x, y, w, h)?;
 
     attach_error_handlers(app, &win, label, page_id);
 
@@ -585,7 +662,7 @@ pub async fn browser_view_show(
     let label = view_label(&win, &page_id);
 
     if let Some(wv) = app.get_webview(&label) {
-        wv.set_bounds(rect(x, y, width, height)).map_err(|e| e.to_string())?;
+        place(&wv, x, y, width, height)?;
         wv.show().map_err(|e| e.to_string())?;
         lock(&HIDDEN).remove(&label);
     } else {
@@ -640,9 +717,7 @@ pub async fn browser_view_bounds(
     height: f64,
 ) -> Result<(), String> {
     let Some(label) = find_label(&state, window.label(), &page_id) else { return Ok(()) };
-    webview_of(&app, &label)?
-        .set_bounds(rect(x, y, width, height))
-        .map_err(|e| e.to_string())
+    place(&webview_of(&app, &label)?, x, y, width, height)
 }
 
 /// Hides one page's child, or every child of the calling window when `page_id` is omitted.
