@@ -18,6 +18,8 @@ export interface BackgroundTerminalsLabels {
   hint: string;
   hintOpen: string;
   noOutput: string;
+  /** The Stop button of a command the agent offered to stop. */
+  stop: string;
 }
 
 /** The agent's running background commands: a one-line card tucked under the composer (as wide as it), opening into a list. */
@@ -30,6 +32,7 @@ export function BackgroundTerminalsCard({
   onRow,
   idPrefix,
   labels,
+  onStop,
 }: {
   terminals: BackgroundTerminal[];
   expanded: boolean;
@@ -41,6 +44,8 @@ export function BackgroundTerminalsCard({
   onRow: (index: number) => void;
   idPrefix: string;
   labels: BackgroundTerminalsLabels;
+  /** Stops a command: shown on the rows that can be stopped (`cancellable`, ACP v2) only. */
+  onStop?: (term: BackgroundTerminal) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -66,7 +71,7 @@ export function BackgroundTerminalsCard({
       <Reveal show={expanded}>
         <div className="chat-termcard-list" role="list">
           {terminals.map((term, i) => (
-            <div key={term.id} role="listitem">
+            <div key={term.id} role="listitem" className="chat-termcard-item">
               <button
                 type="button"
                 id={`${idPrefix}-term-${i}`}
@@ -80,6 +85,11 @@ export function BackgroundTerminalsCard({
                 <span className="chat-termcard-desc">{term.description}</span>
                 <span className="chat-subtray-time">{elapsed(term.startedAt, now)}</span>
               </button>
+              {onStop && term.cancellable && (
+                <button type="button" className="chat-termcard-stop" onClick={() => onStop(term)}>
+                  {labels.stop}
+                </button>
+              )}
               <Reveal show={openId === term.id}>
                 <pre className="chat-termcard-out" tabIndex={0}>
                   {term.output ? term.output.slice(-OUTPUT_MAX) : labels.noOutput}

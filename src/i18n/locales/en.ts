@@ -1441,6 +1441,8 @@ export const en: Record<MessageKey, string> = {
   "chat.term.hint": "↓ to expand",
   "chat.term.hintOpen": "↑↓ browse · Enter output",
   "chat.term.noOutput": "The agent has not read any output yet.",
+  "chat.term.stop": "Stop",
+  "chat.term.stopFailed": "Could not stop the command: {error}",
   "chat.subagent.launched.one": "{count} subagent started",
   "chat.subagent.launched.other": "{count} subagents started",
   "chat.permission.needed": "Permission needed",

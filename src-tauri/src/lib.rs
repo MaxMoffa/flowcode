@@ -239,6 +239,7 @@ pub fn run() {
             chat::chat_stage_attachment,
             chat::chat_unstage_attachment,
             chat::chat_cancel,
+            chat::chat_cancel_background,
             chat::chat_resume_schedule,
             chat::chat_resume_update,
             chat::chat_resume_cancel_all,

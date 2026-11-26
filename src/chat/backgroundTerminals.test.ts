@@ -78,3 +78,27 @@ describe("backgroundTerminals for the other agents", () => {
     expect(backgroundTerminals([run, talk], "claude")).toHaveLength(0);
   });
 });
+
+describe("backgroundTerminals from the agent's own list (ACP v2)", () => {
+  const entry = (toolCallId: string, extra: Record<string, unknown> = {}) => ({ toolCallId, terminalId: toolCallId, running: true, exitCode: null, cancellable: false, ...extra });
+
+  it("prefers the exact list over the text guesses and dresses it with the call", () => {
+    const items = [launch("a", "sh1"), tool("b", { toolName: "Bash", kind: "execute", rawInput: { command: "ls" }, status: "completed" })];
+    const list = backgroundTerminals(items, "claude", [entry("b", { cancellable: true })]);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: "b", command: "ls", running: true, cancellable: true, terminalId: "b" });
+  });
+
+  it("runs, then exits with its code; only a running one can be stopped", () => {
+    const items = [launch("a", "sh1")];
+    expect(backgroundTerminals(items, "claude", [entry("a", { cancellable: true })])[0]).toMatchObject({ running: true, cancellable: true });
+    const done = backgroundTerminals(items, "claude", [entry("a", { running: false, exitCode: 2, cancellable: true })])[0];
+    expect(done).toMatchObject({ running: false, exitCode: 2, cancellable: false });
+  });
+
+  it("names a terminal whose call is unknown, and falls back to the text path without a list", () => {
+    expect(backgroundTerminals([], "codex", [entry("px")])[0]).toMatchObject({ id: "px", command: "px" });
+    expect(backgroundTerminals([launch("a", "sh1")], "claude", null)).toHaveLength(1);
+    expect(backgroundTerminals([launch("a", "sh1")], "claude", [])).toHaveLength(0);
+  });
+});

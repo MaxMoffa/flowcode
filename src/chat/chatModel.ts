@@ -171,10 +171,45 @@ export interface ChatModelState {
   resume: { at: number; text: string; limitId: string } | null;
   /** The limit the last resume event was about, whatever its state: a limit already handled isn't armed again after a cancel. */
   resumeLimitId: string | null;
+  /** The agent's background commands as ACP v2 reports them (the last `_flowcode/background`); null until one came (v1 chats never get one). */
+  background: BackgroundEntry[] | null;
+}
+
+/** One background command of the agent, exactly as the backend read it (ACP v2). */
+export interface BackgroundEntry {
+  /** The tool call that shows it. */
+  toolCallId: string;
+  terminalId: string | null;
+  running: boolean;
+  exitCode: number | null;
+  /** The agent offered to stop it (`chat_cancel_background`). */
+  cancellable: boolean;
+}
+
+/** The backend's event with the agent's background commands (params: `{ terminals: BackgroundEntry[] }`, the whole list each time). */
+export const BACKGROUND_EXT_METHOD = "_flowcode/background";
+
+/** The `_flowcode/background` list, checked; null when it is not one. */
+export function parseBackground(params: unknown): BackgroundEntry[] | null {
+  const list = (params as { terminals?: unknown } | null)?.terminals;
+  if (!Array.isArray(list)) return null;
+  const entries: BackgroundEntry[] = [];
+  for (const raw of list) {
+    const r = record(raw);
+    if (typeof r.toolCallId !== "string" || r.toolCallId === "") continue;
+    entries.push({
+      toolCallId: r.toolCallId,
+      terminalId: typeof r.terminalId === "string" ? r.terminalId : null,
+      running: r.running === true,
+      exitCode: typeof r.exitCode === "number" ? r.exitCode : null,
+      cancellable: r.cancellable === true,
+    });
+  }
+  return entries;
 }
 
 export function initialChat(): ChatModelState {
-  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [], resume: null, resumeLimitId: null };
+  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [], resume: null, resumeLimitId: null, background: null };
 }
 
 /** The backend's event saying `/clear` replaced the session on the same agent process: the conversation starts over (params: `{}`). */
@@ -835,6 +870,10 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       }
       // The agent sent a message too big to read: it was skipped, so the answer may be incomplete. Said in the conversation.
       if (ev.method === WARNING_EXT_METHOD) return withItems(state, [...state.items, { type: "stop", id: `stop-${ev.seq}`, reason: SKIPPED_MESSAGE_REASON }]);
+      if (ev.method === BACKGROUND_EXT_METHOD) {
+        const background = parseBackground(ev.params);
+        return background ? { ...state, background } : state;
+      }
       if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
       if (ev.method === DIAGNOSIS_EXT_METHOD) return withItems(state, [...state.items, { type: "diagnosis", id: `diagnosis-${ev.seq}` }]);
       if (ev.method === PEER_IN_METHOD) {

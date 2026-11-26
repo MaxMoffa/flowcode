@@ -1447,6 +1447,8 @@ export const it = {
   "chat.term.hint": "↓ per espandere",
   "chat.term.hintOpen": "↑↓ scorri · Invio output",
   "chat.term.noOutput": "L’agente non ha ancora letto nessun output.",
+  "chat.term.stop": "Ferma",
+  "chat.term.stopFailed": "Impossibile fermare il comando: {error}",
   "chat.subagent.launched.one": "{count} subagent avviato",
   "chat.subagent.launched.other": "{count} subagent avviati",
   "chat.permission.needed": "Serve un permesso",

@@ -58,6 +58,8 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(180);
 const MODE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The event carrying a chat's goal (`{ goal: Goal | null, actions: string[] }`).
 const GOAL_EXT_METHOD: &str = "_flowcode/goal";
+/// The agent's background terminals as ACP v2 reports them (params `{terminals: [...]}`).
+const BACKGROUND_EXT_METHOD: &str = "_flowcode/background";
 /// Flowcode's own: `/clear` replaced the session on the same agent process - the views empty the chat.
 pub(super) const CLEARED_EXT_METHOD: &str = "_flowcode/cleared";
 /// The agent started a turn by itself (no prompt of ours): the views show it working until its `turnEnd`.

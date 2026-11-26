@@ -1054,7 +1054,7 @@ pub(super) struct Extras {
     /// Set for a chat that carries out a delegated task.
     pub(super) link: Option<TaskLink>,
     /// The experimental ACP v2 flag (`chat_start`'s `acp_v2`). It only takes effect for the agents that
-    /// offer it (`offers_acp_v2`); a delegated child never gets it (`start_child`).
+    /// offer it (`offers_acp_v2`); a delegated child inherits its parent's (`start_child`).
     pub(super) acp_v2: bool,
 }
 

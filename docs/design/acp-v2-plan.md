@@ -1,6 +1,6 @@
 # ACP v2 (experimental, opt-in): implementation plan
 
-Status: phases 1-4 implemented 2026-11-26 (067473a, b3c8503, 42b747b, 2dfbbb1, + phase 4 commit), source-derived fixtures only, untested in app. Phases 5-6 not started.
+Status: all phases 1-6 implemented 2026-11-26 (067473a..), behind Settings → Experimental; source-derived fixtures only, untested in app.
 Decision (user): Flowcode keeps speaking ACP v1 by default. Users who turn on **Settings → Experimental → "ACP v2"** get v2 for the agents whose adapters serve it: Claude (`@agentclientprotocol/claude-agent-acp` 0.101.0) and Codex (`@agentclientprotocol/codex-acp` 2.7.0). Every other agent stays on v1.
 
 Sources read (the spec is the SDK the adapters ship, `@agentclientprotocol/sdk` 2.4.0, `dist/v2/schema/types.gen.d.ts` + `dist/protocol-router.js`):

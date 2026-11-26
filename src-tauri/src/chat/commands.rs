@@ -119,6 +119,12 @@ pub async fn chat_cancel(app: AppHandle, chat_id: String) -> Result<(), String> 
     crate::blocking(move || app.state::<ChatState>().cancel(&chat_id)).await
 }
 
+/// Stops one background terminal / tool call of an ACP v2 chat, when the agent offered to (`terminal/cancel`, `tool_call/cancel`).
+#[tauri::command]
+pub async fn chat_cancel_background(app: AppHandle, chat_id: String, terminal_id: Option<String>, tool_call_id: Option<String>) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().get(&chat_id)?.cancel_background(terminal_id.as_deref(), tool_call_id.as_deref())).await
+}
+
 #[tauri::command]
 pub async fn chat_permission(
     app: AppHandle,

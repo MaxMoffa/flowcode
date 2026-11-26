@@ -284,6 +284,8 @@ pub(super) enum Out {
     /// `error` is the JSON-RPC error v1 would have answered the prompt with; `background` is the
     /// complete list of background work when the agent reports one (items `{type:"terminal"|"tool_call"|"subagent", ...}`).
     Idle { stop_reason: Option<String>, error: Option<RpcError>, background: Option<Vec<Value>> },
+    /// The background work changed: the params of the `_flowcode/background` event (see `V2State::background_payload`).
+    Background(Value),
 }
 
 #[derive(Default)]
@@ -323,9 +325,114 @@ pub(super) struct V2State {
     terminals: HashMap<(String, String), Term>,
     /// The mode value last seen, to synthesize `current_mode_update` when it moves.
     mode: Option<String>,
+    /// Terminals / tool calls that advertised `capabilities.cancel` (keyed like `terminals`/`calls`).
+    cancel_terminals: HashSet<(String, String)>,
+    cancel_calls: HashSet<(String, String)>,
+    /// The background work the main session reported, oldest first; a gone item stays (not running) so the card can show its end.
+    background: Vec<BgItem>,
+    /// The params last sent as `_flowcode/background`, so only a change goes out.
+    background_sent: Option<Value>,
 }
 
+/// One item of the agent's background work (`state_update.background`).
+struct BgItem {
+    /// `terminal` or `tool_call`.
+    kind: String,
+    id: String,
+    /// In the agent's last list.
+    listed: bool,
+}
+
+/// The most background items kept (ended ones go first).
+const MAX_BACKGROUND_ITEMS: usize = 50;
+
 impl V2State {
+    /// The request that stops background work, from what the item advertised: `terminal/cancel` for a terminal that
+    /// can be cancelled, else `tool_call/cancel` for its tool call. `Err` when neither was advertised.
+    pub(super) fn cancel_request(&self, terminal_id: Option<&str>, tool_call_id: Option<&str>) -> Result<(&'static str, Value), String> {
+        let session = self.main.clone().ok_or("chat not started")?;
+        let key = |id: &str| (session.clone(), id.to_string());
+        if let Some(terminal) = terminal_id.filter(|t| self.cancel_terminals.contains(&key(t))) {
+            return Ok(("terminal/cancel", json!({ "sessionId": session, "terminalId": terminal })));
+        }
+        let call = tool_call_id.map(str::to_string).or_else(|| self.call_of_terminal(&session, terminal_id?));
+        match call.filter(|c| self.cancel_calls.contains(&key(c))) {
+            Some(call) => Ok(("tool_call/cancel", json!({ "sessionId": session, "toolCallId": call }))),
+            None => Err("the agent does not offer to stop this".to_string()),
+        }
+    }
+
+    /// The tool call showing a background terminal (Claude names the terminal like its call).
+    fn call_of_terminal(&self, session: &str, terminal: &str) -> Option<String> {
+        let key = (session.to_string(), terminal.to_string());
+        self.terminals.get(&key).and_then(|t| t.call.clone()).or_else(|| self.calls.contains_key(&key).then(|| terminal.to_string()))
+    }
+
+    /// Takes the agent's complete background list (main session only).
+    fn set_background(&mut self, list: &[Value]) {
+        let mut listed: Vec<(String, String)> = Vec::new();
+        for item in list {
+            let kind = as_str(item, "type").unwrap_or("");
+            let id = match kind {
+                "terminal" => as_str(item, "terminalId"),
+                "tool_call" => as_str(item, "toolCallId"),
+                _ => None,
+            };
+            if let Some(id) = id {
+                listed.push((kind.to_string(), id.to_string()));
+            }
+        }
+        for item in &mut self.background {
+            item.listed = listed.contains(&(item.kind.clone(), item.id.clone()));
+        }
+        for (kind, id) in listed {
+            if !self.background.iter().any(|i| i.kind == kind && i.id == id) {
+                self.background.push(BgItem { kind, id, listed: true });
+            }
+        }
+        while self.background.len() > MAX_BACKGROUND_ITEMS {
+            let at = self.background.iter().position(|i| !i.listed).unwrap_or(0);
+            self.background.remove(at);
+        }
+    }
+
+    /// `{terminals:[{toolCallId, terminalId?, running, exitCode?, cancellable}]}` for the views, when it differs from
+    /// what was last sent. A terminal runs while listed and not exited; a gone one keeps the exit code it reported.
+    fn background_payload(&mut self) -> Option<Value> {
+        let session = self.main.clone()?;
+        let mut terminals = Vec::new();
+        for item in &self.background {
+            let mut entry = serde_json::Map::new();
+            let key = (session.clone(), item.id.clone());
+            let (running, cancellable);
+            if item.kind == "terminal" {
+                let call = self.call_of_terminal(&session, &item.id);
+                let exit = self.terminals.get(&key).and_then(|t| t.exit.clone());
+                running = item.listed && exit.is_none();
+                cancellable = running
+                    && (self.cancel_terminals.contains(&key) || call.as_ref().is_some_and(|c| self.cancel_calls.contains(&(session.clone(), c.clone()))));
+                entry.insert("toolCallId".into(), json!(call.unwrap_or_else(|| item.id.clone())));
+                entry.insert("terminalId".into(), json!(item.id));
+                if let Some(code) = exit.as_ref().and_then(|e| e.code) {
+                    entry.insert("exitCode".into(), json!(code));
+                }
+            } else {
+                running = item.listed;
+                cancellable = running && self.cancel_calls.contains(&key);
+                entry.insert("toolCallId".into(), json!(item.id));
+            }
+            entry.insert("running".into(), json!(running));
+            entry.insert("cancellable".into(), json!(cancellable));
+            terminals.push(Value::Object(entry));
+        }
+        let payload = json!({ "terminals": terminals });
+        if self.background_sent.as_ref() == Some(&payload) {
+            return None;
+        }
+        self.background_sent = Some(payload.clone());
+        Some(payload)
+    }
+
     pub(super) fn new(main_session: &str) -> Self {
         Self { main: Some(main_session.to_string()), ..Self::default() }
     }
@@ -353,6 +460,43 @@ fn as_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 /// Translates one v2 `session/update` of `session_id`. Unknown kinds (and the
 /// ones v1 views have no use for) give nothing, so nothing v2-only reaches the log.
 pub(super) fn translate(state: &mut V2State, session_id: &str, update: &Value) -> Vec<Out> {
+    let kind = as_str(update, "sessionUpdate").unwrap_or("");
+    let of_main = !state.is_child(session_id);
+    // What the views' background card needs: the cancel adverts (`capabilities.cancel`) and the agent's list.
+    if of_main {
+        note_cancel(state, session_id, kind, update);
+        if kind == "state_update" && as_str(update, "state") == Some("idle") {
+            if let Some(list) = update.get("background").and_then(Value::as_array) {
+                state.set_background(list);
+            }
+        }
+    }
+    let mut outs = translate_update(state, session_id, update);
+    if of_main && matches!(kind, "state_update" | "terminal_update" | "tool_call" | "tool_call_update") && !state.background.is_empty() {
+        if let Some(payload) = state.background_payload() {
+            outs.push(Out::Background(payload));
+        }
+    }
+    outs
+}
+
+/// Remembers which terminals / tool calls can be cancelled (`capabilities: {cancel: {}}`; a report without it clears).
+fn note_cancel(state: &mut V2State, session_id: &str, kind: &str, update: &Value) {
+    let (set, id_key) = match kind {
+        "terminal_update" => (&mut state.cancel_terminals, "terminalId"),
+        "tool_call" | "tool_call_update" => (&mut state.cancel_calls, "toolCallId"),
+        _ => return,
+    };
+    let (Some(id), Some(capabilities)) = (as_str(update, id_key), update.get("capabilities")) else { return };
+    let key = (session_id.to_string(), id.to_string());
+    if capabilities.get("cancel").is_some_and(|c| !c.is_null()) {
+        set.insert(key);
+    } else {
+        set.remove(&key);
+    }
+}
+
+fn translate_update(state: &mut V2State, session_id: &str, update: &Value) -> Vec<Out> {
     let Some(kind) = as_str(update, "sessionUpdate") else { return vec![] };
     match kind {
         // A native subagent's own session chatter (its config, commands, plan, usage...) is not the chat's: it would
@@ -1113,13 +1257,18 @@ mod tests {
         assert_eq!((cmd["toolCall"]["kind"].as_str(), cmd["toolCall"]["rawInput"]["command"].as_str(), cmd["toolCall"]["title"].as_str()), (Some("execute"), Some("ls"), Some("Run command?")));
     }
 
+    /// The turn signals of an update, without the background events that may ride along.
+    fn turn_signals(out: Vec<Out>) -> Vec<Out> {
+        out.into_iter().filter(|o| !matches!(o, Out::Background(_))).collect()
+    }
+
     #[test]
     fn state_updates_drive_the_turn() {
         let mut st = state();
         assert!(matches!(run(&mut st, json!({ "sessionUpdate": "state_update", "state": "running" })).as_slice(), [Out::Running]));
         assert!(matches!(run(&mut st, json!({ "sessionUpdate": "state_update", "state": "requires_action", "background": [] })).as_slice(), [Out::RequiresAction]));
 
-        let done = run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "stopReason": "end_turn", "background": [{ "type": "subagent", "sessionId": "c" }, { "type": "terminal", "terminalId": "t" }] }));
+        let done = turn_signals(run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "stopReason": "end_turn", "background": [{ "type": "subagent", "sessionId": "c" }, { "type": "terminal", "terminalId": "t" }] })));
         let [Out::Idle { stop_reason, error, background }] = done.as_slice() else { panic!("not idle") };
         assert_eq!(stop_reason.as_deref(), Some("end_turn"));
         assert!(error.is_none());
@@ -1128,7 +1277,7 @@ mod tests {
         // idle without a stop reason is a snapshot: never a completion. No background key = None.
         let snapshot = run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle" }));
         assert!(matches!(snapshot.as_slice(), [Out::Idle { stop_reason: None, error: None, background: None }]));
-        let empty = run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "background": [] }));
+        let empty = turn_signals(run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "background": [] })));
         assert!(matches!(empty.as_slice(), [Out::Idle { stop_reason: None, background: Some(b), .. }] if b.is_empty()));
 
         // Other states and unknown ones give nothing.
@@ -1369,5 +1518,66 @@ mod tests {
         assert!(states.iter().any(|s| matches!(s, Out::Idle { error: Some(e), .. } if is_limit_error(e))));
         // An agent-started turn: running with no prompt before it, then its own idle.
         assert!(states.iter().filter(|s| matches!(s, Out::Running)).count() >= 2);
+    }
+
+    fn backgrounds(out: &[Out]) -> Vec<Value> {
+        out.iter().filter_map(|o| if let Out::Background(v) = o { Some(v.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn background_terminals_go_from_running_to_exit_and_only_on_change() {
+        let mut st = state();
+        // Claude: the terminal is named like its call; the cancel advert arrives on its own.
+        run(&mut st, json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "name": "Bash", "status": "in_progress",
+            "content": [{ "type": "terminal", "terminalId": "t1" }] }));
+        let advert = run(&mut st, json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "capabilities": { "cancel": {} } }));
+        assert!(backgrounds(&advert).is_empty(), "no list yet: nothing to show");
+        let idle = |list: Value| json!({ "sessionUpdate": "state_update", "state": "idle", "stopReason": "end_turn", "background": list });
+        let listed = backgrounds(&run(&mut st, idle(json!([{ "type": "terminal", "terminalId": "t1" }]))));
+        assert_eq!(listed, vec![json!({ "terminals": [{ "toolCallId": "t1", "terminalId": "t1", "running": true, "cancellable": true }] })]);
+        // The same snapshot again changes nothing.
+        assert!(backgrounds(&run(&mut st, idle(json!([{ "type": "terminal", "terminalId": "t1" }])))).is_empty());
+        // Output alone changes nothing either.
+        let chunk = run(&mut st, json!({ "sessionUpdate": "terminal_output_chunk", "terminalId": "t1", "data": b64("x") }));
+        assert!(backgrounds(&chunk).is_empty());
+        // The exit ends it, with its code; the agent's list drops it.
+        let exited = backgrounds(&run(&mut st, json!({ "sessionUpdate": "terminal_update", "terminalId": "t1", "exitStatus": { "exitCode": 2 } })));
+        assert_eq!(exited, vec![json!({ "terminals": [{ "toolCallId": "t1", "terminalId": "t1", "running": false, "exitCode": 2, "cancellable": false }] })]);
+        assert!(backgrounds(&run(&mut st, idle(json!([])))).is_empty());
+    }
+
+    #[test]
+    fn a_terminal_named_by_a_later_call_and_a_vanished_one() {
+        let mut st = state();
+        // Codex: the terminal comes before the call that names it, with its own cancel advert.
+        run(&mut st, json!({ "sessionUpdate": "terminal_update", "terminalId": "px", "command": "sleep 99", "capabilities": { "cancel": {} } }));
+        run(&mut st, json!({ "sessionUpdate": "tool_call", "toolCallId": "call_a", "name": "exec", "content": [{ "type": "terminal", "terminalId": "px" }] }));
+        let out = run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "background": [{ "type": "terminal", "terminalId": "px" }, { "type": "tool_call", "toolCallId": "job" }, { "type": "subagent", "sessionId": "c" }] }));
+        assert_eq!(backgrounds(&out), vec![json!({ "terminals": [
+            { "toolCallId": "call_a", "terminalId": "px", "running": true, "cancellable": true },
+            { "toolCallId": "job", "running": true, "cancellable": false }] })]);
+        // Gone from the list without an exit: no longer running, no code.
+        let out = run(&mut st, json!({ "sessionUpdate": "state_update", "state": "idle", "background": [{ "type": "terminal", "terminalId": "px" }] }));
+        assert_eq!(backgrounds(&out)[0]["terminals"][1], json!({ "toolCallId": "job", "running": false, "cancellable": false }));
+        // A child's updates never count.
+        assert!(backgrounds(&translate(&mut st, "kid", &json!({ "sessionUpdate": "state_update", "state": "idle", "background": [] }))).is_empty());
+    }
+
+    #[test]
+    fn cancel_requests_need_the_advert() {
+        let mut st = state();
+        run(&mut st, json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "name": "Bash", "content": [{ "type": "terminal", "terminalId": "t1" }] }));
+        assert!(st.cancel_request(Some("t1"), Some("t1")).is_err());
+        run(&mut st, json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "capabilities": { "cancel": {} } }));
+        let (method, params) = st.cancel_request(Some("t1"), None).unwrap();
+        assert_eq!((method, params), ("tool_call/cancel", json!({ "sessionId": "s1", "toolCallId": "t1" })));
+        run(&mut st, json!({ "sessionUpdate": "terminal_update", "terminalId": "t1", "capabilities": { "cancel": {} } }));
+        let (method, params) = st.cancel_request(Some("t1"), Some("t1")).unwrap();
+        assert_eq!((method, params), ("terminal/cancel", json!({ "sessionId": "s1", "terminalId": "t1" })));
+        // The advert withdrawn.
+        run(&mut st, json!({ "sessionUpdate": "terminal_update", "terminalId": "t1", "capabilities": {} }));
+        run(&mut st, json!({ "sessionUpdate": "tool_call_update", "toolCallId": "t1", "capabilities": {} }));
+        assert!(st.cancel_request(Some("t1"), Some("t1")).is_err());
+        assert!(st.cancel_request(None, None).is_err());
     }
 }

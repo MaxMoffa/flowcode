@@ -1,4 +1,4 @@
-import type { ChatItem } from "./chatModel";
+import type { BackgroundEntry, ChatItem } from "./chatModel";
 import type { ChatToolCall } from "./chatTypes";
 
 /** A command the agent started in the background. */
@@ -17,6 +17,12 @@ export interface BackgroundTerminal {
   output: string;
   /** When the launch call first appeared (event time, ms); null for history replayed without it. */
   startedAt: number | null;
+  /** ACP v2 only: the agent's terminal id, and what `chat_cancel_background` takes to stop it. */
+  terminalId?: string | null;
+  /** ACP v2 only: the agent offered to stop it. */
+  cancellable?: boolean;
+  /** ACP v2 only: the exit code the agent reported. */
+  exitCode?: number | null;
 }
 
 const input = (call: ChatToolCall): Record<string, unknown> => (call.rawInput && typeof call.rawInput === "object" ? (call.rawInput as Record<string, unknown>) : {});
@@ -67,12 +73,39 @@ function isKill(call: ChatToolCall): boolean {
   return name === "killshell" || name === "taskstop" || input(call).action === "kill";
 }
 
+/** The background commands an ACP v2 agent reported, each dressed with what its tool call shows. */
+function exactTerminals(items: ChatItem[], background: BackgroundEntry[]): BackgroundTerminal[] {
+  const calls = new Map<string, Extract<ChatItem, { type: "tool" }>>();
+  for (const item of items) if (item.type === "tool") calls.set(item.id, item);
+  return background.map((entry) => {
+    const item = calls.get(entry.toolCallId);
+    const call = item?.call;
+    const i = call ? input(call) : {};
+    const command = typeof i.command === "string" ? i.command : (call?.title ?? entry.terminalId ?? entry.toolCallId);
+    return {
+      id: entry.toolCallId,
+      shellId: entry.terminalId,
+      command,
+      description: typeof i.description === "string" ? i.description : "",
+      ownerId: call?.parentToolUseId ?? null,
+      running: entry.running,
+      output: call ? text(call) : "",
+      startedAt: call?.startedAt ?? null,
+      terminalId: entry.terminalId,
+      cancellable: entry.running && entry.cancellable,
+      exitCode: entry.exitCode,
+    };
+  });
+}
+
 /**
  * The agent's background commands, oldest first, with whether each still runs as far as the conversation shows.
  * Claude, Gemini and Vibe flag the launch in the call's input. Codex doesn't: its unified exec keeps the command's
  * call open while the process lives, so a command call still open once the agent has moved on is a background one.
  */
-export function backgroundTerminals(items: ChatItem[], agent: string): BackgroundTerminal[] {
+export function backgroundTerminals(items: ChatItem[], agent: string, background?: BackgroundEntry[] | null): BackgroundTerminal[] {
+  // ACP v2 says it exactly (`_flowcode/background`): that beats guessing from the tool text.
+  if (background) return exactTerminals(items, background);
   const terminals: BackgroundTerminal[] = [];
   const shells = new Map<string, RegExp | null>();
   const make = (id: string, call: ChatToolCall, command: string): BackgroundTerminal => {

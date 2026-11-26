@@ -601,7 +601,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   // Arrow keys in the composer walk the subagent tray (up) and the background terminals under it (down).
   // Scanning every tool call is the costly part of an event: it runs at low priority, the terminals card may lag a frame.
   const terminalItems = useDeferredValue(model.items);
-  const terminals = useMemo(() => (sub ? [] : backgroundTerminals(terminalItems, agent).filter((term) => term.running)), [sub, terminalItems, agent]);
+  const terminals = useMemo(() => (sub ? [] : backgroundTerminals(terminalItems, agent, model.background).filter((term) => term.running)), [sub, terminalItems, agent, model.background]);
   const [navZone, setNavZone] = useState<"input" | "sub" | "term">("input");
   const [navIndex, setNavIndex] = useState(0);
   const [subsOpen, setSubsOpen] = useState(false);
@@ -622,6 +622,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
       hint: t("chat.term.hint"),
       hintOpen: t("chat.term.hintOpen"),
       noOutput: t("chat.term.noOutput"),
+      stop: t("chat.term.stop"),
     }),
     [t],
   );
@@ -1583,6 +1584,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               }}
               idPrefix={listId}
               labels={termLabels}
+              onStop={chat.cancelBackground ? (term) => void chat.cancelBackground?.(term.terminalId ?? null, term.id) : undefined}
             />
             </Reveal>
           </div>

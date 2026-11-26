@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, CLEARED_EXT_METHOD, AUTONOMOUS_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, CLEARED_EXT_METHOD, AUTONOMOUS_EXT_METHOD, BACKGROUND_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 import { buildAskContent } from "./askQuestions";
 
@@ -1007,5 +1007,18 @@ describe("applyEvents (batch reducer)", () => {
     const model = applyEvents(initialChat(), events);
     expect(performance.now() - start).toBeLessThan(1500);
     expect(model.items.length).toBe(1 + 3000 * 2);
+  });
+});
+
+describe("_flowcode/background", () => {
+  const ext = (params: unknown): ChatEvent => ({ kind: "ext", seq: next(), at: 5, method: BACKGROUND_EXT_METHOD, params }) as ChatEvent;
+  it("keeps the latest list whole, ignores a malformed one, and is null for chats that never got one", () => {
+    expect(initialChat().background).toBeNull();
+    const one = { toolCallId: "t1", terminalId: "t1", running: true, cancellable: true };
+    const s1 = applyEvent(initialChat(), ext({ terminals: [one] }));
+    expect(s1.background).toEqual([{ toolCallId: "t1", terminalId: "t1", running: true, exitCode: null, cancellable: true }]);
+    const s2 = applyEvent(s1, ext({ terminals: [{ ...one, running: false, exitCode: 1, cancellable: false }, { nope: 1 }] }));
+    expect(s2.background).toEqual([{ toolCallId: "t1", terminalId: "t1", running: false, exitCode: 1, cancellable: false }]);
+    expect(applyEvent(s2, ext("junk")).background).toBe(s2.background);
   });
 });

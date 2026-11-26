@@ -181,7 +181,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const status = info ? chatStatus(info, model) : "idle";
   const exited = status === "exited";
   // Nothing still runs for a session that ended, whatever the conversation last said.
-  const terminals = useMemo(() => new Map(backgroundTerminals(model.items, info?.agent ?? "").map((term) => [term.id, exited ? { ...term, running: false } : term])), [model.items, info?.agent, exited]);
+  const terminals = useMemo(() => new Map(backgroundTerminals(model.items, info?.agent ?? "", model.background).map((term) => [term.id, exited ? { ...term, running: false } : term])), [model.items, info?.agent, model.background, exited]);
   const runningSubs = useMemo(() => sub || exited ? [] : nestSubagents(model.items).flatMap((item) =>
     item.type === "subagent" && subagentState(item).running ? [item] : []), [model.items, sub, exited]);
   const starting = status === "starting";

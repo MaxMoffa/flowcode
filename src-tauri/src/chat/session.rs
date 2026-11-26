@@ -857,6 +857,7 @@ impl Chat {
                 }
                 acp_v2::Out::RequiresAction => lock(&self.v2).running = true,
                 acp_v2::Out::Idle { stop_reason, error, background } => self.v2_idle(stop_reason, error, background),
+                acp_v2::Out::Background(params) => self.emit(ChatBody::Ext { method: BACKGROUND_EXT_METHOD.to_string(), params }),
             }
         }
     }
@@ -897,6 +898,16 @@ impl Chat {
         if self.protocol == AcpProtocol::V2 && lock(&self.v2).running {
             self.open_agent_turn();
         }
+    }
+
+    /// Stops one piece of the agent's background work (v2 only): `terminal/cancel` or `tool_call/cancel`, whichever the
+    /// item advertised. A v1 chat, or an item that did not advertise it, is an error.
+    pub(super) fn cancel_background(&self, terminal_id: Option<&str>, tool_call_id: Option<&str>) -> Result<(), String> {
+        if self.protocol != AcpProtocol::V2 {
+            return Err("this chat has no way to stop background work".to_string());
+        }
+        let (method, params) = lock(&self.v2).state.cancel_request(terminal_id, tool_call_id)?;
+        self.request(method, params, Duration::from_secs(10)).map(|_| ())
     }
 
     /// A v2 setup answer (`session/new`, `session/resume`): remembers the session and its mode for the codec and returns the

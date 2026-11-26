@@ -669,6 +669,19 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     });
   }, [agent]);
 
+  /** Stops one of the agent's background commands (ACP v2, one it offered to stop); the `_flowcode/background` event shows the outcome. */
+  const cancelBackground = useCallback((terminalId: string | null, toolCallId: string) => {
+    const id = chatIdRef.current;
+    if (!id) return Promise.resolve();
+    return invoke("chat_cancel_background", { chatId: id, terminalId, toolCallId }).then(
+      () => undefined,
+      (err) => {
+        if (chatIdRef.current !== id) return;
+        setModelState((m) => applyLocalError(m, t("chat.term.stopFailed", { error: String(err) })));
+      },
+    );
+  }, []);
+
   /** Pause, resume or stop the chat's goal; the backend's `_flowcode/goal` event shows the outcome. */
   const goalAction = useCallback((action: GoalAction) => {
     const id = chatIdRef.current;
@@ -860,11 +873,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     forgetCacheWarning(id);
   }, []);
 
-  return { model, phase, error, modes, models, thought, acpVersion, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, previewing, older, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, acpVersion, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, previewing, older, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, cancelBackground, scheduleResume, updateResume, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume" | "older" | "previewing" | "restart"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "cancelBackground" | "scheduleResume" | "updateResume" | "older" | "previewing" | "restart"> & {
   /** Starts the agent again; absent for a chat running on another PC whose host cannot resume sessions. */
   restart?: () => void;
   /** Older events of the log not loaded yet: `has` says there are some, `load` fetches the previous page and puts it in front of the conversation. Absent for a chat running on another PC (it sends its whole history). */
@@ -877,6 +890,8 @@ export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear"
   updateResume?: (text: string | null) => void;
   /** Pause, resume or stop the goal; absent for a chat running on another PC. */
   goalAction?: (action: GoalAction) => Promise<void>;
+  /** Stops a background command the agent offered to stop (ACP v2); absent for a chat running on another PC. */
+  cancelBackground?: (terminalId: string | null, toolCallId: string) => Promise<void>;
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
   clear?: () => void;
   /** Opens a brand-new chat with the same agent and folder (a chat of another PC, whose own session can't be restarted from here). */
