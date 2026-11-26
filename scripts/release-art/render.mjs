@@ -275,6 +275,35 @@ const COVERS = {
     for (const [x, y] of [[20, 40], [74, 36], [150, 52], [124, 40]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.41.0 "Agents talk, computers team up": two pads, each with a terminal (two tabs, or two PCs),
+   * a letter hopping between them along a dotted moss arc and the reply coming back on an amber one;
+   * the frog sits on the small pad in the middle and watches the mail go by. */
+  "v0.41.0"() {
+    const c = nightPond(41);
+    wordmark(c, "0.41");
+    reeds(c, 4, 86, 14, 1); reeds(c, 151, 86, 12, -1);
+    lilyPad(c, 34, 80, 18, 5);
+    lilyPad(c, 126, 80, 18, 5);
+    lilyPad(c, 80, 84, 11, 3);
+    terminal(c, 34, 76); terminal(c, 126, 76);
+    // the message: dotted arc from the left terminal to the right one, a letter at its top
+    c.dots(curve(38, 64, 80, 30, 122, 64), 2, C.moss);
+    const env = (x, y, col) => {
+      c.rect(x - 1, y - 1, 13, 9, C.shadow);
+      c.rect(x, y, 11, 7, C.ink);
+      for (let k = 0; k < 5; k++) { c.set(x + k, y + k, col); c.set(x + 10 - k, y + k, col); }
+    };
+    env(74, 39, C.inkDim);
+    // the reply: a lower amber arc back, a smaller letter on it
+    c.dots(curve(120, 69, 80, 52, 40, 69), 2, C.amber);
+    c.rect(56, 57, 7, 5, C.shadow); c.rect(57, 58, 5, 3, C.amber);
+    // ripples under the pads
+    c.hline(18, 30, 87, C.rippleHi); c.hline(110, 124, 87, C.rippleHi); c.hline(66, 94, 88, C.ripple);
+    frog(c, 70, 66, { cols: 20, rows: 16 });
+    for (const [x, y] of [[20, 44], [104, 34], [150, 50], [56, 36]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
