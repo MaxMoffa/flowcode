@@ -22,6 +22,7 @@ use crate::util::{lock, now_ms};
 
 pub(crate) mod delegate;
 pub(crate) mod goal;
+mod acp_v2;
 mod attachments;
 mod cline;
 mod commands;
