@@ -13,6 +13,7 @@ export type SettingsSection =
   | "shortcuts"
   | "funzionalita"
   | "profiles"
+  | "experimental"
   | "info";
 
 interface SettingsSectionValue {

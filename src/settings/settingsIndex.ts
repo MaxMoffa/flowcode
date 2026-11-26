@@ -15,6 +15,7 @@ export const SECTION_TITLE_KEYS: Record<SettingsSection, MessageKey> = {
   shortcuts: "settings.section.shortcuts",
   funzionalita: "settings.section.features",
   profiles: "settings.section.profiles",
+  experimental: "settings.section.experimental",
   info: "settings.section.info",
 };
 
@@ -31,6 +32,7 @@ export const SECTION_DESCRIPTION_KEYS: Record<SettingsSection, MessageKey> = {
   shortcuts: "settings.section.shortcuts.desc",
   funzionalita: "settings.section.features.desc",
   profiles: "settings.section.profiles.desc",
+  experimental: "settings.section.experimental.desc",
   info: "settings.section.info.desc",
 };
 
@@ -47,6 +49,7 @@ export const SECTION_SHORT_KEYS: Record<SettingsSection, MessageKey> = {
   shortcuts: "settings.section.shortcuts.short",
   funzionalita: "settings.section.features.short",
   profiles: "settings.section.profiles.short",
+  experimental: "settings.section.experimental.short",
   info: "settings.section.info.short",
 };
 
@@ -129,6 +132,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "remoteHosts", section: "remote", label: "remoteHosts.label", desc: "remoteHosts.desc", keywords: "altri pc other computers collega connect pair remoto remote host selettore selector disconnetti disconnect rimuovi remove" },
   { id: "features", section: "funzionalita", label: "settings.section.features", desc: "settings.section.features.desc", keywords: "plugin funzionalità features barra rapida quick bar shortcuts scorciatoie importa crea" },
   { id: "profiles", section: "profiles", label: "settings.section.profiles", desc: "settings.section.profiles.desc", keywords: "profili profiles account login accedi accesso multi utente claude codex vibe mistral cartella config" },
+  { id: "acpV2", section: "experimental", label: "settings.experimental.acpV2.label", desc: "settings.experimental.acpV2.desc", keywords: "sperimentale experimental acp protocollo protocol v2 claude codex stato state turno turn beta" },
   { id: "version", section: "info", label: "settings.group.version", desc: "settings.version.copyDesc", keywords: "versione version copia copy" },
   { id: "updates", section: "info", label: "settings.updates.label", desc: "settings.updates.desc", keywords: "aggiornamenti updates aggiorna upgrade" },
   { id: "configDir", section: "info", label: "settings.configDir.label", desc: "settings.configDir.desc", keywords: "configurazione config cartella folder json manutenzione" },

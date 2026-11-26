@@ -68,6 +68,13 @@ const PATHS: Record<SettingsSection, ReactNode> = {
       <path d="M5 20a7 7 0 0 1 14 0" />
     </>
   ),
+  experimental: (
+    <>
+      <path d="M9.5 3.5h5" />
+      <path d="M10.5 3.5v5.2L5.6 17.6A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-2.9l-4.9-8.9V3.5" />
+      <path d="M7.8 15h8.4" />
+    </>
+  ),
   info: (
     <>
       <circle cx="12" cy="12" r="8.5" />

@@ -16,6 +16,7 @@ import { setBrowserSetting, useBrowserSettings, type Target } from "../browser/b
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { setCallsEnabled, useCallsEnabled } from "../calls/callStore";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
+import { setAcpV2, useExperimentalSettings } from "./experimentalSettings";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { RemoteHostsSettings } from "../remoteHosts/RemoteHostsSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
@@ -140,6 +141,7 @@ export function SettingsPage({
   const notificationSettings = useNotificationSettings();
   const callsEnabled = useCallsEnabled();
   const autoResume = useAutoResumeSettings();
+  const experimental = useExperimentalSettings();
   // One scroll container serves every section, so without this a section
   // opens at whatever depth the previous one was scrolled to - except when
   // arriving from a search result, which scrolls to its own row instead.
@@ -791,6 +793,20 @@ export function SettingsPage({
         )}
 
         {section === "profiles" && <ProfilesSettings onLogin={onProfileLogin} />}
+
+        {section === "experimental" && (
+          <SettingsGroup title={t("settings.section.experimental")}>
+            <SettingRow id="acpV2" label={t("settings.experimental.acpV2.label")} desc={t("settings.experimental.acpV2.desc")}>
+              <Switch
+                checked={experimental.acpV2}
+                onChange={setAcpV2}
+                label={t("settings.experimental.acpV2.label")}
+                stateLabels={onOff}
+              />
+            </SettingRow>
+            <p className="settings-field-hint">{t("settings.experimental.acpV2.restart")}</p>
+          </SettingsGroup>
+        )}
 
         {section === "info" && (
           <>

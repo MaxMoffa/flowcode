@@ -8,6 +8,7 @@ import { basename } from "../lib/path";
 import { addCall } from "../calls/callStore";
 import { t } from "../i18n";
 import { readAgentToolsConfig } from "../agents/agentToolsSettings";
+import { getExperimentalSettings } from "../settings/experimentalSettings";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
@@ -319,6 +320,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
                 // What the agent may do through Flowcode's own tools, as the settings say now.
                 tools: await readAgentToolsConfig(),
                 diagnosis: diagnosisId ?? null,
+                // Read once per agent start: running chats keep the protocol they started with.
+                acpV2: getExperimentalSettings().acpV2,
               });
           // Only a chat started here is this hook's to close.
           if (!attachChatId) startedId = started.chatId;
