@@ -1,11 +1,12 @@
 import { useLayoutEffect, useState, type CSSProperties } from "react";
 import { FROG_BOX, FROG_HEIGHT, FROG_WIDTH, TAGLINE_LINE, lastTermGrid } from "../terminal/asciiBanner";
+import { TERMINAL_FONT } from "../terminal/terminalFont";
 import type { CatchFrame, FlyArea } from "./useFrogPose";
 import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 
 /** The terminal's font (see Terminal.tsx) - the page's banner and prompt are
  * set in it so they line up cell for cell with what replaces them. */
-const TERM_FONT = "Menlo, Consolas, monospace";
+const TERM_FONT = TERMINAL_FONT;
 /** What a terminal's columns leave out of its width: `.terminal-container`'s
  * horizontal padding (terminal.css) and the scrollbar FitAddon reserves. */
 const TERM_GUTTER_X = 28 + 14;

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { TERMINAL_FONT } from "../terminal/terminalFont";
 import { frogPalette } from "../terminal/asciiBanner";
 import { MOUTH, toWorld, tongueTip, type FrogScene, type Vec3 } from "./frog3d";
 import type { CatchFrame } from "./frogHunt";
@@ -197,7 +198,7 @@ function WordFly({ fly, unitsPerCell }: { fly: NonNullable<CatchFrame["fly"]>; u
         textAnchor="middle"
         dominantBaseline="central"
         fill="var(--fg)"
-        fontFamily="Menlo, Consolas, monospace"
+        fontFamily={TERMINAL_FONT}
         fontWeight={700}
         fontSize={height * 0.8}
       >

@@ -7,3 +7,6 @@ const LINUX = typeof navigator !== "undefined" && /Linux/.test(navigator.userAge
 export const TERMINAL_FONT = LINUX
   ? '"JetBrains Mono", "JetBrainsMono Nerd Font", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Ubuntu Mono", monospace'
   : "Menlo, Consolas, monospace";
+
+// For the CSS that must match a terminal cell for cell (the new tab page).
+if (typeof document !== "undefined") document.documentElement.style.setProperty("--term-font", TERMINAL_FONT);

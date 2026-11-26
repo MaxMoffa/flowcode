@@ -23,7 +23,7 @@
   backdrop-filter: blur(var(--glass-blur)) saturate(115%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(115%);
   color: var(--fg);
-  font-family: Menlo, Consolas, monospace;
+  font-family: var(--term-font, Menlo, Consolas, monospace);
   line-height: var(--newtab-cell);
 }
 
