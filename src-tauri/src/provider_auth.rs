@@ -102,6 +102,8 @@ struct AuthSession {
     stamp: Vec<(PathBuf, Option<std::time::SystemTime>, u64)>,
     settings: Mutex<Option<crate::provider_auth_keys::BrowserSettingsGuard>>,
     operation: Mutex<()>,
+    /// Sign-in checks already made after the login command exited (OpenCode retries a few).
+    probes: std::sync::atomic::AtomicU8,
 }
 
 impl Drop for AuthSession {
@@ -431,7 +433,7 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool, wsl: 
             let _ = child.wait();
             return Err("auth_failed".into());
         };
-        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(Box::new(stdin)), killer: Mutex::new(killer.release()), _master: None, exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
+        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(Box::new(stdin)), killer: Mutex::new(killer.release()), _master: None, exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()), probes: std::sync::atomic::AtomicU8::new(0) });
         if let Err(error) = send_rpc(&session, 1, "initialize", json!({"protocolVersion":1,"clientInfo":{"name":"flowcode","version":env!("CARGO_PKG_VERSION")},"clientCapabilities":{"_meta":{"browser-auth-delegated":true}}})) {
             lock(&session.killer).kill();
             let _ = child.wait();
@@ -479,7 +481,7 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool, wsl: 
             Err(_) => { drop(killer); let _ = child.wait(); return Err("auth_failed".into()); }
         };
         drop(pair.slave);
-        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(writer), killer: Mutex::new(killer.release()), _master: Some(Mutex::new(pair.master)), exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
+        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(writer), killer: Mutex::new(killer.release()), _master: Some(Mutex::new(pair.master)), exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()), probes: std::sync::atomic::AtomicU8::new(0) });
         sessions.insert(id, Arc::clone(&session));
         let reader_session = Arc::clone(&session);
         std::thread::spawn(move || {
@@ -570,7 +572,12 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
                         None => crate::plugins::cli_browser_is_logged_in(app, &request.cli, request.profile.as_deref(), &env),
                     };
                     if authenticated { finish(app, &session)?; }
-                    else if exited.is_some() { mark_error(&session, "auth_failed"); }
+                    else if exited.is_some() {
+                        // OpenCode's private server (fresh profile db, migrations) can answer `auth list` late or
+                        // time out right after the login exits: ask again on the next polls before giving up.
+                        let retry = request.cli == "opencode" && session.probes.fetch_add(1, Ordering::AcqRel) < 4;
+                        if !retry { eprintln!("[provider_auth] {} sign-in not confirmed after login exit", request.cli); mark_error(&session, "auth_failed"); }
+                    }
                 }
             }
             let response = lock(&session.state).clone();

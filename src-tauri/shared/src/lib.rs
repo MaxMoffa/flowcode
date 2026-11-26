@@ -75,10 +75,23 @@ pub fn run_command_blocking_timeout(
     envs: &[(String, String)],
     timeout: std::time::Duration,
 ) -> std::io::Result<std::process::Output> {
+    run_command_blocking_timeout_in(command, envs, timeout, None)
+}
+
+/// `run_command_blocking_timeout` in `cwd` (the app's own working directory
+/// when `None`: `/` for a macOS app opened from Finder).
+pub fn run_command_blocking_timeout_in(
+    command: &str,
+    envs: &[(String, String)],
+    timeout: std::time::Duration,
+    cwd: Option<&std::path::Path>,
+) -> std::io::Result<std::process::Output> {
     use std::process::Stdio;
     // These runs are non-interactive: a CLI asking for confirmation must get
     // EOF, not hang until the timeout.
-    let child = shell_command(command, envs)
+    let mut cmd = shell_command(command, envs);
+    if let Some(cwd) = cwd { cmd.current_dir(cwd); }
+    let child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

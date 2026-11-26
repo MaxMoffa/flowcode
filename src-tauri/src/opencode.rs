@@ -43,19 +43,43 @@ pub fn has_credentials(value: &serde_json::Value) -> bool {
     }
 }
 
+/// The first JSON value in a command's stdout. A login shell (`$SHELL -lc`) can print its own banner
+/// or `.zprofile` noise before the CLI's output, which would make a plain parse fail.
+fn parse_json_output(stdout: &[u8]) -> Result<serde_json::Value, String> {
+    let text = String::from_utf8_lossy(stdout);
+    let direct = serde_json::from_str(text.trim());
+    if let Ok(value) = direct { return Ok(value); }
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        if matches!(line.trim_start().chars().next(), Some('[' | '{')) {
+            let tail = &text[offset + (line.len() - line.trim_start().len())..];
+            if let Some(Ok(value)) = serde_json::Deserializer::from_str(tail).into_iter::<serde_json::Value>().next() { return Ok(value); }
+        }
+        offset += line.len();
+    }
+    direct.map_err(|e| format!("unreadable `opencode auth list` output: {e}"))
+}
+
+/// Not the app's own working directory (`/` when a macOS app starts from Finder): the private server
+/// would scan it as the project, unlike the login which runs in a neutral folder.
+fn neutral_cwd() -> std::path::PathBuf { std::env::temp_dir() }
+
 fn list_json(envs: &[(String, String)], standalone: bool, timeout: Duration) -> Result<serde_json::Value, String> {
-    let out = flowcode_shared::run_command_blocking_timeout(&command_line(standalone, "auth list --format json"), envs, timeout)
+    let out = flowcode_shared::run_command_blocking_timeout_in(&command_line(standalone, "auth list --format json"), envs, timeout, Some(&neutral_cwd()))
         .map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(if err.is_empty() { "`opencode auth list` failed".into() } else { err });
     }
-    serde_json::from_slice(&out.stdout).map_err(|e| format!("unreadable `opencode auth list` output: {e}"))
+    parse_json_output(&out.stdout)
 }
 
 /// `Some(logged in)`, or `None` when the status can't be told.
 pub fn is_logged_in(envs: &[(String, String)], standalone: bool, timeout: Duration) -> Option<bool> {
-    list_json(envs, standalone, timeout).ok().map(|v| has_credentials(&v))
+    match list_json(envs, standalone, timeout) {
+        Ok(v) => Some(has_credentials(&v)),
+        Err(error) => { eprintln!("[opencode] sign-in check failed: {}", error.chars().take(300).collect::<String>()); None }
+    }
 }
 
 /// Logs out of every saved integration.
@@ -65,7 +89,7 @@ pub fn logout(envs: &[(String, String)], standalone: bool, timeout: Duration) ->
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
             return Err(format!("unexpected integration id: {id}"));
         }
-        let out = flowcode_shared::run_command_blocking_timeout(&command_line(standalone, &format!("auth logout {id}")), envs, timeout)
+        let out = flowcode_shared::run_command_blocking_timeout_in(&command_line(standalone, &format!("auth logout {id}")), envs, timeout, Some(&neutral_cwd()))
             .map_err(|e| e.to_string())?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -155,6 +179,14 @@ pub async fn opencode_console(app: tauri::AppHandle, profile: Option<String>) ->
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn json_output_skips_login_shell_noise() {
+        assert_eq!(parse_json_output(b"[]\n").unwrap(), json!([]));
+        let noisy = b"Welcome back!\nnvm: using v20\n[\n  {\"id\": \"openai\"}\n]\n";
+        assert_eq!(parse_json_output(noisy).unwrap(), json!([{"id": "openai"}]));
+        assert!(parse_json_output(b"No authenticated integrations\n").is_err());
+    }
 
     #[test]
     fn standalone_only_when_asked() {
