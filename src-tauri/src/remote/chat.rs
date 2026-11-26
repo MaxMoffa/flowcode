@@ -229,8 +229,11 @@ pub(super) async fn send_older(shared: Arc<Shared>, chat_id: String, before_seq:
         let id = chat_id.clone();
         crate::blocking(move || crate::chat::older_page(&app.state::<ChatState>(), &id, before_seq)).await
     };
-    // A chat closed meanwhile has nothing to page.
-    let Ok((events, has_more, first_seq)) = found else { return };
+    // A chat closed meanwhile has nothing to page: an empty answer still ends the client's loading.
+    let Ok((events, has_more, first_seq)) = found else {
+        let _ = out.send(ServerMsg::ChatOlder { chat_id, events: Vec::new(), partial: false, has_more: false, first_seq: 0 }).await;
+        return;
+    };
     send_events(&out, &chat_id, events, Dest::Older(has_more, first_seq)).await;
 }
 
@@ -253,10 +256,15 @@ pub(super) async fn stream_chat(
     let mut first = true;
     // Only the first replay is a page; a resync after lagging is a plain delta.
     let mut page = page;
+    // After a lag resync the events are new to the client (it was never sent them): they go out as live
+    // events (`replay: false`), so it runs its live side effects (call_user, agent open...) for them.
+    let mut after_lag = false;
     loop {
         if first || !replay.is_empty() {
             last_seq = replay.last().map_or(last_seq, |e| e.seq);
-            if !send_events(&out, &chat_id, std::mem::take(&mut replay), Dest::Replay(page.take())).await {
+            let dest = if after_lag && !first { Dest::Live } else { Dest::Replay(page.take()) };
+            after_lag = false;
+            if !send_events(&out, &chat_id, std::mem::take(&mut replay), dest).await {
                 return;
             }
             sent.store(last_seq, Ordering::Relaxed);
@@ -283,6 +291,7 @@ pub(super) async fn stream_chat(
             let resynced = shared.app.state::<ChatState>().subscribe(&chat_id, last_seq);
             let Ok((past, rx)) = resynced else { return };
             (replay, feed) = (past, rx);
+            after_lag = true;
             continue;
         }
         batch.retain(|e| e.seq > last_seq);

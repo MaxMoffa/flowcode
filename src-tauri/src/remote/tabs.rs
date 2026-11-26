@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Session id -> chat id of the chats seen on a tab; see `chat_infos`.
+static SESSION_CHATS: std::sync::Mutex<std::collections::BTreeMap<String, String>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
 impl Shared {
     // ---- tabs --------------------------------------------------------------
 
@@ -66,7 +69,23 @@ impl Shared {
             .list_chats()
             .into_iter()
             .filter_map(|(window, tab)| {
-                let chat = chats.iter().find(|c| c.session_id.as_deref() == Some(tab.session_id.as_str()))?;
+                let mut known = lock(&SESSION_CHATS);
+                // While `/clear` renews the session the chat has none (`begin_renew`) and the tab still
+                // names the old one: the chat stays, found by the chat id that session had.
+                let chat = match chats.iter().find(|c| c.session_id.as_deref() == Some(tab.session_id.as_str())) {
+                    Some(chat) => {
+                        if known.len() > 512 {
+                            known.clear();
+                        }
+                        known.insert(tab.session_id.clone(), chat.chat_id.clone());
+                        chat
+                    }
+                    None => {
+                        let id = known.get(&tab.session_id)?;
+                        chats.iter().find(|c| c.chat_id == *id && c.session_id.is_none())?
+                    }
+                };
+                drop(known);
                 Some(ChatInfo {
                     chat_id: chat.chat_id.clone(),
                     tab_id: tab.tab_id,
@@ -75,7 +94,8 @@ impl Shared {
                     agent: chat.agent.clone(),
                     cwd: chat.cwd.clone(),
                     profile: chat.profile.clone(),
-                    session_id: chat.session_id.clone(),
+                    // The old session id until the new one exists, so a view never sees it vanish.
+                    session_id: chat.session_id.clone().or_else(|| Some(tab.session_id.clone())),
                     status: Some(chat.status.as_str().to_string()),
                     modes: chat.modes.clone(),
                     models: chat.models.clone(),

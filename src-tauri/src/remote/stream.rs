@@ -7,7 +7,7 @@ use std::time::Duration;
 use flowcode_remote_proto::{self as proto, ServerMsg};
 use flowcode_shared::i18n::tr;
 use tauri::{Emitter, Manager};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::hex::random_hex;
 use super::{Shared, SnapshotReply, EVT_SNAPSHOT_REQUEST, OUT_QUEUE, OUT_RESERVE};
@@ -81,7 +81,11 @@ fn fit_snapshot(mut data: String) -> (String, bool) {
 /// Empty (seq 0) when there is no window to ask; `None` when the window did
 /// not answer in time (asleep, minimized: it answers once it is back).
 async fn request_snapshot(shared: &Shared, pty_id: &str, owner: Option<String>) -> Option<SnapshotReply> {
-    let Some(owner) = owner else { return Some((String::new(), 0)) };
+    // No owner: the window is in transit (the tab moves between windows), so a live pty is
+    // unanswered and asked again; only a pty that is gone has nothing to show.
+    let Some(owner) = owner else {
+        return if shared.app.state::<PtyState>().exists(pty_id) { None } else { Some((String::new(), 0)) };
+    };
     let Ok(req_id) = random_hex(8) else { return Some((String::new(), 0)) };
     let (tx, reply) = oneshot::channel();
     lock(&shared.waiters).insert(req_id.clone(), tx);
@@ -103,11 +107,14 @@ async fn request_snapshot(shared: &Shared, pty_id: &str, owner: Option<String>) 
 /// When the phone can't keep up (the pty's queue for it, or its share of the
 /// connection's out queue, is full) the output is dropped instead of
 /// buffered, and once things drain a new snapshot replaces what was lost.
-pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<ServerMsg>) {
+pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<ServerMsg>, resized: bool) {
+    // Before subscribing to the pty, so no size change falls in the gap.
+    let mut size_rx = crate::pty::size_events();
+    let mut resized = resized;
     let subscription = shared.app.state::<PtyState>().remote_subscribe(&pty_id);
     let Some((mut feed, mut cols, mut rows, owner)) = subscription else {
         let message = tr("Terminale non trovato", "Terminal not found").to_string();
-        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.clone()), fatal: false }).await;
+        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.clone()), chat_id: None, fatal: false }).await;
         let _ = out.send(ServerMsg::Exit { pty_id }).await;
         return;
     };
@@ -211,16 +218,38 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
             }
             continue;
         }
-        let event = match retry_at {
-            Some(at) => tokio::select! {
-                event = feed.rx.recv() => event,
-                () = tokio::time::sleep_until(at) => {
-                    retry_at = None;
-                    resync = true;
-                    continue;
+        let event = tokio::select! {
+            event = feed.rx.recv() => event,
+            () = async {
+                match retry_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
                 }
-            },
-            None => feed.rx.recv().await,
+            } => {
+                retry_at = None;
+                resync = true;
+                continue;
+            }
+            size = size_rx.recv(), if resized => {
+                let size = match size {
+                    Ok((id, c, r)) => (id == pty_id).then_some((c, r)),
+                    Err(broadcast::error::RecvError::Lagged(_)) => shared.app.state::<PtyState>().sizes().get(&pty_id).copied(),
+                    Err(broadcast::error::RecvError::Closed) => {
+                        resized = false;
+                        None
+                    }
+                };
+                if let Some((c, r)) = size {
+                    (cols, rows) = (c, r);
+                    // Best effort like the output: the reserve stays for replies.
+                    if out.capacity() > OUT_RESERVE {
+                        if let Err(mpsc::error::TrySendError::Closed(_)) = out.try_send(ServerMsg::Resized { pty_id: pty_id.clone(), cols: c, rows: r }) {
+                            return;
+                        }
+                    }
+                }
+                continue;
+            }
         };
         let Some(event) = event else { break };
         match event {
@@ -324,7 +353,7 @@ async fn send_snapshot(out: &mpsc::Sender<ServerMsg>, pty_id: &str, data: String
             "Terminal history shortened: it was too long",
         )
         .to_string();
-        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.to_string()), fatal: false }).await;
+        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.to_string()), chat_id: None, fatal: false }).await;
     }
     out.send(ServerMsg::Snapshot { pty_id: pty_id.to_string(), data, cols, rows }).await.is_ok()
 }

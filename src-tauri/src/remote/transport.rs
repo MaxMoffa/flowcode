@@ -52,7 +52,7 @@ pub(super) fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
                 ServerMsg::Git { request_id, .. } => ServerMsg::Git { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::History { request_id, .. } => ServerMsg::History { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::Stats { request_id, .. } => ServerMsg::Stats { request_id: request_id.clone(), result: None, error: Some(message) },
-                _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false },
+                _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), chat_id: None, fatal: false },
             };
             if let Ok(bytes) = encode_frame(&note, false) {
                 buf.extend_from_slice(&bytes);
@@ -129,7 +129,7 @@ pub(super) async fn read_task(mut recv: RecvStream, in_tx: mpsc::Sender<ClientMs
             // The frame was consumed whole: say so and carry on.
             Err(FrameError::Json(_)) => {
                 let message = tr("Messaggio non valido", "Invalid message").to_string();
-                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
             }
             Err(_) => break,
         }

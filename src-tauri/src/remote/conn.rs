@@ -13,7 +13,7 @@ pub(super) async fn run_connection(
     // A new pairing was announced when confirmed.
     if token.is_none() && shared.is_fresh_connect(&device.id) {
         let body = format!("{} {}", device.name, tr("ha aperto l'accesso remoto", "opened remote access"));
-        shared.notify(tr("Telefono connesso", "Phone connected").to_string(), body);
+        shared.notify(tr("Dispositivo connesso", "Device connected").to_string(), body);
     }
 
     let (kick_tx, mut kick_rx) = watch::channel(None);
@@ -52,6 +52,7 @@ pub(super) async fn run_connection(
         auth_alive: Arc::new(AtomicBool::new(true)),
         auth_requests: Arc::new(AtomicUsize::new(0)),
         auth_supported: false,
+        resized_supported: false,
     };
     if let Some(token) = token {
         conn.send(ServerMsg::Paired { token, device_name: device.name.clone() });
@@ -170,7 +171,7 @@ pub(super) async fn run_connection(
             _ = kick_rx.changed() => {
                 if *kick_rx.borrow() == Some(Kick::Revoked) {
                     let message = tr("Dispositivo revocato", "Device revoked").to_string();
-                    conn.send(ServerMsg::Error { message, pty_id: None, fatal: true });
+                    conn.send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: true });
                     why = "device revoked";
                 } else {
                     // Recovery is transient: never make the phone forget pairing.
@@ -242,6 +243,8 @@ pub(super) struct Conn {
     pub(super) auth_alive: Arc<AtomicBool>,
     pub(super) auth_requests: Arc<AtomicUsize>,
     pub(super) auth_supported: bool,
+    /// The client advertised `resized`: it follows the size of the ptys it has open.
+    pub(super) resized_supported: bool,
 }
 
 impl Conn {
@@ -263,7 +266,12 @@ impl Conn {
     }
 
     pub(super) fn error(&self, message: &str, pty_id: Option<String>) {
-        self.send(ServerMsg::Error { message: message.to_string(), pty_id, fatal: false });
+        self.send(ServerMsg::Error { message: message.to_string(), pty_id, chat_id: None, fatal: false });
+    }
+
+    /// An error about one chat's request: the chat id lets the client settle that chat's state.
+    pub(super) fn chat_error(&self, message: &str, chat_id: &str) {
+        self.send(ServerMsg::Error { message: message.to_string(), pty_id: None, chat_id: Some(chat_id.to_string()), fatal: false });
     }
 
     /// Forgets streams that ended on their own (the program exited), with
@@ -353,7 +361,7 @@ impl Conn {
             state.subscribe(&chat_id, after_seq).map(|(events, feed)| (events, None, feed))
         };
         let Ok((replay, page, feed)) = subscribed else {
-            self.error(tr("Chat non trovata", "Chat not found"), None);
+            self.chat_error(tr("Chat non trovata", "Chat not found"), &chat_id);
             return;
         };
         if let Some((old, _)) = self.chat_subs.remove(&chat_id) {
@@ -397,7 +405,7 @@ impl Conn {
         let ptys = self.shared.app.state::<PtyState>();
         for pty_id in std::mem::take(&mut self.paused_ptys) {
             if ptys.exists(&pty_id) && !self.subs.contains_key(&pty_id) {
-                let task = tokio::spawn(stream_pty(Arc::clone(&self.shared), pty_id.clone(), self.out_tx.clone()));
+                let task = tokio::spawn(stream_pty(Arc::clone(&self.shared), pty_id.clone(), self.out_tx.clone(), self.resized_supported));
                 self.subs.insert(pty_id, task);
             }
         }

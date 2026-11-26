@@ -184,10 +184,19 @@ pub(super) async fn serve(mut guard: HandshakeGuard, connection: Connection, mut
     guard.done();
     // The device may have been revoked, or the endpoint stopped, while the
     // handshake ran.
-    if *shutdown.borrow() || !lock(&shared.config).devices.iter().any(|d| d.id == admitted.device.id) {
-        let message = tr("Dispositivo revocato", "Device revoked").to_string();
-        shared.log.line(&format!("peer {}: rejected: revoked or shutting down during the handshake", short_id(&connection.remote_id().to_string())));
-        reject(&connection, &mut admitted.send, message, 3, b"gone").await;
+    let missing = !lock(&shared.config).devices.iter().any(|d| d.id == admitted.device.id);
+    if missing || *shutdown.borrow() {
+        let peer = short_id(&connection.remote_id().to_string()).to_string();
+        if missing {
+            let message = tr("Dispositivo revocato", "Device revoked").to_string();
+            shared.log.line(&format!("peer {peer}: rejected: revoked during the handshake"));
+            reject(&connection, &mut admitted.send, message, 3, b"gone").await;
+        } else {
+            // Not fatal: the client keeps its pairing and retries.
+            let message = tr("Host in arresto", "Host shutting down").to_string();
+            shared.log.line(&format!("peer {peer}: rejected: shutting down during the handshake"));
+            reject_with(&connection, &mut admitted.send, message, false, 3, b"gone").await;
+        }
         return;
     }
     let (peer, device_name) = (short_id(&connection.remote_id().to_string()).to_string(), admitted.device.name.clone());

@@ -2,25 +2,35 @@
 
 use super::*;
 
-/// Chats with a `ChatOlder` page request in flight; held for the task's life.
-static OLDER_INFLIGHT: std::sync::Mutex<Option<std::collections::HashSet<String>>> = std::sync::Mutex::new(None);
+/// (connection, chat) pairs with a `ChatOlder` page request in flight; held for the task's life.
+/// Keyed by connection too, so one client's page request never blocks another's.
+static OLDER_INFLIGHT: std::sync::Mutex<Option<std::collections::HashSet<(u64, String)>>> = std::sync::Mutex::new(None);
 
-struct OlderSlot(String);
+struct OlderSlot(u64, String);
 
 impl OlderSlot {
     /// `None` when the chat already has a request running.
-    fn take(chat_id: &str) -> Option<Self> {
+    fn take(conn: u64, chat_id: &str) -> Option<Self> {
         let mut set = OLDER_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-        set.get_or_insert_with(Default::default).insert(chat_id.to_string()).then(|| Self(chat_id.to_string()))
+        set.get_or_insert_with(Default::default).insert((conn, chat_id.to_string())).then(|| Self(conn, chat_id.to_string()))
     }
 }
 
 impl Drop for OlderSlot {
     fn drop(&mut self) {
         if let Some(set) = OLDER_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            set.remove(&self.0);
+            set.remove(&(self.0, self.1.clone()));
         }
     }
+}
+
+/// A folder a client names (git root, history project) must stay on this machine (`explorer::resolve`'s rule).
+pub(super) fn ensure_local_dir(value: &str) -> Result<(), String> {
+    let path = std::path::Path::new(value);
+    if value.len() > 4096 || !crate::fs::is_local_path(path, false) || !crate::fs::links_stay_local(path) {
+        return Err(tr("Percorso locale non valido", "Invalid local path").into());
+    }
+    Ok(())
 }
 
 /// Runs one Git panel request through the same functions the desktop panel invokes.
@@ -30,6 +40,13 @@ pub(super) async fn run_git(request: proto::GitRequest) -> Result<serde_json::Va
     fn json<T: Serialize>(v: T) -> Result<serde_json::Value, String> {
         serde_json::to_value(v).map_err(|e| e.to_string())
     }
+    // Same rule as the explorer: nothing that would make Windows reach a network share or a device.
+    let dir = match &request {
+        R::Toplevel { path } => path,
+        R::Status { root } | R::Stage { root, .. } | R::Unstage { root, .. } | R::Commit { root, .. } | R::Discard { root, .. }
+        | R::Branches { root } | R::Switch { root, .. } | R::Show { root, .. } => root,
+    };
+    ensure_local_dir(dir)?;
     match request {
         R::Toplevel { path } => json(git::git_toplevel(path).await?),
         R::Status { root } => json(git::git_status(root).await?),
@@ -46,6 +63,7 @@ pub(super) async fn run_git(request: proto::GitRequest) -> Result<serde_json::Va
 /// The agent session lists of the project at `cwd`, as the desktop's History panel loads them.
 pub(super) async fn run_history(app: AppHandle, cwd: String) -> Result<serde_json::Value, String> {
     use crate::git;
+    ensure_local_dir(&cwd)?;
     // The repo's worktrees count as the project.
     let roots = match git::git_repo_root(cwd.clone()).await {
         Ok(Some(root)) => match git::git_worktrees(root.clone()).await {
@@ -73,7 +91,10 @@ impl Conn {
     pub(super) async fn handle(&mut self, msg: ClientMsg) {
         match msg {
             ClientMsg::ProviderAuth { request_id, request } => self.provider_auth(request_id, request),
-            ClientMsg::Hello { caps } => self.auth_supported = caps.iter().any(|cap| cap == "providerAuth"),
+            ClientMsg::Hello { caps } => {
+                self.auth_supported = caps.iter().any(|cap| cap == "providerAuth");
+                self.resized_supported = caps.iter().any(|cap| cap == "resized");
+            }
             ClientMsg::Auth { .. } | ClientMsg::Pair { .. } => {}
             ClientMsg::Ping => self.send(ServerMsg::Pong),
             ClientMsg::List => {
@@ -96,7 +117,7 @@ impl Conn {
                 if let (Some(cols), Some(rows)) = (cols, rows) {
                     self.shared.claim_size(&pty_id, self.id, cols, rows);
                 }
-                let task = tokio::spawn(stream_pty(Arc::clone(&self.shared), pty_id.clone(), self.out_tx.clone()));
+                let task = tokio::spawn(stream_pty(Arc::clone(&self.shared), pty_id.clone(), self.out_tx.clone(), self.resized_supported));
                 self.subs.insert(pty_id, task);
             }
             ClientMsg::Resize { pty_id, cols, rows } => {
@@ -196,18 +217,22 @@ impl Conn {
                     return;
                 }
                 if self.chat_subs.len() >= MAX_CHAT_SUBS && !self.chat_subs.contains_key(&chat_id) {
-                    self.error(tr("Troppe chat aperte", "Too many open chats"), None);
+                    self.chat_error(tr("Troppe chat aperte", "Too many open chats"), &chat_id);
                     return;
                 }
                 self.paused_chats.retain(|(id, _)| *id != chat_id);
                 self.open_chat(chat_id, after_seq, paged);
             }
             ClientMsg::ChatOlder { chat_id, before_seq } => {
+                // Always answered, so the client's "loading" ends: an empty page that says there is no more.
+                let empty = ServerMsg::ChatOlder { chat_id: chat_id.clone(), events: Vec::new(), partial: false, has_more: false, first_seq: 0 };
                 if chat_id.len() > MAX_ID_BYTES || before_seq == 0 || !self.chat_subs.contains_key(&chat_id) {
+                    self.send(empty);
                     return;
                 }
-                // One page request per chat at a time: a flood of them is dropped.
-                let Some(slot) = OlderSlot::take(&chat_id) else { return };
+                // One page request per chat and connection at a time: a flood of them is dropped (the one
+                // running answers).
+                let Some(slot) = OlderSlot::take(self.id, &chat_id) else { return };
                 let shared = Arc::clone(&self.shared);
                 let out = self.out_tx.clone();
                 let task = tokio::spawn(async move {
@@ -253,7 +278,7 @@ impl Conn {
                     tauri::async_runtime::spawn(async move {
                         let result = crate::blocking(move || crate::agent_messages::decide(&app, &message_id, &decision)).await;
                         if let Err(message) = result {
-                            let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                            let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                         }
                     });
                 } else {
@@ -292,7 +317,7 @@ impl Conn {
                 tauri::async_runtime::spawn(async move {
                     let result = app.state::<ChatState>().set_mode(&chat_id, mode_id).await;
                     if let Err(message) = result {
-                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                     }
                 });
             }
@@ -308,7 +333,7 @@ impl Conn {
                     let result = app.state::<ChatState>().set_model(&chat_id, model_id).await;
                     if let Err(message) = result {
                         let message = format!("{}: {message}", tr("Impossibile cambiare modello", "Couldn't change the model"));
-                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                     }
                 });
             }
@@ -323,7 +348,7 @@ impl Conn {
                     let result = app.state::<ChatState>().set_thought(&chat_id, value).await;
                     if let Err(message) = result {
                         let message = format!("{}: {message}", tr("Impossibile cambiare il livello di ragionamento", "Couldn't change the thinking level"));
-                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                     }
                 });
             }
@@ -338,7 +363,7 @@ impl Conn {
                     let result = app.state::<ChatState>().goal_action(&chat_id, action).await;
                     if let Err(message) = result {
                         let message = format!("{}: {message}", tr("Impossibile controllare il goal", "Couldn't control the goal"));
-                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                     }
                 });
             }
@@ -587,7 +612,7 @@ impl Conn {
             // A reply that doesn't fit the queue is dropped: the phone isn't reading.
             let _ = out.try_send(match result {
                 Ok(msg) => msg,
-                Err(message) => ServerMsg::Error { message, pty_id: Some(pty_id), fatal: false },
+                Err(message) => ServerMsg::Error { message, pty_id: Some(pty_id), chat_id: None, fatal: false },
             });
         });
     }
@@ -770,5 +795,21 @@ mod browser_op_tests {
         assert!(check_browser_op(&O::Forward { id: String::new() }).is_err());
         assert!(check_browser_op(&O::Navigate { id: "p".into(), url: "http://localhost:1".into() }).is_ok());
         assert!(check_browser_op(&O::Navigate { id: "p".into(), url: "data:text/html,x".into() }).is_err());
+    }
+}
+
+#[cfg(test)]
+mod older_slot_tests {
+    use super::OlderSlot;
+
+    #[test]
+    fn page_requests_are_limited_per_connection_and_chat() {
+        let a = OlderSlot::take(9001, "chat-x").expect("first");
+        assert!(OlderSlot::take(9001, "chat-x").is_none(), "same connection and chat: busy");
+        let other = OlderSlot::take(9002, "chat-x").expect("another connection is not blocked");
+        let other_chat = OlderSlot::take(9001, "chat-y").expect("another chat is not blocked");
+        drop(a);
+        assert!(OlderSlot::take(9001, "chat-x").is_some(), "released on drop");
+        drop((other, other_chat));
     }
 }

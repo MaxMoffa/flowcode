@@ -7,7 +7,11 @@ use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
 
 const RETRY_MS: u64 = 15 * 60 * 1000;
-const CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
+/// A receipt lives this long from the moment the HOST first saw its id. The id embeds the sender's clock,
+/// which is not trusted (a skewed PC or phone must still be able to send), so expiry never reads it; the
+/// window is long (a client may retry a queued message after hours offline) so a late retry of a prompt
+/// that was already delivered is still recognised instead of running twice; `MAX_RECEIPTS` bounds memory.
+const KEEP_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_RECEIPTS: usize = 4096;
 
 struct Receipt {
@@ -21,11 +25,13 @@ pub(super) struct PromptReceipts(Mutex<HashMap<(String, String, String), Receipt
 
 impl PromptReceipts {
     fn reserve(&self, device: &str, chat: &str, id: &str, text: &str, now: u64) -> Result<Arc<OnceCell<Result<(), String>>>, String> {
-        let timestamp = id.split_once('-').and_then(|(time, suffix)| (!suffix.is_empty()).then_some(time)).and_then(|s| s.parse::<u64>().ok())
-            .filter(|time| id.len() <= 128 && *time <= now.saturating_add(CLOCK_SKEW_MS) && now.saturating_sub(*time) <= RETRY_MS)
-            .ok_or_else(|| "Prompt delivery expired; send the queued message again".to_string())?;
+        // Only the shape is checked (`<number>-<suffix>`); the number is the client's clock and is ignored.
+        id.split_once('-').and_then(|(time, suffix)| (!suffix.is_empty()).then_some(time)).and_then(|s| s.parse::<u64>().ok())
+            .filter(|_| id.len() <= 128)
+            .ok_or_else(|| "Invalid prompt request id".to_string())?;
+        let timestamp = now;
         let mut receipts = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        receipts.retain(|_, r| now.saturating_sub(r.timestamp) <= RETRY_MS);
+        receipts.retain(|_, r| now.saturating_sub(r.timestamp) <= KEEP_MS);
         let key = (device.to_string(), chat.to_string(), id.to_string());
         let digest: [u8; 32] = Sha256::digest(text.as_bytes()).into();
         if let Some(receipt) = receipts.get(&key) {
@@ -73,8 +79,20 @@ mod tests {
         let first = receipts.reserve("a", "c", &id, "x", now).unwrap();
         assert!(Arc::ptr_eq(&first, &receipts.reserve("a", "c", &id, "x", now).unwrap()));
         assert!(!Arc::ptr_eq(&first, &receipts.reserve("b", "c", &id, "x", now).unwrap()));
-        assert!(receipts.reserve("a", "c", &id, "x", now + RETRY_MS + 1).is_err());
         assert!(receipts.reserve("a", "c", "bad", "x", now).is_err());
+        // Expiry counts from the host's first sight: a retry inside the window shares the receipt, a much later one is new.
+        assert!(Arc::ptr_eq(&first, &receipts.reserve("a", "c", &id, "x", now + RETRY_MS).unwrap()));
+        let later = receipts.reserve("a", "c", &id, "x", now + KEEP_MS + 1).unwrap();
+        assert!(!Arc::ptr_eq(&first, &later));
+    }
+
+    #[test]
+    fn a_skewed_client_clock_is_not_rejected() {
+        let receipts = PromptReceipts::default();
+        let now = 10 * RETRY_MS;
+        // A client an hour behind and a day ahead of the host.
+        assert!(receipts.reserve("d", "c", &format!("{}-a", now - 4 * RETRY_MS), "x", now).is_ok());
+        assert!(receipts.reserve("d", "c", &format!("{}-b", now + 96 * RETRY_MS), "x", now).is_ok());
     }
 
     #[test]
@@ -86,7 +104,7 @@ mod tests {
         }
         assert!(receipts.reserve("d", "c", &format!("{now}-overflow"), "x", now).is_err());
         assert!(receipts.reserve("d", "c", &format!("{now}-0"), "x", now).is_ok());
-        let later = now + RETRY_MS + 1;
+        let later = now + KEEP_MS + 1;
         assert!(receipts.reserve("d", "c", &format!("{later}-new"), "x", later).is_ok());
     }
 }

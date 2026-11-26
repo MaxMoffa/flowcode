@@ -409,9 +409,17 @@ pub enum ServerMsg {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pty_id: Option<String>,
+        /// The chat a chat-scoped request was about (open, older page, prompt...), so a client can
+        /// settle that chat's state. Absent for everything else, and from older desktops.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chat_id: Option<String>,
         /// The server closes the connection after a fatal error.
         fatal: bool,
     },
+    /// The size of a pty changed (a client's size claim applied or released, or the desktop's own
+    /// window resized it). Only sent to connections that advertised the `resized` capability and
+    /// follow the pty.
+    Resized { pty_id: String, cols: u16, rows: u16 },
     Tabs { tabs: Vec<Tab> },
     /// The desktop's current screen for a pty, sent right after `open`.
     Snapshot { pty_id: String, data: String, cols: u16, rows: u16 },
@@ -864,8 +872,14 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "t": "open", "ptyId": "p1", "cols": 50 }));
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"pair","code":"c","deviceName":"Pixel"}"#).unwrap();
         assert_eq!(msg, ClientMsg::Pair { code: "c".into(), device_name: "Pixel".into() });
-        let json = serde_json::to_value(ServerMsg::Error { message: "no".into(), pty_id: None, fatal: true }).unwrap();
+        let json = serde_json::to_value(ServerMsg::Error { message: "no".into(), pty_id: None, chat_id: None, fatal: true }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "error", "message": "no", "fatal": true }));
+        let json = serde_json::to_value(ServerMsg::Error { message: "no".into(), pty_id: None, chat_id: Some("c1".into()), fatal: false }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "error", "message": "no", "chatId": "c1", "fatal": false }));
+        let old: ServerMsg = serde_json::from_str(r#"{"t":"error","message":"no","fatal":false}"#).unwrap();
+        assert_eq!(old, ServerMsg::Error { message: "no".into(), pty_id: None, chat_id: None, fatal: false });
+        let json = serde_json::to_value(ServerMsg::Resized { pty_id: "p".into(), cols: 80, rows: 24 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "resized", "ptyId": "p", "cols": 80, "rows": 24 }));
         assert_eq!(serde_json::to_string(&ServerMsg::Pong).unwrap(), r#"{"t":"pong"}"#);
         let json = serde_json::to_value(ServerMsg::Notify { title: "T".into(), body: "B".into(), tab_id: Some("t1".into()) }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "notify", "title": "T", "body": "B", "tabId": "t1" }));

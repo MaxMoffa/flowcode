@@ -12,6 +12,17 @@ use tokio::sync::mpsc;
 
 use crate::util::lock;
 
+/// Every change of a session's size (id, cols, rows), for the remote host.
+fn size_events_tx() -> &'static tokio::sync::broadcast::Sender<(String, u16, u16)> {
+    static TX: std::sync::OnceLock<tokio::sync::broadcast::Sender<(String, u16, u16)>> = std::sync::OnceLock::new();
+    TX.get_or_init(|| tokio::sync::broadcast::channel(64).0)
+}
+
+/// Subscribes to size changes of any session.
+pub fn size_events() -> tokio::sync::broadcast::Receiver<(String, u16, u16)> {
+    size_events_tx().subscribe()
+}
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
@@ -341,8 +352,13 @@ impl PtyState {
         let mut sessions = lock(&self.0);
         let session = sessions.get_mut(id).ok_or("unknown pty session")?;
         session.ops.send(PtyOp::Resize(cols, rows)).map_err(|_| "pty session ended".to_string())?;
+        let changed = (session.cols, session.rows) != (cols, rows);
         session.cols = cols;
         session.rows = rows;
+        if changed {
+            // Remote clients following this pty learn about it (`Resized`).
+            let _ = size_events_tx().send((id.to_string(), cols, rows));
+        }
         Ok(())
     }
 

@@ -144,7 +144,7 @@ pub(super) async fn confirm_pairing(
         _ = shutdown.changed() => false,
         // The phone left while the user was deciding: no ghost device, no held slot.
         _ = connection.closed() => {
-            return Err(tr("Collegamento annullato dal telefono", "Pairing cancelled by the phone").to_string())
+            return Err(tr("Collegamento annullato dal dispositivo", "Pairing cancelled by the device").to_string())
         }
     };
     if !accepted {
@@ -161,7 +161,7 @@ pub(super) async fn confirm_pairing(
     shared.kick_removed(&stale);
     shared.save();
     shared.devices_changed();
-    shared.notify(tr("Nuovo telefono collegato", "New phone paired").to_string(), device.name.clone());
+    shared.notify(tr("Nuovo dispositivo collegato", "New device paired").to_string(), device.name.clone());
     Ok((device, token))
 }
 
@@ -176,7 +176,12 @@ pub(super) struct Admitted {
 
 /// Sends a fatal `error` and hangs up.
 pub(super) async fn reject(connection: &Connection, send: &mut SendStream, message: String, code: u32, reason: &[u8]) {
-    let _ = write_frame(send, &ServerMsg::Error { message, pty_id: None, fatal: true }).await;
+    reject_with(connection, send, message, true, code, reason).await;
+}
+
+/// As `reject`; a non-`fatal` refusal tells the client to try again later (the host is shutting down).
+pub(super) async fn reject_with(connection: &Connection, send: &mut SendStream, message: String, fatal: bool, code: u32, reason: &[u8]) {
+    let _ = write_frame(send, &ServerMsg::Error { message, pty_id: None, chat_id: None, fatal }).await;
     let _ = send.finish();
     // Closing right away could discard the error still in flight.
     let _ = tokio::time::timeout(Duration::from_secs(2), send.stopped()).await;

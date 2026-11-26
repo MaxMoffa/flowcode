@@ -106,7 +106,7 @@ pub(super) fn read_file(app: &AppHandle, id: &str, path: &str, known_hash: Optio
     let root = dir.join(id);
     let manifest = view_plugins::read_manifest(&root)?;
     if manifest.id != id || !for_phones(&manifest) {
-        return Err(tr("Vista non disponibile sul telefono", "View not available on phones").to_string());
+        return Err(tr("Vista non disponibile su questo dispositivo", "View not available on this device").to_string());
     }
     let not_found = || tr("File non trovato", "File not found").to_string();
     let file = view_plugins::resolve_file(&dir, id, &relative).ok_or_else(not_found)?;

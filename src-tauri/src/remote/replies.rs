@@ -15,7 +15,7 @@ impl Conn {
                     let _ = out.try_send(ServerMsg::Views { views });
                 }
                 Err(message) => {
-                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                 }
             }
         });
@@ -34,7 +34,7 @@ impl Conn {
                     views::send_file(&out, &view_id, &hash, &path, &bytes).await;
                 }
                 Err(message) => {
-                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
                 }
             }
         });
@@ -202,7 +202,7 @@ impl Conn {
         tauri::async_runtime::spawn(async move {
             let result = crate::blocking(move || work(&app.state::<ChatState>())).await;
             if let Err(message) = result {
-                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, chat_id: None, fatal: false });
             }
         });
     }
@@ -228,7 +228,7 @@ impl Conn {
             };
             let reply = match request_id {
                 Some(request_id) => Some(ServerMsg::ChatPromptAck { chat_id, request_id, message: result.err() }),
-                None => result.err().map(|message| ServerMsg::Error { message, pty_id: None, fatal: false }),
+                None => result.err().map(|message| ServerMsg::Error { message, pty_id: None, chat_id: Some(chat_id.clone()), fatal: false }),
             };
             if let Some(reply) = reply { let _ = out.send(reply).await; }
         });
@@ -238,7 +238,7 @@ impl Conn {
     pub(super) fn chat(&self, chat_id: &str) -> Option<ChatInfo> {
         let chat = self.shared.chat_infos().into_iter().find(|c| c.chat_id == chat_id);
         if chat.is_none() {
-            self.error(tr("Chat non trovata", "Chat not found"), None);
+            self.chat_error(tr("Chat non trovata", "Chat not found"), chat_id);
         }
         chat
     }

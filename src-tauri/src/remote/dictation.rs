@@ -69,7 +69,7 @@ pub(super) fn start(app: &AppHandle, conn_id: u64, out: mpsc::Sender<ServerMsg>,
     } else {
         let mut all = sessions();
         if all.keys().any(|(conn, _)| *conn == conn_id) {
-            Some(("busy", tr("Una dettatura è già in corso su questo telefono", "A dictation is already running for this phone")))
+            Some(("busy", tr("Una dettatura è già in corso su questo dispositivo", "A dictation is already running for this device")))
         } else {
             all.insert((conn_id, session.clone()), Entry { audio: Some(audio_tx), ctl: ctl_tx });
             None
