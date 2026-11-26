@@ -18,9 +18,18 @@ import { useAllTabDelegations } from "../chat/delegateStore";
 import type { DelegateInfo } from "../chat/chatModel";
 import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
 import type { ClaudeSessionEntry } from "./entryTypes";
+import { forgetDelegates } from "./delegateHistory";
+import { getHiddenRows, hideRows, historyDeleteSessions, historySessionPath, unhideRows, useHiddenRows, type HistoryItem } from "./historyDelete";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
+import { MenuIcons } from "../context-menu/menuIcons";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import "./agent-history.css";
 
 const POLL_MS = 5000;
+/** A single delete can be undone for this long; another delete restarts the wait. */
+const UNDO_MS = 6000;
+const ERROR_TOAST_MS = 4000;
 /** How long the first Claude scan waits for the repo's worktrees before going ahead with the folder alone. */
 const ROOTS_WAIT_MS = 300;
 /** Nothing arrived for this long: ghost rows appear (a faster answer shows no flash). */
@@ -86,6 +95,70 @@ function DelegateTwisty({ kids, open, onToggle }: { kids: DelegateChild[]; open:
       <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <polyline points="9 6 15 12 9 18" />
       </svg>
+    </span>
+  );
+}
+
+/** A saved chat on its way out: what the backend needs, its hidden-row key, and whether it had delegated chats. */
+interface DeleteEntry {
+  item: HistoryItem;
+  key: string;
+  orchestrator?: boolean;
+}
+
+const GLOBAL_AGENTS = ["codex", "vibe", "opencode", "cline"] as const;
+
+/** Deletes for good, takes failures back into the list and refreshes the lists. `onFailed` gets how many could not be deleted. */
+async function deleteEntries(entries: DeleteEntry[], roots: string[], onFailed: (count: number) => void) {
+  if (entries.length === 0) return;
+  let failedIds: Set<string>;
+  try {
+    const res = await historyDeleteSessions(entries.map((e) => e.item));
+    failedIds = new Set(res.failed.map((f) => f.sessionId));
+  } catch {
+    failedIds = new Set(entries.map((e) => e.item.sessionId));
+  }
+  const failed = entries.filter((e) => failedIds.has(e.item.sessionId));
+  const done = entries.filter((e) => !failedIds.has(e.item.sessionId));
+  unhideRows(failed.map((e) => e.key));
+  forgetDelegates(done.filter((e) => e.orchestrator).map((e) => e.item.sessionId));
+  const clis = new Set(entries.map((e) => e.item.cli));
+  GLOBAL_AGENTS.filter((a) => clis.has(a)).forEach(refreshGlobalAgent);
+  if (clis.has("claude")) refreshClaude(roots);
+  if (failed.length > 0) onFailed(failed.length);
+}
+
+const MORE_ICON = (
+  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+    <circle cx="3.5" cy="8" r="1.4" />
+    <circle cx="8" cy="8" r="1.4" />
+    <circle cx="12.5" cy="8" r="1.4" />
+  </svg>
+);
+
+/** The "⋯" at a row's right edge: a span, since a button can't sit inside the row's button. */
+function RowMore({ label, onOpen }: { label: string; onOpen: (rect: DOMRect) => void }) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-haspopup="menu"
+      aria-label={label}
+      title={label}
+      className="agent-history-more"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(e.currentTarget.getBoundingClientRect());
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpen(e.currentTarget.getBoundingClientRect());
+        }
+      }}
+    >
+      {MORE_ICON}
     </span>
   );
 }
@@ -223,9 +296,13 @@ ${projectCwd}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claude, codex, vibe, opencode, cline, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
 
+  // Deleted rows stay out of the list even while the backend lists still carry them.
+  const hiddenRows = useHiddenRows();
+  const visibleRows = useMemo(() => rows.filter((row) => !hiddenRows.has(row.key)), [rows, hiddenRows]);
+
   // Ghost rows only when the wait lasts: nothing here after GHOST_DELAY_MS.
   const [ghost, setGhost] = useState(false);
-  const waiting = pending && rows.length === 0;
+  const waiting = pending && visibleRows.length === 0;
   useEffect(() => {
     if (!waiting) return setGhost(false);
     const timer = setTimeout(() => setGhost(true), GHOST_DELAY_MS);
@@ -242,14 +319,15 @@ ${projectCwd}`;
   for (const row of rows) seenRowKeys.add(row.key);
 
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;
-  const shown = filterRows(rows, query, titleOf);
+  const shown = filterRows(visibleRows, query, titleOf);
   const needle = query.trim();
   const groups = groupByDay(shown, (day) =>
     day === "open" ? t("history.open") : day === "today" ? t("history.today") : day === "yesterday" ? t("history.yesterday") : new Date(day).toLocaleDateString(language, { day: "numeric", month: "long" }),
   );
 
   /** Some row has delegated chats: every row then leaves room for the arrow, so titles stay aligned. */
-  const hasDelegates = shown.some((row) => row.sessionId && (delegateHistory[row.sessionId]?.children.length ?? 0) > 0);
+  const kidsOf = (row: HistoryRow) => (row.sessionId ? (delegateHistory[row.sessionId]?.children ?? []) : []).filter((c) => !hiddenRows.has(`${c.agent}:${c.childSessionId}`));
+  const hasDelegates = shown.some((row) => kidsOf(row).length > 0);
 
   /** The linked worktree a folder is in, if any. */
   const branchOf = (cwd: string) => worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined))?.branch ?? null;
@@ -273,6 +351,158 @@ ${projectCwd}`;
     if (!isAgentCli(child.agent)) return;
     onResume(row.cwd, child.childSessionId, child.agent, row.wslDistro ?? undefined, child.agent === row.cli ? (row.profile ?? undefined) : undefined, undefined);
   };
+  const openRow = (row: HistoryRow) => {
+    if (row.tabId) onOpenTab(row.tabId, row.sessionId || undefined);
+    else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined, row.at > 0 ? row.at : undefined);
+  };
+
+  // ---- deleting ----
+  const { show: showMenu } = useContextMenu();
+  const confirm = useConfirmDialog();
+  /** The row whose menu is open (kept lit). The menu has no close hook: any press, Escape or blur ends it. */
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menuKey) return;
+    const close = () => setMenuKey(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("mousedown", close, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("mousedown", close, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", close);
+    };
+  }, [menuKey]);
+
+  const [toast, setToast] = useState<{ id: number; kind: "undo" | "error"; text: string } | null>(null);
+  const toastId = useRef(0);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Chats deleted but not yet committed: Undo takes them back until the timer runs out. */
+  const batch = useRef<DeleteEntry[]>([]);
+  const batchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rootsRef = useRef(roots);
+  rootsRef.current = roots;
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  const showError = (text: string) => {
+    if (batch.current.length > 0) return;
+    clearTimeout(toastTimer.current);
+    setToast({ id: ++toastId.current, kind: "error", text });
+    toastTimer.current = setTimeout(() => setToast(null), ERROR_TOAST_MS);
+  };
+  const reportFailed = (count: number) => showError(tRef.current("history.delete.failed", { count }));
+  /** Commits the pending single deletes now. */
+  const flushBatch = () => {
+    clearTimeout(batchTimer.current);
+    const entries = batch.current;
+    batch.current = [];
+    setToast((cur) => (cur?.kind === "undo" ? null : cur));
+    void deleteEntries(entries, rootsRef.current, reportFailed);
+  };
+  const flushRef = useRef(flushBatch);
+  flushRef.current = flushBatch;
+  // Leaving the panel commits what is still waiting.
+  useEffect(
+    () => () => {
+      clearTimeout(toastTimer.current);
+      if (batch.current.length > 0) flushRef.current();
+    },
+    [],
+  );
+  const queueDelete = (entries: DeleteEntry[]) => {
+    if (entries.length === 0) return;
+    hideRows(entries.map((e) => e.key));
+    batch.current = [...batch.current, ...entries];
+    clearTimeout(toastTimer.current);
+    setToast({ id: ++toastId.current, kind: "undo", text: "" });
+    clearTimeout(batchTimer.current);
+    batchTimer.current = setTimeout(flushBatch, UNDO_MS);
+  };
+  const undoDelete = () => {
+    clearTimeout(batchTimer.current);
+    unhideRows(batch.current.map((e) => e.key));
+    batch.current = [];
+    setToast(null);
+  };
+
+  /** A delegated chat still live (open in a tab or running under its orchestrator) can't be deleted. */
+  const childLive = (child: DelegateChild) =>
+    delegateTabs.some((x) => x.delegate?.taskId === child.taskId) || Object.values(delegations).some((d) => !d.ended && d.delegates.some((x) => x.taskId === child.taskId));
+  const entryOf = (cli: string, sessionId: string, profile: string | null, wslDistro: string | null): DeleteEntry => ({ item: { cli, sessionId, profile, wslDistro }, key: `${cli}:${sessionId}` });
+  /** A row with the delegated chats that go with it. */
+  const entriesOfRow = (row: HistoryRow): DeleteEntry[] => {
+    const kids = kidsOf(row).filter((c) => !childLive(c));
+    const own = { ...entryOf(row.cli, row.sessionId, row.profile, row.wslDistro), orchestrator: kidsOf(row).length > 0 };
+    return [own, ...kids.map((c) => entryOf(c.agent, c.childSessionId, c.agent === row.cli ? row.profile : null, row.wslDistro))];
+  };
+
+  const copyId = (id: string) => void navigator.clipboard.writeText(id).catch(() => {});
+  const reveal = (item: HistoryItem) => {
+    historySessionPath(item)
+      .then((path) => revealItemInDir(path))
+      .catch(() => showError(t("history.reveal.failed")));
+  };
+  /** Menu of one saved chat: `open` is what a click on the row does. */
+  const chatMenu = (open: { label: string; run: () => void }, entry: DeleteEntry, toDelete: DeleteEntry[] | null): ContextMenuItem[] => [
+    { label: open.label, icon: MenuIcons.openExternal, onSelect: open.run },
+    { label: t("history.menu.reveal"), icon: MenuIcons.folder, disabled: !entry.item.sessionId, onSelect: () => reveal(entry.item) },
+    { label: t("history.menu.copyId"), icon: MenuIcons.duplicate, disabled: !entry.item.sessionId, onSelect: () => copyId(entry.item.sessionId) },
+    { label: "history-menu-separator", separator: true },
+    toDelete
+      ? { label: t("history.menu.delete"), icon: MenuIcons.trash, danger: true, onSelect: () => queueDelete(toDelete) }
+      : { label: t("history.menu.deleteOpen"), icon: MenuIcons.trash, danger: true, disabled: true },
+  ];
+  const rowMenu = (row: HistoryRow) => {
+    const entries = entriesOfRow(row);
+    const canDelete = !row.tabId && !!row.sessionId;
+    return chatMenu({ label: t(row.tabId ? "history.menu.goToTab" : "history.menu.resume"), run: () => openRow(row) }, entries[0], canDelete ? entries : null);
+  };
+  const childMenu = (row: HistoryRow, child: DelegateChild) => {
+    const entry = entryOf(child.agent, child.childSessionId, child.agent === row.cli ? row.profile : null, row.wslDistro);
+    const live = childLive(child);
+    const label = t(live ? "history.menu.goToTab" : "history.menu.resume");
+    return chatMenu({ label, run: () => openChild(row, child) }, entry, live || !child.childSessionId ? null : [entry]);
+  };
+  /** Opens a menu at the "⋯" button (its right edge under the button) or at the pointer. */
+  const openAt = (key: string, items: ContextMenuItem[], at: { x: number; y: number } | DOMRect) => {
+    setMenuKey(key);
+    if (at instanceof DOMRect) showMenu(at.right - 200, at.bottom + 4, items);
+    else showMenu(at.x, at.y, items);
+  };
+  const onRowContext = (key: string, items: () => ContextMenuItem[]) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openAt(key, items(), { x: e.clientX, y: e.clientY });
+  };
+
+  /** What "Clear project history" would delete: every saved chat of the list (not the open ones), with its delegated chats. */
+  const clearEntries = visibleRows.filter((row) => !row.tabId && row.sessionId).flatMap(entriesOfRow);
+  const labelOf = (cli: string) => (isAgentCli(cli) ? CLI_INFO[cli].label : cliName(cli));
+  const clearProject = async () => {
+    const entries = clearEntries;
+    if (entries.length === 0) return;
+    const counts = new Map<string, number>();
+    for (const e of entries) counts.set(e.item.cli, (counts.get(e.item.cli) ?? 0) + 1);
+    const breakdown = [...counts].map(([cli, n]) => `${labelOf(cli)} ${n}`).join(", ");
+    const project = projectCwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || projectCwd;
+    const ok = await confirm({
+      title: t("history.clear.title", { project }),
+      message: t("history.clear.message", { count: entries.length, breakdown }),
+      confirmLabel: t("history.clear.confirm", { count: entries.length }),
+      danger: true,
+    });
+    if (!ok) return;
+    // The pending single deletes go first, then these - no undo.
+    if (batch.current.length > 0) flushBatch();
+    const fresh = entries.filter((e) => !getHiddenRows().has(e.key));
+    hideRows(fresh.map((e) => e.key));
+    void deleteEntries(fresh, rootsRef.current, reportFailed);
+  };
+  const toolsMenu = (rect: DOMRect) =>
+    openAt("tools", [{ label: t("history.clear.menu"), icon: MenuIcons.trash, danger: true, disabled: clearEntries.length === 0, onSelect: () => void clearProject() }], rect);
+
   const timeOf = (row: HistoryRow) => {
     if (row.at <= 0) return "";
     return Date.now() - row.at < 60_000 ? t("history.now") : relativeCommitTime(row.at / 1000);
@@ -280,19 +510,31 @@ ${projectCwd}`;
 
   return (
     <div className="agent-history">
-      <label className="agent-history-search">
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.2" />
-          <path d="M10.2 10.2l3.3 3.3" />
-        </svg>
-        <input
-          type="text"
-          value={query}
-          placeholder={t("history.search")}
-          aria-label={t("history.search")}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </label>
+      <div className="agent-history-searchrow">
+        <label className="agent-history-search">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.2" />
+            <path d="M10.2 10.2l3.3 3.3" />
+          </svg>
+          <input
+            type="text"
+            value={query}
+            placeholder={t("history.search")}
+            aria-label={t("history.search")}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className={"agent-history-tools" + (menuKey === "tools" ? " is-open" : "")}
+          aria-haspopup="menu"
+          aria-label={t("history.tools")}
+          title={t("history.tools")}
+          onClick={(e) => toolsMenu(e.currentTarget.getBoundingClientRect())}
+        >
+          {MORE_ICON}
+        </button>
+      </div>
       <div className="agent-history-listwrap">
       {pending && <div className="agent-history-topbar" role="progressbar" aria-busy="true" />}
       <div className={"agent-history-list" + (hasDelegates ? " has-delegates" : "")}>
@@ -319,19 +561,17 @@ ${projectCwd}`;
             {group.rows.map((row) => {
               const branch = branchOf(row.cwd);
               const time = timeOf(row);
-              const kids = row.sessionId ? (delegateHistory[row.sessionId]?.children ?? []) : [];
+              const kids = kidsOf(row);
               const unfoldedKids = kids.length > 0 && unfolded.has(row.sessionId);
               return (
                 <Fragment key={row.key}>
                 <button
                   type="button"
-                  className={"agent-history-row" + (riseKeys.current.has(row.key) ? " is-rise" : "") + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
+                  className={"agent-history-row" + (riseKeys.current.has(row.key) ? " is-rise" : "") + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "") + (menuKey === row.key ? " is-menu-open" : "")}
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
                   title={`${titleOf(row)}\n${row.cwd}`}
-                  onClick={() => {
-                    if (row.tabId) onOpenTab(row.tabId, row.sessionId || undefined);
-                    else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined, row.at > 0 ? row.at : undefined);
-                  }}
+                  onClick={() => openRow(row)}
+                  onContextMenu={onRowContext(row.key, () => rowMenu(row))}
                 >
                   {kids.length > 0 && <DelegateTwisty kids={kids} open={unfoldedKids} onToggle={() => toggleKids(row.sessionId)} />}
                   <span className="agent-history-icon">
@@ -358,6 +598,7 @@ ${projectCwd}`;
                     </span>
                   </span>
                   {row.tabId && <span className={`agent-history-dot agent-history-dot--${row.status ?? "idle"}`} aria-hidden="true" />}
+                  <RowMore label={t("history.menu.more")} onOpen={(rect) => openAt(row.key, rowMenu(row), rect)} />
                 </button>
                 {unfoldedKids && (
                   <div className="agent-history-kids">
@@ -365,9 +606,10 @@ ${projectCwd}`;
                       <button
                         key={child.taskId}
                         type="button"
-                        className="agent-history-row is-child"
+                        className={"agent-history-row is-child" + (menuKey === `child:${child.taskId}` ? " is-menu-open" : "")}
                         title={child.title}
                         onClick={() => openChild(row, child)}
+                        onContextMenu={onRowContext(`child:${child.taskId}`, () => childMenu(row, child))}
                       >
                         <span className="agent-history-icon">{agentCliIcon(child.agent)}</span>
                         <span className="agent-history-body">
@@ -375,6 +617,7 @@ ${projectCwd}`;
                           <span className="agent-history-meta">{`${cliName(child.agent)} · ${t(TONE_LABEL[delegateTone(child.status)])}`}</span>
                         </span>
                         <span className={`agent-history-dot agent-history-dot--${historyDot(child.status)}`} aria-hidden="true" />
+                        <RowMore label={t("history.menu.more")} onOpen={(rect) => openAt(`child:${child.taskId}`, childMenu(row, child), rect)} />
                       </button>
                     ))}
                   </div>
@@ -385,6 +628,19 @@ ${projectCwd}`;
           </section>
         ))}
       </div>
+      {toast && (
+        <div key={toast.id} className={"agent-history-toast" + (toast.kind === "error" ? " is-error" : "")} role="status" aria-live="polite">
+          <span className="agent-history-toast-text">
+            {toast.kind === "error" ? toast.text : batch.current.length === 1 ? t("history.delete.one") : t("history.delete.other", { count: batch.current.length })}
+          </span>
+          {toast.kind === "undo" && (
+            <button type="button" className="agent-history-toast-undo" onClick={undoDelete}>
+              {t("history.delete.undo")}
+            </button>
+          )}
+          <span className="agent-history-toast-bar" style={{ animationDuration: `${toast.kind === "undo" ? UNDO_MS : ERROR_TOAST_MS}ms` }} />
+        </div>
+      )}
       </div>
       <div className="agent-history-footer" ref={footerRef}>
         {menuOpen && (

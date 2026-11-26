@@ -1,7 +1,8 @@
 //! Read-only access to Cline's local state (`<CLINE_DIR>/data`): the sqlite
 //! `db/sessions.db` (saved sessions, the live session of a terminal tab,
 //! spend) and each session's `sessions/<id>/<id>.messages.json` (context fill,
-//! per-call sizes). Nothing is ever written, and every reader is best-effort:
+//! per-call sizes). The only writer is `delete_session` (History panel);
+//! every reader is best-effort:
 //! a missing file or table, or a column that drifted in a newer Cline, logs and
 //! yields nothing - never an error for the caller.
 //!
@@ -357,6 +358,48 @@ pub(crate) fn session_usage(home: &Path, id: &str, max_turns: usize) -> Option<U
     Some(UsageRead { input: rec.input, output: rec.output, cache_read: rec.cache_read, cache_write: rec.cache_write, cost: rec.cost, model, turns })
 }
 
+/// Permanently deletes session `id` and its sub-agent sessions: their
+/// `sessions` rows (and the spawn queue of `id`) in one transaction, then
+/// their `data/sessions/<id>` folders. Returns how many sessions were removed.
+pub(crate) fn delete_session(home: &Path, id: &str) -> Result<usize, String> {
+    let e = |e: rusqlite::Error| e.to_string();
+    let mut conn = Connection::open_with_flags(db_path(home), OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(e)?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(e)?;
+    let tx = conn.transaction().map_err(e)?;
+    let ids: Vec<String> = {
+        let mut stmt = tx
+            .prepare(
+                "WITH RECURSIVE t(id) AS (SELECT session_id FROM sessions WHERE session_id = ?1 UNION ALL \
+                 SELECT s.session_id FROM sessions s JOIN t ON s.parent_session_id = t.id) SELECT id FROM t",
+            )
+            .map_err(e)?;
+        let rows = stmt.query_map([id], |r| r.get::<_, String>(0)).map_err(e)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(e)?
+    };
+    if ids.is_empty() {
+        return Err("not found".into());
+    }
+    for sid in &ids {
+        tx.execute("DELETE FROM sessions WHERE session_id = ?1", [sid]).map_err(e)?;
+    }
+    // The queue table may not exist in every Cline version.
+    match tx.execute("DELETE FROM subagent_spawn_queue WHERE root_session_id = ?1", [id]) {
+        Ok(_) => {}
+        Err(err) if err.to_string().contains("no such table") => {}
+        Err(err) => return Err(err.to_string()),
+    }
+    tx.commit().map_err(e)?;
+    for sid in &ids {
+        if crate::agents::is_safe_session_id(sid) {
+            let dir = home.join("data").join("sessions").join(sid);
+            if dir.is_dir() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+    Ok(ids.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +449,31 @@ mod tests {
         let dir = home.join("data").join("sessions").join(id);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{id}.messages.json")), body).unwrap();
+    }
+
+    #[test]
+    fn delete_removes_rows_queue_and_folder() {
+        let (home, c) = temp_home();
+        c.execute_batch("CREATE TABLE subagent_spawn_queue (id INTEGER PRIMARY KEY, root_session_id TEXT);").unwrap();
+        session(&c, "a", 1, "C:\\p", 0, "idle", "x", "{}", 1000);
+        session(&c, "b", 1, "C:\\p", 0, "idle", "x", "{}", 1000);
+        c.execute("UPDATE sessions SET parent_session_id = 'a' WHERE session_id = 'b'", []).unwrap();
+        session(&c, "other", 1, "C:\\p", 0, "idle", "x", "{}", 1000);
+        c.execute("INSERT INTO subagent_spawn_queue (root_session_id) VALUES ('a'), ('other')", []).unwrap();
+        for id in ["a", "b", "other"] {
+            messages(&home, id, "{}");
+        }
+        drop(c);
+        assert_eq!(delete_session(&home, "a"), Ok(2));
+        let c = Connection::open(db_path(&home)).unwrap();
+        let count = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM sessions"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM subagent_spawn_queue"), 1);
+        let dir = |id: &str| home.join("data").join("sessions").join(id);
+        assert!(!dir("a").exists() && !dir("b").exists() && dir("other").is_dir());
+        drop(c);
+        assert_eq!(delete_session(&home, "zzz"), Err("not found".to_string()));
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]

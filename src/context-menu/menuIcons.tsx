@@ -106,6 +106,7 @@ export const MenuIcons = {
       <path d="M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z" />
     </>,
   ),
+  folder: iconSvg(<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />),
   trash: iconSvg(
     <>
       <path d="M5 7.5h14" />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { childKeys, getDelegateHistory, interruptDelegates, markInterrupted, mergeChildren, recordDelegates, type DelegateChild, type DelegateHistory } from "./delegateHistory";
+import { childKeys, forgetDelegates, getDelegateHistory, interruptDelegates, markInterrupted, mergeChildren, recordDelegates, type DelegateChild, type DelegateHistory } from "./delegateHistory";
 
 const child = (taskId: string, extra: Partial<DelegateChild> = {}): DelegateChild => ({ childSessionId: `s-${taskId}`, agent: "codex", title: `Task ${taskId}`, status: "running", taskId, ...extra });
 
@@ -43,5 +43,18 @@ describe("markInterrupted", () => {
 describe("childKeys", () => {
   it("lists agent:session of every child", () => {
     expect([...childKeys({ o: { at: 1, children: [child("a"), child("b", { agent: "gemini" })] } })].sort()).toEqual(["codex:s-a", "gemini:s-b"]);
+  });
+});
+
+describe("forgetDelegates", () => {
+  it("drops the given orchestrators and ignores unknown ones", () => {
+    recordDelegates("forget-me", [child("x")]);
+    recordDelegates("keep-me", [child("y")]);
+    forgetDelegates(["forget-me", "never-seen"]);
+    expect(getDelegateHistory()["forget-me"]).toBeUndefined();
+    expect(getDelegateHistory()["keep-me"]).toBeDefined();
+    const before = getDelegateHistory();
+    forgetDelegates(["never-seen"]);
+    expect(getDelegateHistory()).toBe(before);
   });
 });

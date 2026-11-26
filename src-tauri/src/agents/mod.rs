@@ -25,6 +25,8 @@ pub(crate) mod claude_history;
 pub use self::claude_history::*;
 mod codex;
 pub use self::codex::*;
+mod history_delete;
+pub use self::history_delete::*;
 pub(crate) use self::codex::find_codex_rollout;
 use self::codex::{host_live_threads, rollout_meta, rollout_turn_open, thread_names_in};
 mod tracker;

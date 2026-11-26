@@ -74,6 +74,15 @@ const store = createStore<DelegateHistory>(markInterrupted(readJson<DelegateHist
 export const useDelegateHistory = store.use;
 export const getDelegateHistory = store.get;
 
+/** Drops these orchestrators' delegated chats (their sessions were deleted). No-op when none is known. */
+export function forgetDelegates(orchestratorIds: string[]) {
+  const current = store.get();
+  if (!orchestratorIds.some((id) => id in current)) return;
+  const next = Object.fromEntries(Object.entries(current).filter(([id]) => !orchestratorIds.includes(id)));
+  store.set(next);
+  writeJson(KEY, next);
+}
+
 /** Settle this session's live children when its chat is reset or unmounted before final events reach the UI. */
 export function interruptDelegates(orchestratorId: string) {
   const children = store.get()[orchestratorId]?.children;

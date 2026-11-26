@@ -42,7 +42,7 @@ pub(crate) fn vibe_home() -> Option<PathBuf> {
     Some(crate::fs::user_home()?.join(".vibe"))
 }
 
-fn sessions_root(home: &Path) -> PathBuf {
+pub(crate) fn sessions_root(home: &Path) -> PathBuf {
     home.join("logs").join("session")
 }
 
@@ -321,9 +321,14 @@ fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&s
 /// `~/.vibe/logs/session` of the default WSL distro, through its
 /// `\\wsl.localhost` share - where Vibe keeps its sessions when it's used
 /// from WSL.
-fn wsl_sessions_root() -> Option<(String, PathBuf)> {
+pub(crate) fn wsl_sessions_root() -> Option<(String, PathBuf)> {
     let (distro, home) = crate::util::wsl_default_home()?;
     Some((distro.clone(), sessions_root(&crate::util::wsl_unc(&distro, &home).join(".vibe"))))
+}
+
+/// The folder of session `id` under a sessions root (matched on `meta.json`'s id).
+pub(crate) fn find_session_dir(root: &Path, id: &str) -> Option<PathBuf> {
+    session_dirs(root).iter().map(|(dir, _)| dir).find(|dir| read_meta(dir).is_some_and(|m| m.id == id)).cloned()
 }
 
 /// How long a scan of the WSL sessions folder is reused - every file access

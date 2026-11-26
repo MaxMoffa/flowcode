@@ -5,13 +5,47 @@
   min-height: 0;
 }
 
+.agent-history-searchrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  /* The switch above already leaves its own 8px: the same gap as the sides. */
+  margin: 0 8px 8px;
+}
+
+.agent-history-tools {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.agent-history-tools:hover,
+.agent-history-tools.is-open {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.agent-history-tools:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .agent-history-search {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
-  /* The switch above already leaves its own 8px: the same gap as the sides. */
-  margin: 0 8px 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   padding: 0 8px;
   height: 26px;
   box-sizing: border-box;
@@ -139,6 +173,109 @@
 
 .agent-history-dot--waiting {
   background: var(--ansi-bright-yellow);
+}
+
+/* The row's "⋯": takes the place of the status dot while the row is hovered, focused or has its menu open. */
+.agent-history-more {
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-ctl);
+  color: var(--fg-muted);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+
+.agent-history-row:hover .agent-history-more,
+.agent-history-row:focus-within .agent-history-more,
+.agent-history-row:focus-visible .agent-history-more,
+.agent-history-row.is-menu-open .agent-history-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.agent-history-more:hover,
+.agent-history-more:focus-visible {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+  outline: none;
+}
+
+.agent-history-row:hover .agent-history-dot,
+.agent-history-row:focus-within .agent-history-dot,
+.agent-history-row:focus-visible .agent-history-dot,
+.agent-history-row.is-menu-open .agent-history-dot {
+  display: none;
+}
+
+.agent-history-row.is-menu-open {
+  background: var(--sidebar-hover);
+}
+
+/* "Chat deleted · Undo": over the bottom of the list, its bar draining while the undo lasts. */
+.agent-history-toast {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+  animation: agent-history-toast-in 0.18s ease-out;
+}
+
+.agent-history-toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.agent-history-toast.is-error .agent-history-toast-text {
+  color: var(--ansi-bright-red);
+}
+
+.agent-history-toast-undo {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agent-history-toast-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  animation: agent-history-toast-drain linear forwards;
+}
+
+.agent-history-toast.is-error .agent-history-toast-bar {
+  background: var(--ansi-bright-red);
+}
+
+@keyframes agent-history-toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes agent-history-toast-drain {
+  to { transform: scaleX(0); }
 }
 
 .agent-history-footer {
@@ -495,6 +632,10 @@
     opacity: 0.5;
   }
   .agent-history-row.is-rise {
+    animation: none;
+  }
+  .agent-history-toast,
+  .agent-history-toast-bar {
     animation: none;
   }
   .agent-history-ghost-icon::after,

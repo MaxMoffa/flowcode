@@ -328,6 +328,8 @@ pub fn run() {
             agents::list_claude_agents,
             agents::list_claude_sessions,
             agents::list_codex_sessions,
+            agents::history_session_path,
+            agents::history_delete_sessions,
             agents::run_claude_usage_probe,
             git::git_repo_root,
             git::git_worktrees,

@@ -261,6 +261,14 @@ pub(super) fn entries_newest_first(dir: &Path) -> Vec<std::fs::DirEntry> {
     entries
 }
 
+type RolloutKey = (PathBuf, String);
+static FOUND: LazyLock<Mutex<HashMap<RolloutKey, PathBuf>>> = LazyLock::new(Default::default);
+
+/// Drops the remembered path of thread `id` (its rollout was deleted).
+pub(crate) fn forget_codex_rollout(sessions: &Path, id: &str) {
+    lock(&FOUND).remove(&(sessions.to_path_buf(), id.to_string()));
+}
+
 /// The rollout of thread `id` under a Codex `sessions` folder
 /// (`rollout-<timestamp>-<id>.jsonl`), found newest day first - a thread being
 /// asked about is almost always recent. A found path is remembered (a
@@ -268,9 +276,7 @@ pub(super) fn entries_newest_first(dir: &Path) -> Vec<std::fs::DirEntry> {
 /// asks again every couple of seconds.
 pub(crate) fn find_codex_rollout(sessions: &Path, id: &str) -> Option<PathBuf> {
     const MISS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
-    type Key = (PathBuf, String);
-    static FOUND: LazyLock<Mutex<HashMap<Key, PathBuf>>> = LazyLock::new(Default::default);
-    static MISSED: LazyLock<Mutex<HashMap<Key, std::time::Instant>>> = LazyLock::new(Default::default);
+    static MISSED: LazyLock<Mutex<HashMap<RolloutKey, std::time::Instant>>> = LazyLock::new(Default::default);
 
     fn walk(dir: &Path, suffix: &str, depth: u8) -> Option<PathBuf> {
         if depth == 0 {

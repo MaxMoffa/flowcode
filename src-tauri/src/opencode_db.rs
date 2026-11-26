@@ -1,6 +1,7 @@
-//! Read-only access to OpenCode's sqlite database (`opencode.db`): saved
+//! Access to OpenCode's sqlite database (`opencode.db`): saved
 //! sessions, the live session of a terminal tab, spend, context fill and
-//! per-session usage. Nothing is ever written, and every reader is
+//! per-session usage. The only writer is `delete_session` (History panel);
+//! everything else is read-only, and every reader is
 //! best-effort: a missing database or table, or a column that drifted in a
 //! newer OpenCode, logs and yields nothing - never an error for the caller.
 
@@ -192,6 +193,52 @@ pub async fn list_opencode_sessions(app: tauri::AppHandle, fresh: Option<bool>) 
         Ok(sessions)
     })
     .await
+}
+
+/// Permanently deletes session `id` and its sub-agent sessions: their rows in
+/// every table keyed by `session_id`, then the `session_v2` rows. One
+/// transaction. Returns how many sessions were removed.
+pub(crate) fn delete_session(db: &Path, id: &str) -> Result<usize, String> {
+    let e = |e: rusqlite::Error| e.to_string();
+    let mut conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(e)?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(e)?;
+    let tx = conn.transaction().map_err(e)?;
+    let ids: Vec<String> = {
+        let mut stmt = tx
+            .prepare(
+                "WITH RECURSIVE t(id) AS (SELECT id FROM session_v2 WHERE id = ?1 UNION ALL \
+                 SELECT s.id FROM session_v2 s JOIN t ON s.parent_id = t.id) SELECT id FROM t",
+            )
+            .map_err(e)?;
+        let rows = stmt.query_map([id], |r| r.get::<_, String>(0)).map_err(e)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(e)?
+    };
+    if ids.is_empty() {
+        return Err("not found".into());
+    }
+    let tables: Vec<String> = {
+        let mut stmt = tx.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name <> 'session_v2'").map_err(e)?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(e)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(e)?
+    };
+    for table in tables.iter().filter(|t| !t.contains('"')) {
+        let has_column = {
+            let mut stmt = tx.prepare(&format!("PRAGMA table_info(\"{table}\")")).map_err(e)?;
+            let names = stmt.query_map([], |r| r.get::<_, String>(1)).map_err(e)?;
+            let found = names.filter_map(Result::ok).any(|n| n == "session_id");
+            found
+        };
+        if has_column {
+            for sid in &ids {
+                tx.execute(&format!("DELETE FROM \"{table}\" WHERE session_id = ?1"), [sid]).map_err(e)?;
+            }
+        }
+    }
+    for sid in &ids {
+        tx.execute("DELETE FROM session_v2 WHERE id = ?1", [sid]).map_err(e)?;
+    }
+    tx.commit().map_err(e)?;
+    Ok(ids.len())
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +484,28 @@ mod tests {
             rusqlite::params![id, session, kind, at, data],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn delete_removes_tree_and_messages_only() {
+        let (path, c) = temp_db();
+        session(&c, "ses_a", None, "C:\\p", 1000, None, None, None, 0.0);
+        session(&c, "ses_kid", Some("ses_a"), "C:\\p", 1000, None, None, None, 0.0);
+        session(&c, "ses_b", None, "C:\\p", 1000, None, None, None, 0.0);
+        message(&c, "m1", "ses_a", "user", 1, "{}");
+        message(&c, "m2", "ses_kid", "user", 1, "{}");
+        message(&c, "m3", "ses_b", "user", 1, "{}");
+        drop(c);
+        assert_eq!(delete_session(&path, "ses_a"), Ok(2));
+        let c = Connection::open(&path).unwrap();
+        let count = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM session_v2"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM session_v2 WHERE id = 'ses_b'"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM session_message"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM session_message WHERE session_id = 'ses_b'"), 1);
+        drop(c);
+        assert_eq!(delete_session(&path, "ses_nope"), Err("not found".to_string()));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
