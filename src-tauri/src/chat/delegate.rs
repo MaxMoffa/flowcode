@@ -21,7 +21,8 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
-use super::{launch_command, start_blocking, Chat, ChatBody, ChatState, Extras};
+use super::launch::offers_acp_v2;
+use super::{launch_command, start_blocking, AcpProtocol, Chat, ChatBody, ChatState, Extras};
 use crate::chat_mcp::{self, Caller, Owner, ToolsConfig};
 use crate::util::{lock, now_ms};
 
@@ -68,6 +69,14 @@ pub(crate) struct ParentCtx {
     /// agent (`tab_agent_mode.rs`), read-only when unknown.
     pub mode: Option<String>,
     pub depth: u8,
+    /// The parent speaks ACP v2: a chat's own protocol, a terminal tab's experimental setting.
+    pub acp_v2: bool,
+}
+
+/// Whether a delegated child speaks ACP v2: the parent does and the child's agent offers it (a Claude
+/// parent delegating to Gemini gets a v1 child). A mismatch at the handshake still falls back to v1 in `start_blocking`.
+fn child_uses_acp_v2(parent_acp_v2: bool, child_agent: &str) -> bool {
+    parent_acp_v2 && offers_acp_v2(child_agent)
 }
 
 impl ParentCtx {
@@ -82,6 +91,7 @@ impl ParentCtx {
             tools: chat.tools.clone(),
             mode: lock(&chat.current_mode).clone(),
             depth: chat.depth(),
+            acp_v2: chat.protocol == AcpProtocol::V2,
         }
     }
 }
@@ -763,8 +773,8 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &ParentCtx, task: &Ta
     let same_agent = parent.agent.as_deref() == Some(task.agent.as_str());
     let profile = parent.profile.clone().filter(|_| same_agent);
     let link = TaskLink { task_id: task.id.clone(), parent: parent.owner.clone() };
-    // Children speak v1 whatever the parent does (see the v2 plan, phase 6).
-    let extras = Extras { tools: parent.tools.clone(), link: Some(link), acp_v2: false };
+    // A child speaks the parent's protocol when its agent offers it; `start_blocking` restarts it on v1 if the handshake refuses.
+    let extras = Extras { tools: parent.tools.clone(), link: Some(link), acp_v2: child_uses_acp_v2(parent.acp_v2, &task.agent) };
     let (child, _) =
         start_blocking(app.clone(), parent.window.clone(), task.agent.clone(), parent.cwd.clone(), profile, None, false, parent.shell.clone(), extras)?;
     // The parent or the script may have gone away while the adapter started.
@@ -1033,8 +1043,52 @@ mod tests {
         assert_eq!(inherited_mode(true, Some("autoEdit"), Some(&gemini)).unwrap().as_deref(), Some("autoEdit"));
     }
 
+    #[test]
+    fn a_child_inherits_the_parents_protocol_when_its_agent_offers_v2() {
+        // A v2 parent (chat, or a terminal tab with the setting on): Claude and Codex children get v2, the others v1.
+        assert!(child_uses_acp_v2(true, "claude") && child_uses_acp_v2(true, "codex"));
+        for agent in ["gemini", "vibe", "opencode", "cline"] {
+            assert!(!child_uses_acp_v2(true, agent), "{agent}");
+        }
+        // A v1 parent (or a terminal tab with the setting off) never gives a v2 child.
+        for agent in ["claude", "codex", "gemini"] {
+            assert!(!child_uses_acp_v2(false, agent), "{agent}");
+        }
+    }
+
+    #[test]
+    fn a_held_v2_sequence_ends_the_task_once_with_the_final_answer() {
+        use super::super::v2_turn::{Hold, IdleStep};
+        let subagent = [json!({ "type": "subagent", "sessionId": "kid" })];
+        let mut hold = Hold::default();
+        let mut state = TaskState::new();
+        let mut ended = 0;
+        // The agent's first message, then its work ends while a subagent runs: held, nothing reaches the task.
+        assert!(!state.apply(&update(json!({ "sessionUpdate": "agent_message_chunk" })), false, "", 1));
+        assert_eq!(hold.on_idle(Some("end_turn"), Some(&subagent)), IdleStep::Held);
+        // A repeat snapshot is nothing either.
+        assert_eq!(hold.on_idle(None, Some(&subagent)), IdleStep::Nothing);
+        assert_eq!(state.status, TaskStatus::Running);
+        // The follow-up cycle (running ... idle with a reason) ends the turn: the one TurnEnd of the sequence.
+        assert!(!state.apply(&update(json!({ "sessionUpdate": "agent_message_chunk" })), false, "", 2));
+        match hold.on_idle(Some("end_turn"), Some(&[])) {
+            IdleStep::End(reason, true) => {
+                let end = ChatBody::TurnEnd { stop_reason: reason };
+                ended += usize::from(state.apply(&end, false, "  the final answer 
+", 3));
+                // A late repeat of the end changes nothing.
+                ended += usize::from(state.apply(&end, false, "something else", 4));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(ended, 1);
+        assert_eq!(state.status, TaskStatus::Done);
+        assert_eq!(state.result.as_deref(), Some("the final answer"));
+        assert_eq!(state.ended_at, Some(3));
+    }
+
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, messages: false, browser_control: false, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, messages: false, browser_control: false, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, acp_v2: false, diagnosis: None }
     }
 
     fn chat(id: &str) -> Owner {

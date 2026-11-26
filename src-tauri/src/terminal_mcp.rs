@@ -357,6 +357,7 @@ fn call_tool(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_c
             } else {
                 (agent.map(str::to_string), None)
             };
+            let acp_v2 = cfg.acp_v2;
             let ctx = ParentCtx {
                 owner: chat_mcp::Owner::Terminal(pty_id.to_string()),
                 window,
@@ -367,6 +368,7 @@ fn call_tool(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_c
                 tools: cfg,
                 mode,
                 depth: 0,
+                acp_v2,
             };
             crate::chat::delegate::terminal_delegation_call(app, ctx, tool, args, deadline_ms)
         }

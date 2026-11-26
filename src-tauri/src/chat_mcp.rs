@@ -78,6 +78,9 @@ pub(crate) struct ToolsConfig {
     pub max_parallel: usize,
     /// WSL terminal tabs start bash through Flowcode's startup file, so the agent shims lead PATH (see terminal_mcp.rs).
     pub shell_integration: bool,
+    /// The experimental ACP v2 setting, as the frontend read it when the tab started. Only terminal tabs use it
+    /// (a chat's own protocol decides for its children): their delegated children inherit it.
+    pub acp_v2: bool,
     /// The crash report this chat investigates: it gets `attach_crash_diagnosis` even with the tools off. Set by
     /// `chat_start` for a diagnosis chat, never read from the frontend's settings.
     #[serde(skip)]
@@ -867,6 +870,7 @@ mod tests {
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
             shell_integration: true,
+            acp_v2: false,
             diagnosis: None,
         }
     }

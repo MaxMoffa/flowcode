@@ -1,6 +1,7 @@
 import { AGENT_CLIS, defaultCliStatus, type AgentCli } from "./cliInfo";
 import { createStore } from "../lib/externalStore";
 import { getBrowserSettings } from "../browser/browserSettings";
+import { getExperimentalSettings } from "../settings/experimentalSettings";
 import { invoke } from "@tauri-apps/api/core";
 import { readBool, readEnum, readJson, readNumber, removeKey, writeBool, writeJson, writeString } from "../lib/storage";
 
@@ -103,12 +104,14 @@ export interface AgentToolsConfig {
   shellIntegration: boolean;
   /** The message tools (`send_message`, `wait_for_reply`, `read_messages` in terminal tabs). */
   messages: boolean;
+  /** The experimental ACP v2 setting: delegated children of a terminal tab inherit it (a chat's own protocol decides for its children). */
+  acpV2: boolean;
 }
 
 /** `available`: the agents offered while the settings say "every one" (those installed and signed in); all of them when unknown. */
 export function toolsConfig(s: AgentToolsSettings, available: readonly AgentCli[] = AGENT_CLIS): AgentToolsConfig {
-  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, browserControl: false, delegateAgents: [], maxParallel: s.maxParallel, shellIntegration: false, messages: false };
-  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, browserControl: getBrowserSettings().control !== "off", delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel, shellIntegration: s.shellIntegration, messages: s.messages };
+  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, browserControl: false, delegateAgents: [], maxParallel: s.maxParallel, shellIntegration: false, messages: false, acpV2: false };
+  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, browserControl: getBrowserSettings().control !== "off", delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel, shellIntegration: s.shellIntegration, messages: s.messages, acpV2: getExperimentalSettings().acpV2 };
 }
 
 /** What a chat starting now gets (see `toolsConfig`). By default delegation offers the CLIs installed and signed in under the default profile (a failed check counts as available). */
