@@ -14,6 +14,7 @@ import type {
 } from "./chatTypes";
 import { parseAskQuestions, type AskQuestion } from "./askQuestions";
 import { closeCodexSubagents, isCodexSubagentLaunch, updateCodexSubagents } from "./codexSubagents";
+import { PEER_FRAME_PREFIX, PEER_IN_METHOD, PEER_OUT_METHOD, parsePeerFrame, parsePeerIn, parsePeerOut, peerFromUserEvent, type PeerIn, type PeerOut } from "./peerMessage";
 
 /** How a delegated task stands (the backend's `_flowcode/delegate` status). */
 export type DelegateStatus = "running" | "waiting_for_user" | "done" | "failed" | "cancelled";
@@ -106,7 +107,11 @@ export type ChatItem =
   /** The goal (`/goal`) ended at this point: reached, or given up as impossible (Claude). A marker in the conversation; the composer's chip says the rest. */
   | { type: "goal"; id: string; status: "complete" | "failed"; objective: string; at: number; durationMs?: number; iterations?: number; reason?: string }
   /** The agent of a crash's diagnosis chat attached its diagnosis to the crash report (`_flowcode/crashdiagnosis`). */
-  | { type: "diagnosis"; id: string };
+  | { type: "diagnosis"; id: string }
+  /** A message another tab's agent sent this chat (`_flowcode/peer_in`, then the `user` event that delivered it). `raw`: rebuilt from a replayed framed prompt, whose chunks may still come. */
+  | { type: "peer"; id: string; peer: PeerIn; raw?: string }
+  /** A message this chat's agent sent another tab (`_flowcode/peer_out`), anchored where it first arrived. */
+  | { type: "peerOut"; id: string; out: PeerOut };
 
 /** Where a goal stands (the backend's `_flowcode/goal`): `limited` = paused by a usage or budget limit, `blocked` = the agent says it can't go on (Codex), `failed` = judged impossible (Claude). */
 export type GoalStatus = "active" | "paused" | "limited" | "blocked" | "complete" | "failed";
@@ -302,6 +307,23 @@ function parseTask(raw: unknown): ChatTaskInfo | null {
   return { taskId, parentChatId, parentAgent: str(p.parentAgent) ?? "", parentTitle: str(p.parentTitle), prompt: typeof p.prompt === "string" ? p.prompt : "", ...(p.parentKind === "terminal" || p.parentKind === "chat" ? { parentKind: p.parentKind } : {}) };
 }
 
+/** Keeps a message's latest state: patched in place when its card exists, appended otherwise; a message the sender's `wait_for_reply` took shows no card. */
+function upsertPeerIn(state: ChatModelState, peer: PeerIn): ChatModelState {
+  const id = `peer-${peer.msgId}`;
+  const known = state.items.some((i) => i.id === id);
+  if (peer.hidden) return known ? withItems(state, state.items.filter((i) => i.id !== id)) : state;
+  const item: ChatItem = { type: "peer", id, peer };
+  return withItems(state, known ? state.items.map((i) => (i.id === id ? item : i)) : [...state.items, item]);
+}
+
+/** As `upsertDelegate`, for the messages this chat's agent sent. */
+function upsertPeerOut(state: ChatModelState, out: PeerOut): ChatModelState {
+  const id = `peerout-${out.msgId}`;
+  const known = state.items.some((i) => i.id === id);
+  const item: ChatItem = { type: "peerOut", id, out };
+  return withItems(state, known ? state.items.map((i) => (i.id === id ? item : i)) : [...state.items, item]);
+}
+
 /** Every delegate of the conversation, in the order they started. */
 export function delegatesOf(items: ChatItem[]): DelegateInfo[] {
   return items.flatMap((i) => (i.type === "delegate" ? [i.delegate] : []));
@@ -432,6 +454,20 @@ function appendText(state: ChatModelState, type: "user" | "agent" | "thought", t
   const last = at >= 0 ? state.items[at] : undefined;
   // Some agents (Vibe) echo the prompt back as user chunks: already shown.
   if (type === "user" && last?.type === "user" && last.local) return state;
+  if (type === "user") {
+    // A message from another tab, delivered live: its echo is already the card.
+    if (last?.type === "peer" && last.raw === undefined) return state;
+    // A replayed history gives back the framed prompt: the card again, not raw XML (its chunks keep coming).
+    if (last?.type === "peer" && last.raw !== undefined) {
+      const raw = last.raw + text;
+      const peer = parsePeerFrame(raw);
+      return withItems(state, state.items.map((item, i) => (i === at ? { ...last, raw, ...(peer ? { peer: { ...peer, msgId: last.peer.msgId } } : {}) } : item)));
+    }
+    if (text.trimStart().startsWith(PEER_FRAME_PREFIX)) {
+      const peer = parsePeerFrame(text);
+      if (peer) return withItems(state, [...state.items, { type: "peer", id: `peer-replay-${seq}`, peer, raw: text }]);
+    }
+  }
   const items =
     last && last.type === type && !(last.type === "agent" && last.images)
       ? state.items.map((item, i) => (i === at ? { ...last, text: last.text + text } : item))
@@ -790,6 +826,18 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       if (ev.method === WARNING_EXT_METHOD) return withItems(state, [...state.items, { type: "stop", id: `stop-${ev.seq}`, reason: SKIPPED_MESSAGE_REASON }]);
       if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
       if (ev.method === DIAGNOSIS_EXT_METHOD) return withItems(state, [...state.items, { type: "diagnosis", id: `diagnosis-${ev.seq}` }]);
+      if (ev.method === PEER_IN_METHOD) {
+        const peer = parsePeerIn(ev.params);
+        if (!peer) return state;
+        // Delivered: its `user` event already put the card where the turn starts (an update after it must not bring back a stale one).
+        const delivered = state.items.find((i) => i.id === `peer-${peer.msgId}`);
+        if (delivered?.type === "peer" && delivered.peer.state === "delivered" && peer.state === "delivered") return upsertPeerIn(state, { ...delivered.peer, ...peer });
+        return upsertPeerIn(state, peer);
+      }
+      if (ev.method === PEER_OUT_METHOD) {
+        const out = parsePeerOut(ev.params);
+        return out ? upsertPeerOut(state, out) : state;
+      }
       if (ev.method === TASK_EXT_METHOD) {
         const task = parseTask(ev.params);
         return task ? { ...state, task } : state;
@@ -807,6 +855,13 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       };
     }
     case "user": {
+      // Another tab's message, delivered as this prompt: its card (moved here, where the turn starts) instead of a bubble of the user's.
+      const peer = ev.peer ? peerFromUserEvent(ev.peer, ev.text, ev.at) : null;
+      if (peer) {
+        const id = `peer-${peer.msgId}`;
+        const items = [...state.items.filter((i) => i.id !== id), { type: "peer" as const, id, peer }];
+        return { ...withItems(state, items, true), turn: { startedAt: ev.at, outChars: 0 } };
+      }
       const images: ChatImageRef[] = (ev.images ?? []).map((m) => ({ id: m.id, mimeType: m.mimeType, name: m.name }));
       // The event lists every file name, images included: one occurrence per image goes.
       const attachments = [...(ev.attachments ?? [])];

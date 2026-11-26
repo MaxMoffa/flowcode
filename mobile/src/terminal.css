@@ -899,3 +899,16 @@ html.term-lock body {
 .tm-sheet .menu-search {
   padding: 0 22px;
 }
+
+/* The messages of the tab's agent (ChatPeer cards), under the delegations. */
+.term-dstrip.term-peers {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.term-peers-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 4px 0 6px;
+}

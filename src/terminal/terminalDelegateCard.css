@@ -77,3 +77,22 @@
   background: var(--accent);
   border-radius: 50%;
 }
+
+/* The tab's messages (TerminalPeerCard): top-right, so it never covers the delegations' card at the bottom. */
+.term-deleg.term-peer {
+  top: 14px;
+  bottom: auto;
+  max-height: calc(60% - 28px);
+}
+
+.term-peer .chat-peer {
+  margin: 0 0 6px;
+  padding-right: 26px;
+}
+
+.term-peer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 2px 2px 6px;
+}

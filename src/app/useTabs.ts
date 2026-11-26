@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { isLikelyTextFile } from "../sidebar/fileIcons";
 import { forgetBrowserTab } from "../browser/browserStore";
-import type { AppTab, ChatPane, ChatTab, TermTab } from "../tabs/types";
+import type { AppTab, ChatPane, ChatTab, PeerAccept, TermTab } from "../tabs/types";
 import type { GitChange } from "../git/gitStatus";
 import { toWindowsPath, wslDistroOfPath, wslShellId } from "../terminal/wslPath";
 import { basename } from "../lib/path";
@@ -448,6 +448,11 @@ export function useTabs(S: TabsCtx) {
     setTabs((prev) => patchTermTab(prev, id, (t) => ({ notifyMuted: !t.notifyMuted })));
   }
 
+  /** How a terminal or chat tab answers messages from other agents; undefined = the global default. */
+  function setTabPeerAccept(id: string, peerAccept: PeerAccept | undefined) {
+    setTabs((prev) => prev.map((t) => (t.id === id && (t.kind === "terminal" || t.kind === "chat") ? { ...t, peerAccept } : t)));
+  }
+
   function handleEditorRenamed(id: string, newPath: string) {
     const label = basename(newPath);
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "editor" ? { ...t, path: newPath, label } : t)));
@@ -501,7 +506,7 @@ export function useTabs(S: TabsCtx) {
   return {
     stepTab, selectTabAt, moveActiveTab, selectTab, tabForeground, tabShell, duplicateTab, openFile, openInEditor,
     openDiff, openSettings, openChangelog, openWhatsNew, reorderTab, adoptTab, handleTabDragOut, forgetTab,
-    closeTab, renameTab, toggleTabNotifications, handleEditorRenamed, handleDirtyChange, dropTerminal,
+    closeTab, renameTab, toggleTabNotifications, setTabPeerAccept, handleEditorRenamed, handleDirtyChange, dropTerminal,
     patchChatTab, patchChatPane, showChatSession, newChatPane, openHistoryTab, selectTabRef, adoptTabRef,
   };
 }

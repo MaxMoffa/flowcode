@@ -344,7 +344,7 @@ mod tests {
     use crate::chat::ChatBody;
 
     fn event(seq: u64, text: &str) -> ChatEvent {
-        ChatEvent { seq, at: 0, body: ChatBody::User { text: text.to_string(), attachments: Vec::new(), images: Vec::new() } }
+        ChatEvent { seq, at: 0, body: ChatBody::User { text: text.to_string(), attachments: Vec::new(), images: Vec::new(), peer: None } }
     }
 
     #[test]

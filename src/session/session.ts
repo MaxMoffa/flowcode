@@ -12,6 +12,7 @@ export type SavedTab =
       label: string;
       customLabel?: boolean;
       notifyMuted?: boolean;
+      peerAccept?: "always" | "ask" | "never";
       /** `pty_spawn` shell id when the tab was opened with a specific one
        * (e.g. "wsl"), otherwise the configured default applies. */
       shell?: string;
@@ -21,7 +22,7 @@ export type SavedTab =
        * verbatim into the new terminal. */
       content?: string;
     }
-  | { kind: "chat"; agent: string; cwd: string; label: string; profileId?: string; sessionId?: string; viewId?: string; shell?: string; lastActiveAt?: number }
+  | { kind: "chat"; agent: string; cwd: string; label: string; profileId?: string; sessionId?: string; viewId?: string; shell?: string; lastActiveAt?: number; peerAccept?: "always" | "ask" | "never" }
   | { kind: "editor"; path: string; label: string }
   | { kind: "settings" }
   | { kind: "changelog" }

@@ -1,4 +1,5 @@
 mod acp_adapters;
+mod agent_messages;
 mod agents;
 mod fs;
 mod git;
@@ -251,6 +252,11 @@ pub fn run() {
             chat::chat_renew,
             chat::delegate::delegate_cancel,
             chat::delegate::terminal_delegates,
+            agent_messages::peer_decide,
+            agent_messages::chat_queue_hint,
+            agent_messages::agent_messages_config,
+            agent_messages::agent_messages_of_tab,
+            agent_messages::peer_open_tab,
             chat::chat_adapter_ready,
             chat::chat_events,
             chat::chat_events_page,

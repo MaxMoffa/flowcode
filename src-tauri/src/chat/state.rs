@@ -10,6 +10,8 @@ pub struct ChatState {
     pub(super) alerts: broadcast::Sender<ChatAlert>,
     /// The tasks chats delegated to other agents.
     pub(super) delegations: Delegations,
+    /// The messages between the agents of different tabs.
+    pub(crate) messages: crate::agent_messages::Mailbox,
 }
 
 impl Default for ChatState {
@@ -19,6 +21,7 @@ impl Default for ChatState {
             changes: watch::channel(0).0,
             alerts: broadcast::channel(32).0,
             delegations: Delegations::default(),
+            messages: crate::agent_messages::Mailbox::default(),
         }
     }
 }
@@ -107,7 +110,10 @@ impl ChatState {
     /// already failed the registered prompt, which emits that `Error` itself.
     pub(crate) fn prompt(&self, chat_id: &str, text: String, attachments: Vec<Attachment>) -> Result<(), String> {
         // The user wrote first: the resume scheduled for the limit's reset is moot.
-        self.prompt_with(chat_id, text, attachments, prompt_gate, |chat| chat.drop_resume("cancelled"))
+        self.prompt_with(chat_id, text, attachments, None, prompt_gate, |chat| chat.drop_resume("cancelled"))?;
+        // What the agent does now is the user's: the chain of messages between agents starts over.
+        self.messages.user_prompted(&Owner::Chat(chat_id.to_string()));
+        Ok(())
     }
 
     /// Sends the scheduled resume of `generation` as the user's prompt. As
@@ -128,6 +134,7 @@ impl ChatState {
             chat_id,
             text.to_string(),
             Vec::new(),
+            None,
             |status, autonomous| {
                 let resume = take_resume_for_prompt(status, autonomous, &mut lock(resume_slot), generation, text)?;
                 *taken.borrow_mut() = Some(resume);
@@ -143,12 +150,14 @@ impl ChatState {
 
     /// The body of `prompt`: `gate` decides under `emit_when` whether the chat
     /// takes the prompt, `after_user` runs right after the `User` event is out
-    /// (before the request is registered and sent).
+    /// (before the request is registered and sent). `peer`: the prompt is another
+    /// agent's message - the event shows `text` with its sender, the agent gets the framed text.
     pub(super) fn prompt_with(
         &self,
         chat_id: &str,
         text: String,
         attachments: Vec<Attachment>,
+        peer: Option<crate::agent_messages::PeerPrompt>,
         gate: impl FnOnce(ChatStatus, bool) -> Result<(), String>,
         after_user: impl FnOnce(&Chat),
     ) -> Result<(), String> {
@@ -166,8 +175,9 @@ impl ChatState {
         }
         // File IO first: a failure here must not leave a turn open.
         let mut blocks = Vec::new();
-        if !text.is_empty() || attachments.is_empty() {
-            blocks.push(json!({ "type": "text", "text": text }));
+        let sent = peer.as_ref().map_or(&text, |p| &p.framed);
+        if !sent.is_empty() || attachments.is_empty() {
+            blocks.push(json!({ "type": "text", "text": sent }));
         }
         let images = chat.prompt_images.load(Ordering::Acquire);
         for attachment in &attachments {
@@ -175,8 +185,9 @@ impl ChatState {
         }
         let names = attachments.iter().map(|a| a.name.clone()).collect();
         let shown = attachments.iter().filter_map(shown_image).collect();
-        let asked = goal::parse_prompt(&chat.agent, &text);
-        chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, gate)?;
+        // Another agent's text is no `/goal` of the user's.
+        let asked = if peer.is_none() { goal::parse_prompt(&chat.agent, &text) } else { None };
+        chat.emit_when(ChatBody::User { text, attachments: names, images: shown, peer: peer.map(|p| p.meta) }, gate)?;
         after_user(&chat);
         if let Some(asked) = asked {
             chat.goal_asked(&asked);
@@ -336,6 +347,8 @@ impl ChatState {
         }
         chat.changed();
         std::thread::spawn(move || drop(children));
+        // Messages queued for the chat go to the new session.
+        crate::agent_messages::on_renewed(app, chat_id);
         eprintln!("chat: timing {} renew {} ms", chat.agent, t.elapsed().as_millis());
         Ok(ChatStarted {
             chat_id: chat_id.to_string(),

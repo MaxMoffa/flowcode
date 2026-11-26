@@ -104,7 +104,8 @@ interface EventBase {
 
 export type ChatEvent =
   | (EventBase & { kind: "update"; update: ChatUpdate })
-  | (EventBase & { kind: "user"; text: string; attachments?: string[]; images?: { name: string; mimeType: string; id: string }[] })
+  /** `peer`: the prompt is another tab's agent's message the backend delivered (`text` is the message as sent; see peerMessage.ts). */
+  | (EventBase & { kind: "user"; text: string; attachments?: string[]; images?: { name: string; mimeType: string; id: string }[]; peer?: Record<string, unknown> })
   | (EventBase & { kind: "permission"; requestId: string; toolCall: ChatToolCall; options: ChatPermissionOption[] })
   | (EventBase & { kind: "permissionResolved"; requestId: string; optionId: string | null })
   /** The agent asks the user questions (AskUserQuestion, as an ACP elicitation): `schema` is the form schema, see `parseAskQuestions`. */

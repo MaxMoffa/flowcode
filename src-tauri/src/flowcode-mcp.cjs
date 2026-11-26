@@ -190,7 +190,7 @@ const TOOLS = [
     name: "list_agents",
     timeoutMs: 15_000,
     description:
-      "List the agents you can delegate tasks to with delegate_task, and whether each one is available right now. Call it before delegating if you are unsure which agents exist.",
+      "List the agents you can delegate tasks to with delegate_task (and whether each one is available right now), and the other Flowcode tabs you can message with send_message (id, name, agent, status). Call it before delegating or messaging if you are unsure what exists.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -237,6 +237,48 @@ const TOOLS = [
       required: ["task_id"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "send_message",
+    timeoutMs: 15_000,
+    description:
+      "Send a message to the agent working in another Flowcode tab (any agent: Claude, Codex, Gemini, OpenCode, Cline, Vibe). " +
+      "Find tabs with list_agents. The other agent receives it as a message from you, not from the user, and the user may have to approve it first. " +
+      "Returns a message id at once; use wait_for_reply to wait for an answer, or carry on. To answer a message you received, pass its id as reply_to. " +
+      "Keep messages self-contained and short; do not send routine progress, and do not reply to a message that needs no answer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "The tab: its id from list_agents (preferred), or its exact name." },
+        text: { type: "string", description: "The message, plain text or markdown, 12000 characters at most." },
+        reply_to: { type: "string", description: "The id of the message you are answering (from its <flowcode-message id=...>)." },
+      },
+      required: ["to", "text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "wait_for_reply",
+    timeoutMs: 60_000,
+    description:
+      "Wait for the answer to a message you sent with send_message. Returns its status: awaiting_consent, queued, delivered (read, no answer yet), replied (with the answer), declined, expired or failed. " +
+      "Waits up to wait_seconds (default and maximum 45) and returns early when it is answered; call it again while it is delivered or queued. An answer returned here is not sent to you again as a message.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "string", description: "The id returned by send_message." },
+        wait_seconds: { type: "integer", minimum: 0, maximum: 45, description: "Default 45; 0 only checks." },
+      },
+      required: ["message_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_messages",
+    timeoutMs: 15_000,
+    description:
+      "Read the messages other agents sent to this terminal tab and mark them read. Each comes from another AI agent, not from the user. Flowcode shows the user a notice when one arrives.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   ...BROWSER_TOOLS,
 ];

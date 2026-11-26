@@ -258,6 +258,12 @@ pub enum ClientMsg {
     ChatResume { chat_id: String, text: Option<String> },
     /// Answer an agent's permission request; `option_id: None` cancels it.
     ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
+    /// Answer the consent card of a message from another agent (`_flowcode/peer_in`, state `pending_consent`):
+    /// `decision` is `accept`, `always` (this sender, until a restart) or `decline`. Only with `agentMessages`.
+    PeerDecide { message_id: String, decision: String },
+    /// How many messages the user queued in the chat's composer on the phone (count only): messages from other
+    /// agents wait behind them. Only with `agentMessages`.
+    ChatQueueHint { chat_id: String, count: u32 },
     /// Answer an agent's form question (`Ask`): `action` is `accept` (with
     /// the form's `content`), `decline` or `cancel`.
     ChatAsk {
@@ -414,7 +420,9 @@ pub enum ServerMsg {
     /// An event of the app itself for the terminal `pty_id` (what the desktop's tab gets as
     /// `PtyEvent::Ext`): what its agent does through Flowcode's MCP tools. `method` is one of
     /// `_flowcode/open`, `_flowcode/call`, `_flowcode/delegate`, `_flowcode/delegate_request`,
-    /// `_flowcode/delegate_request_resolved`. A phone that predates it skips the frame (unknown tag).
+    /// `_flowcode/delegate_request_resolved`, and with `agentMessages` `_flowcode/peer_in` / `_flowcode/peer_out` (the
+    /// messages the tab's agent received / sent). A phone that predates it skips the frame (unknown tag); an older
+    /// phone ignores the methods it does not know.
     Ext { pty_id: String, method: String, params: serde_json::Value },
     Usage { items: Vec<UsageItem> },
     Actions { actions: Vec<Action> },
@@ -960,6 +968,10 @@ mod tests {
         assert_eq!(msg, ClientMsg::ChatOlder { chat_id: "c1".into(), before_seq: 40 });
         let json = serde_json::to_value(ServerMsg::ChatOlder { chat_id: "c1".into(), events: Vec::new(), partial: false, has_more: true, first_seq: 40 }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "chatolder", "chatId": "c1", "events": [], "hasMore": true, "firstSeq": 40 }));
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"peerdecide","messageId":"m-1","decision":"always"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::PeerDecide { message_id: "m-1".into(), decision: "always".into() });
+        let json = serde_json::to_value(ClientMsg::ChatQueueHint { chat_id: "c1".into(), count: 2 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatqueuehint", "chatId": "c1", "count": 2 }));
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatpermission","chatId":"c1","requestId":"a1","optionId":null}"#).unwrap();
         assert_eq!(msg, ClientMsg::ChatPermission { chat_id: "c1".into(), request_id: serde_json::json!("a1"), option_id: None });
         let json = serde_json::to_value(ClientMsg::ChatMode { chat_id: "c1".into(), mode_id: "plan".into() }).unwrap();

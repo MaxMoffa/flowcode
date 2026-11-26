@@ -15,7 +15,10 @@ import { pathAtCell, terminalFile } from "./termPaths";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
 import { DelegateStrip } from "./ChatDelegates";
-import { onTermOpen, termOpenPage, useTermDelegates } from "./termExt";
+import { dismissTermPeers, onTermOpen, termOpenPage, useTermDelegates, useTermPeers } from "./termExt";
+import { ChatPeerCard, ChatPeerOut } from "./ChatPeer";
+import { TERMINAL_READ_HINT } from "../../src/chat/peerMessage";
+import { dismissTerminalPeers, shownTerminalPeers } from "../../src/terminal/terminalPeers";
 import { TermFiles } from "./TermFiles";
 import { openLink, TermLink } from "./TermLink";
 import { TermKeyBar } from "./TermKeyBar";
@@ -63,6 +66,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const lastLink = useRef({ url: "", at: 0 });
   const { ptyId } = tab;
   const delegates = useTermDelegates(ptyId);
+  const peers = shownTerminalPeers(useTermPeers(ptyId));
   const settings = useRemoteSelector((s) => s.settings);
   // Counts, not the tabs array: a tabs message that changes neither re-renders nothing here.
   const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length);
@@ -413,6 +417,27 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
         {delegates.length > 0 && (
           <div className="term-dstrip">
             <DelegateStrip items={delegates} onOpen={onOpenChat} />
+          </div>
+        )}
+        {(peers.incoming.length > 0 || peers.outgoing.length > 0) && (
+          <div className="term-dstrip term-peers">
+            {peers.incoming.map((peer) => (
+              <ChatPeerCard key={peer.msgId} peer={peer} terminal onLink={onLink} />
+            ))}
+            <div className="term-peers-actions">
+              {peers.incoming.some((p) => p.state === "queued") && (
+                // Typed for the agent, never sent: the user presses Enter.
+                <button type="button" className="chat-perm-btn is-primary" onClick={() => typeText(TERMINAL_READ_HINT)}>
+                  {t("termPeerInsert")}
+                </button>
+              )}
+              <button type="button" className="chat-perm-btn" onClick={() => dismissTermPeers(ptyId, dismissTerminalPeers)}>
+                {t("termPeerDismiss")}
+              </button>
+            </div>
+            {peers.outgoing.map((out) => (
+              <ChatPeerOut key={out.msgId} out={out} onLink={onLink} />
+            ))}
           </div>
         )}
         {showWait && (

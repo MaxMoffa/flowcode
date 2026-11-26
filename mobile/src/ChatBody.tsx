@@ -8,6 +8,7 @@ import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from 
 import { UserText } from "../../src/chat/CommandChip";
 import { ChatCompaction } from "./ChatCompaction";
 import { DelegateStrip } from "./ChatDelegates";
+import { ChatPeerCard, ChatPeerOut } from "./ChatPeer";
 import { ChatGoalMarker } from "./ChatGoalMarker";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
@@ -387,6 +388,10 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
         </div>
       );
     }
+    case "peer":
+      return <ChatPeerCard peer={item.peer} onLink={onLink} />;
+    case "peerOut":
+      return <ChatPeerOut out={item.out} onLink={onLink} />;
     case "compaction":
       return <ChatCompaction item={item} onLink={onLink} />;
     case "goal":

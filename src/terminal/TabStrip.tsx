@@ -3,7 +3,8 @@ import { useCalls } from "../calls/callStore";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
-import type { AppTab } from "../tabs/types";
+import type { AppTab, PeerAccept } from "../tabs/types";
+import { defaultMessagesAccept, useAgentToolsSettings } from "../agents/agentToolsSettings";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { t, translationsOf, useI18n } from "../i18n";
@@ -44,6 +45,8 @@ interface TabStripProps {
   onDuplicate: (id: string) => void;
   /** Mutes/unmutes a terminal tab's agent notifications. */
   onToggleNotifications: (id: string) => void;
+  /** How a terminal or chat tab answers messages from other agents; undefined = the global default. */
+  onPeerAccept?: (id: string, accept: PeerAccept | undefined) => void;
   /** Copies the agent-detection report of a terminal tab to the clipboard. */
   onAgentDiagnostics: (id: string) => void;
   /** A tab dragged along the strip, moved to slot `toIndex`. */
@@ -415,6 +418,7 @@ export function TabStrip({
   onRename,
   onDuplicate,
   onToggleNotifications,
+  onPeerAccept,
   onAgentDiagnostics,
   onReorder,
   onDragOut,
@@ -461,6 +465,7 @@ export function TabStrip({
 
   const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, tabs);
   const { tabOffscreenGlow } = useTerminalSettings();
+  const toolSettings = useAgentToolsSettings();
   // The tabs an agent is calling the user from (see src/calls): their logo pulses.
   const calls = useCalls();
   const callingIds = useMemo(() => new Set(calls.map((c) => c.tabId)), [calls]);
@@ -529,6 +534,21 @@ export function TabStrip({
     // A delegated child's view has no agent of its own to start a second time.
     if (tab.kind === "terminal" || tab.kind === "editor" || (tab.kind === "chat" && !tab.delegate)) {
       items.push({ label: t("tabs.duplicate"), icon: MenuIcons.duplicate, onSelect: () => onDuplicate(tab.id) });
+    }
+    // Agents that can message each other: what this tab does with their messages.
+    if (onPeerAccept && toolSettings.enabled && toolSettings.messages && (tab.kind === "terminal" || (tab.kind === "chat" && !tab.delegate))) {
+      const current = tab.peerAccept;
+      const word = { always: t("tabs.peerAccept.always"), ask: t("tabs.peerAccept.ask"), never: t("tabs.peerAccept.never") };
+      const pick = (value: PeerAccept | undefined, label: string): ContextMenuItem => ({ label, checked: current === value, onSelect: () => onPeerAccept(tab.id, value) });
+      items.push({
+        label: t("tabs.peerAccept.menu"),
+        submenu: [
+          pick(undefined, t("tabs.peerAccept.default", { value: word[defaultMessagesAccept()] })),
+          pick("always", word.always),
+          pick("ask", word.ask),
+          pick("never", word.never),
+        ],
+      });
     }
     if (tab.kind === "terminal") {
       items.push({

@@ -43,6 +43,9 @@ import type { ChatEvent } from "../chat/chatTypes";
 import { publishTabDelegation } from "../chat/delegateStore";
 import { addTerminalRequest, EMPTY_TERMINAL_DELEGATES, resolveTerminalRequest, seedTerminalDelegates, upsertTerminalDelegate, type TerminalDelegates } from "./terminalDelegates";
 import { TerminalDelegateCard } from "./TerminalDelegateCard";
+import { TerminalPeerCard } from "./TerminalPeerCard";
+import { applyTerminalPeer, dismissTerminalPeers, EMPTY_TERMINAL_PEERS, seedTerminalPeers, type TerminalPeers } from "./terminalPeers";
+import { PEER_IN_METHOD, PEER_OUT_METHOD, TERMINAL_READ_HINT } from "../chat/peerMessage";
 import { addCall } from "../calls/callStore";
 import { useOptionalConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { isLayoutBusy, onLayoutBusyEnd } from "../lib/layoutDrag";
@@ -243,6 +246,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   confirmRef.current = confirm;
   // What this tab's agent delegated to others (Flowcode's MCP tools), from the backend's events.
   const [delegation, setDelegation] = useState<TerminalDelegates>(EMPTY_TERMINAL_DELEGATES);
+  // Messages from and to other tabs' agents (see TerminalPeerCard).
+  const [peers, setPeers] = useState<TerminalPeers>(EMPTY_TERMINAL_PEERS);
   const [ptyEnded, setPtyEnded] = useState(false);
   const unmountedRef = useRef(false);
   useEffect(() => {
@@ -270,12 +275,17 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     invoke<unknown[]>("terminal_delegates", { ptyId })
       .then((raw) => !unmountedRef.current && setDelegation((prev) => seedTerminalDelegates(prev, raw)))
       .catch(() => {});
+    invoke<unknown[]>("agent_messages_of_tab", { ptyId })
+      .then((raw) => !unmountedRef.current && setPeers((prev) => seedTerminalPeers(prev, raw)))
+      .catch(() => {});
   };
   // Flowcode's MCP tools (see `tools` in spawnPty). Refs, so the handlers handed to the channel at spawn time stay current.
   const onExt = (method: string, params: unknown) => {
     if (unmountedRef.current) return;
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
-    if (method === "_flowcode/delegate") {
+    if (method === PEER_IN_METHOD || method === PEER_OUT_METHOD) {
+      setPeers((prev) => applyTerminalPeer(prev, method, params));
+    } else if (method === "_flowcode/delegate") {
       const delegate = parseDelegate(params);
       if (delegate) setDelegation((prev) => upsertTerminalDelegate(prev, delegate));
     } else if (method === "_flowcode/delegate_request") {
@@ -1352,6 +1362,17 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       {phoneSized && <div className="terminal-phone-banner">{t("terminal.phoneSized")}</div>}
       <div ref={hostRef} className="terminal-host" />
       <BrowserControlCards hostId={ptyIdState} terminal />
+      <TerminalPeerCard
+        peers={peers}
+        hidden={hidden}
+        onDismiss={() => setPeers(dismissTerminalPeers)}
+        onInsert={() => {
+          // Typed for the agent, never sent: the user presses Enter.
+          const id = ptyIdRef.current;
+          if (id) writePty(id, TERMINAL_READ_HINT);
+          xtermRef.current?.focus();
+        }}
+      />
       <TerminalDelegateCard
         delegates={delegation.delegates}
         requests={delegation.requests}

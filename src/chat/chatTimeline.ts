@@ -261,8 +261,8 @@ export function hiddenGuardian(item: ChatItem): boolean {
   return item.type === "tool" && isGuardianReview(item.call) && item.call.status !== "failed";
 }
 
-/** The names of Flowcode's delegation tools (its MCP server, `chat_mcp.rs`). */
-const DELEGATE_TOOLS = /(delegate_task|get_task_result|cancel_task|list_agents)/;
+/** The names of Flowcode's delegation and message tools (its MCP server, `chat_mcp.rs`): their cards (a task, a message strip) say it all. */
+const DELEGATE_TOOLS = /(delegate_task|get_task_result|cancel_task|list_agents|send_message|wait_for_reply|read_messages)/;
 
 /** A call to one of Flowcode's delegation tools: the task's card says it all. Agents name the call differently (Claude's tool name is `mcp__flowcode__delegate_task`, others put "flowcode" and the tool in the title). */
 function isDelegateToolCall(call: ChatToolCall): boolean {

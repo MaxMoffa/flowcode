@@ -31,6 +31,13 @@ describe("desktop compatibility", () => {
     expect(supports(host, "chat")).toBe(false);
   });
 
+  it("hides the messages between agents quietly on a desktop that lacks them", () => {
+    const host = hostInfoFrom({ appVersion: "0.40.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"] });
+    expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });
+    expect(supports(host, "agentMessages")).toBe(false);
+    expect(supports({ ...host, caps: [...host.caps, "agentMessages"] }, "agentMessages")).toBe(true);
+  });
+
   it("hides OpenCode quietly on a desktop that lacks it", () => {
     const host = hostInfoFrom({ appVersion: "0.30.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"] });
     expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { pushAgentMessagesConfig } from "./agents/agentToolsSettings";
 import { getVersion } from "@tauri-apps/api/app";
 import { AgentPanelHostContext } from "./agents/agentPanelState";
 import { openFileInPreview, setBrowserOpen } from "./browser/browserStore";
@@ -88,7 +89,7 @@ function Shell() {
     seedExamplePlugins, selectTab, selectTabAt, sessionChecked, setPairingHost, setPluginDialog,
     setPluginMenuAnchor, setProfilePickerOpen, setSettingsSection, setShortcutsDialogOpen, setSidebarCollapsed,
     shellId, shortcutsDialogOpen, showPluginToastRef, sidebarCollapsed, sidebarMode, sidebarPanelRef,
-    sidebarResize, startPathChecked, stepTab, stripTabs, t, tabs, termRefs, toggleTabNotifications, toggleTheme,
+    sidebarResize, startPathChecked, stepTab, setTabPeerAccept, stripTabs, t, tabs, termRefs, toggleTabNotifications, toggleTheme,
     zoomTabIn, zoomTabOut,
   } = S;
   useSessionRestore(S);
@@ -255,9 +256,11 @@ function Shell() {
   // nothing the backend shows shouldn't cost an IPC call.
   // In strip order, terminals and chats together: moving a chat past a terminal is reported too.
   const reportedTabsKey = listedTabs(tabs)
-    .map((t) => (t.kind === "terminal" ? `t\u0000${t.id}\u0000${t.label}\u0000${t.cwd}\u0000${t.notifyMuted ? 1 : 0}` : t.kind === "chat" ? `c\u0000${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}` : ""))
+    .map((t) => (t.kind === "terminal" ? `t\u0000${t.id}\u0000${t.label}\u0000${t.cwd}\u0000${t.notifyMuted ? 1 : 0}\u0000${t.peerAccept ?? ""}` : t.kind === "chat" ? `c\u0000${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}\u0000${t.peerAccept ?? ""}` : ""))
     .join("\u0001");
   useReportTabs(reportedTabsKey, ptyVersion, latestRef, termRefs);
+  // The backend reads the messages switch and default policy at each message, not at a chat's start.
+  useEffect(() => pushAgentMessagesConfig(), []);
 
   useRemoteHandlers(S);
   const tabAgentState = useTabAgents(S);
@@ -345,6 +348,7 @@ function Shell() {
           onRename={renameTab}
           onDuplicate={duplicateTab}
           onToggleNotifications={toggleTabNotifications}
+          onPeerAccept={setTabPeerAccept}
           onAgentDiagnostics={(id) => void copyAgentDiagnostics(id)}
           onReorder={reorderTab}
           onDragOut={(id) => void handleTabDragOut(id)}

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as cliInfo from "./cliInfo";
 import { readAgentToolsConfig, toolsConfig, type AgentToolsSettings } from "./agentToolsSettings";
 
-const defaults: AgentToolsSettings = { enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, delegateAgents: null, maxParallel: 3, shellIntegration: true };
+const defaults: AgentToolsSettings = { enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, delegateAgents: null, maxParallel: 3, shellIntegration: true, messages: true, messagesAccept: "ask" };
 
 describe("agent tools config", () => {
   it("checks installed CLIs before passing the default list to a new chat", async () => {
@@ -15,7 +15,7 @@ describe("agent tools config", () => {
     }
   });
   it("allows every agent by default", () => {
-    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, browserControl: true, delegateAgents: ["claude", "codex", "vibe", "gemini", "opencode", "cline"], maxParallel: 3, shellIntegration: true });
+    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, call: true, delegate: true, browserControl: true, delegateAgents: ["claude", "codex", "vibe", "gemini", "opencode", "cline"], maxParallel: 3, shellIntegration: true, messages: true });
   });
   it("offers only the available agents by default, but the chosen ones as they are", () => {
     expect(toolsConfig(defaults, ["claude", "codex"]).delegateAgents).toEqual(["claude", "codex"]);
@@ -36,6 +36,11 @@ describe("agent tools config", () => {
     expect(toolsConfig({ ...defaults, shellIntegration: false }).shellIntegration).toBe(false);
     expect(toolsConfig(defaults).shellIntegration).toBe(true);
     expect(toolsConfig({ ...defaults, enabled: false }).shellIntegration).toBe(false);
+  });
+  it("passes the messages switch, off with the master switch", () => {
+    expect(toolsConfig({ ...defaults, messages: false }).messages).toBe(false);
+    expect(toolsConfig(defaults).messages).toBe(true);
+    expect(toolsConfig({ ...defaults, enabled: false }).messages).toBe(false);
   });
   it("auto-allows opening only when opening is on", () => {
     expect(toolsConfig({ ...defaults, open: false }).openAutoAllow).toBe(false);

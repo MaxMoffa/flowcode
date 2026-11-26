@@ -612,6 +612,8 @@ pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Valu
         chat_mcp::OPEN => open_in_browser(&chat, args),
         chat_mcp::CALL_USER => call_user(&chat, args),
         chat_mcp::ATTACH_DIAGNOSIS => attach_diagnosis(&chat, args),
+        chat_mcp::SEND_MESSAGE => crate::agent_messages::send(app, &caller.owner, args),
+        chat_mcp::WAIT_FOR_REPLY => crate::agent_messages::wait_for_reply(app, &caller.owner, args, deadline_ms),
         _ => delegation_call(app, &state, &ParentCtx::of_chat(&chat), tool, args, deadline_ms),
     }
 }
@@ -685,15 +687,24 @@ pub(crate) fn call_params(args: &Value) -> Result<Value, String> {
     Ok(json!({ "message": message, "reason": reason }))
 }
 
+/// The agents to delegate to (when delegation is on) and the tabs to message (when messages are).
 fn list_agents(app: &AppHandle, state: &ChatState, ctx: &ParentCtx) -> String {
-    let mut lines: Vec<String> = ctx
-        .tools
-        .delegate_agents
-        .iter()
-        .map(|agent| format!("- {agent}: {}", if agent_ready(app, agent) { "available" } else { "not available (not installed)" }))
-        .collect();
-    lines.push(format!("Tasks running now: {} (at most {} at once).", state.delegations.running(&ctx.owner), ctx.tools.max_parallel.max(1)));
-    lines.join("\n")
+    let mut sections = Vec::new();
+    if ctx.tools.delegate && !ctx.tools.delegate_agents.is_empty() {
+        let mut lines = vec!["Agents you can delegate to:".to_string()];
+        lines.extend(
+            ctx.tools
+                .delegate_agents
+                .iter()
+                .map(|agent| format!("- {agent}: {}", if agent_ready(app, agent) { "available" } else { "not available (not installed)" })),
+        );
+        lines.push(format!("Tasks running now: {} (at most {} at once).", state.delegations.running(&ctx.owner), ctx.tools.max_parallel.max(1)));
+        sections.push(lines.join("\n"));
+    }
+    if ctx.tools.messages {
+        sections.push(crate::agent_messages::list_tabs(app, &ctx.owner));
+    }
+    sections.join("\n\n")
 }
 
 fn owned_task(state: &ChatState, owner: &Owner, args: &Value) -> Result<Arc<Task>, String> {
@@ -1022,7 +1033,7 @@ mod tests {
     }
 
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, browser_control: false, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, messages: false, browser_control: false, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2, shell_integration: false, diagnosis: None }
     }
 
     fn chat(id: &str) -> Owner {

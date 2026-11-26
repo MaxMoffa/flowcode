@@ -46,10 +46,11 @@ export const CAP_LABELS = {
   chatAttach: "capHistory",
   browserTabs: "capBrowserTabs",
   chatPaging: "capChat",
+  agentMessages: "capAgentMessages",
 } as const satisfies Record<RemoteCap, string>;
 
 /** Features the UI simply hides when the desktop lacks them: not worth a compatibility notice. */
-const QUIET_CAPS: RemoteCap[] = ["fileExplorer", "chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatResume", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight", "providerAuth", "opencode", "cline", "git", "tabOps", "history", "stats", "resume", "chatAttach", "browserTabs", "chatPaging"];
+const QUIET_CAPS: RemoteCap[] = ["agentMessages", "fileExplorer", "chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatResume", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight", "providerAuth", "opencode", "cline", "git", "tabOps", "history", "stats", "resume", "chatAttach", "browserTabs", "chatPaging"];
 
 export interface HostInfo {
   appVersion?: string;

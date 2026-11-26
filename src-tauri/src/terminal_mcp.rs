@@ -125,6 +125,10 @@ impl TerminalMcp {
         if tools.contains(&crate::browser_control::TOOLS[0]) {
             allow.extend(crate::browser_control::CLAUDE_TOOLS);
         }
+        // The message tools: the target tab's policy (its consent card) is the gate.
+        if tools.contains(&chat_mcp::SEND_MESSAGE) {
+            allow.extend(["mcp__flowcode__send_message", "mcp__flowcode__wait_for_reply", "mcp__flowcode__read_messages", "mcp__flowcode__list_agents"]);
+        }
         if !allow.is_empty() {
             env.push(("FLOWCODE_MCP_AUTO_ALLOW".to_string(), allow.join(",")));
         }
@@ -158,6 +162,7 @@ impl Drop for TerminalMcp {
         }
         // Its tasks end with the tab. This may run under the pty map lock: the work is on another thread.
         crate::chat::delegate::terminal_closed(&self.app, &self.pty_id);
+        crate::agent_messages::terminal_closed(&self.app, &self.pty_id);
     }
 }
 
@@ -301,12 +306,32 @@ fn parent_mode(mode: Option<String>) -> String {
 /// Runs a tool call of a terminal tab; see `chat_mcp::dispatch`. The tab must be
 /// open and have been given the tool - the caller's word is not enough.
 pub(crate) fn call(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>, deadline_ms: Option<u64>) -> Result<String, String> {
+    let inbox = crate::pty::mcp_of(&app.state::<PtyState>(), pty_id).is_some_and(|info| info.tools.contains(&chat_mcp::READ_MESSAGES));
+    if let (true, Some(agent)) = (inbox, agent) {
+        crate::agent_messages::note_terminal_agent(app, pty_id, agent);
+    }
+    let result = call_tool(app, pty_id, tool, args, reported_cwd, agent, deadline_ms);
+    // Codex and OpenCode get no push: any Flowcode answer reminds the agent of what waits for it.
+    match result {
+        Ok(text) if inbox && tool != chat_mcp::READ_MESSAGES => Ok(text + &crate::agent_messages::unread_footer(app, pty_id).unwrap_or_default()),
+        other => other,
+    }
+}
+
+fn call_tool(app: &AppHandle, pty_id: &str, tool: &str, args: &Value, reported_cwd: Option<&str>, agent: Option<&str>, deadline_ms: Option<u64>) -> Result<String, String> {
     let state = app.state::<PtyState>();
     let Info { tools, cfg, cwd, wsl } = crate::pty::mcp_of(&state, pty_id).ok_or("this terminal tab is closed")?;
     if !tools.contains(&tool) {
         return Err(format!("the tool `{tool}` is not available in terminal tabs"));
     }
+    let owner = chat_mcp::Owner::Terminal(pty_id.to_string());
+    let delegation = cfg.delegate && !cfg.delegate_agents.is_empty();
     match tool {
+        chat_mcp::SEND_MESSAGE => crate::agent_messages::send(app, &owner, args),
+        chat_mcp::WAIT_FOR_REPLY => crate::agent_messages::wait_for_reply(app, &owner, args, deadline_ms),
+        chat_mcp::READ_MESSAGES => crate::agent_messages::read_messages(app, pty_id),
+        // Offered for the tabs alone: no child's folder to work out.
+        chat_mcp::LIST_AGENTS if !delegation => Ok(crate::agent_messages::list_tabs(app, &owner)),
         OPEN => {
             let Place { distro, homes, base } = locate(wsl, cwd, reported_cwd);
             let target = args.get("target").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("`target` is required")?;

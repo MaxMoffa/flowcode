@@ -34,6 +34,11 @@ pub(crate) const LIST_AGENTS: &str = "list_agents";
 pub(crate) const DELEGATE_TASK: &str = "delegate_task";
 pub(crate) const GET_TASK_RESULT: &str = "get_task_result";
 pub(crate) const CANCEL_TASK: &str = "cancel_task";
+/// Messages between the agents of different tabs (`agent_messages.rs`).
+pub(crate) const SEND_MESSAGE: &str = "send_message";
+pub(crate) const WAIT_FOR_REPLY: &str = "wait_for_reply";
+/// Terminal tabs only: a chat receives its messages as prompts.
+pub(crate) const READ_MESSAGES: &str = "read_messages";
 /// Only the diagnosis chat of a crash report gets it (see `ToolsConfig::diagnosis`).
 pub(crate) const ATTACH_DIAGNOSIS: &str = "attach_crash_diagnosis";
 
@@ -61,6 +66,9 @@ pub(crate) struct ToolsConfig {
     /// `call_user`: a bubble from the agent's tab (it asks for nothing, so it never needs permission).
     pub call: bool,
     pub delegate: bool,
+    /// `send_message` / `wait_for_reply` (and `read_messages` in terminal tabs): messages to the agents of other
+    /// tabs. Off when an older frontend sends nothing.
+    pub messages: bool,
     /// The `browser_*` tools (agent browser control, see `browser_control.rs`). The frontend sets it from the
     /// "agent control" browser setting (`control != "off"`); each action is still gated by the frontend's policy.
     pub browser_control: bool,
@@ -92,8 +100,17 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     if cfg.call && depth == 0 {
         tools.push(CALL_USER);
     }
-    if cfg.delegate && depth == 0 && !cfg.delegate_agents.is_empty() {
-        tools.extend([LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+    let delegation = cfg.delegate && depth == 0 && !cfg.delegate_agents.is_empty();
+    // A delegated child has no tab: it can neither be messaged nor send.
+    let messages = cfg.messages && depth == 0;
+    if delegation || messages {
+        tools.push(LIST_AGENTS);
+    }
+    if delegation {
+        tools.extend([DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+    }
+    if messages {
+        tools.extend([SEND_MESSAGE, WAIT_FOR_REPLY]);
     }
     // Like `call_user`: a delegated child has no browser tab of its own to be given.
     if cfg.browser_control && depth == 0 {
@@ -105,11 +122,16 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
 /// What a terminal tab's agent gets: the same as a chat's own (depth 0),
 /// delegation included. The tab asks for the tasks, the child chats run beside it.
 pub(crate) fn terminal_tools(cfg: &ToolsConfig) -> Vec<&'static str> {
-    enabled_tools(cfg, 0)
+    let mut tools = enabled_tools(cfg, 0);
+    // Flowcode never types into a tab: its messages wait in an inbox the agent reads.
+    if cfg.enabled && cfg.messages {
+        tools.push(READ_MESSAGES);
+    }
+    tools
 }
 
 /// What owns a token: a chat, or a terminal tab (by its pty id).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Owner {
     Chat(String),
     Terminal(String),
@@ -699,6 +721,10 @@ pub(crate) fn auto_allow(cfg: &ToolsConfig, cwd: &str, params: &Value) -> Option
     if cfg.enabled && cfg.call && is_call_user(params.get("toolCall")?) {
         return allow_once_option(params);
     }
+    // The message tools: the target's tab policy (its consent card) is the gate, and sending changes nothing here.
+    if cfg.enabled && cfg.messages && is_message_call(params.get("toolCall")?) {
+        return allow_once_option(params);
+    }
     // The `browser_*` tools: Flowcode's own consent card (frontend policy) is the gate, not the agent's prompt.
     if cfg.enabled && cfg.browser_control && is_browser_call(params.get("toolCall")?) {
         return allow_once_option(params);
@@ -752,6 +778,30 @@ fn is_browser_call(tool_call: &Value) -> bool {
     let Some(name) = name.filter(|n| crate::browser_control::is_tool(n)) else { return false };
     let allowed = crate::browser_control::tool_args(name);
     tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| input.keys().all(|k| allowed.contains(&k.as_str())))
+}
+
+/// The message tools and the arguments each takes (`list_agents` too: with messages on it is how tabs are found).
+const MESSAGE_TOOLS: [(&str, &[&str]); 4] =
+    [(SEND_MESSAGE, &["to", "text", "reply_to"]), (WAIT_FOR_REPLY, &["message_id", "wait_seconds"]), (READ_MESSAGES, &[]), (LIST_AGENTS, &[])];
+
+/// Whether a permission request's tool call is one of the message tools, matched as strictly as `is_browser_call`:
+/// Claude names it exactly; other adapters give a title that must be exactly the tool's, and every input key must be
+/// one of that tool's arguments (a shell command has `command` and fails).
+fn is_message_call(tool_call: &Value) -> bool {
+    if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
+        return tool.strip_prefix("mcp__flowcode__").is_some_and(|name| MESSAGE_TOOLS.iter().any(|(t, _)| *t == name))
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/name").and_then(Value::as_str) == Some(SERVER_NAME)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/source").and_then(Value::as_str) == Some("dynamic");
+    }
+    let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+    let Some(name) = title.strip_prefix("tool: ").unwrap_or(&title).strip_prefix("flowcode/") else { return false };
+    let Some((_, allowed)) = MESSAGE_TOOLS.iter().find(|(t, _)| *t == name) else { return false };
+    match tool_call.get("rawInput") {
+        Some(Value::Object(input)) => input.keys().all(|k| allowed.contains(&k.as_str())),
+        // No input at all is only right for the tools that take none.
+        None | Some(Value::Null) => allowed.is_empty(),
+        Some(_) => false,
+    }
 }
 
 /// Whether a permission request's tool call is Flowcode's `call_user`, matched
@@ -812,6 +862,7 @@ mod tests {
             open_auto_allow: true,
             call: true,
             delegate: true,
+            messages: false,
             browser_control: false,
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
@@ -938,6 +989,44 @@ mod tests {
         assert_eq!(terminal_tools(&ToolsConfig { delegate: false, ..on() }), [OPEN, CALL_USER]);
         assert!(terminal_tools(&ToolsConfig { enabled: false, ..on() }).is_empty());
         assert!(terminal_tools(&ToolsConfig { open: false, call: false, delegate: false, ..on() }).is_empty());
+    }
+
+    #[test]
+    fn message_tools_follow_their_switch_and_never_reach_a_child() {
+        let with = ToolsConfig { messages: true, ..on() };
+        assert_eq!(enabled_tools(&with, 0), [OPEN, CALL_USER, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK, SEND_MESSAGE, WAIT_FOR_REPLY]);
+        assert_eq!(enabled_tools(&with, 1), [OPEN], "a delegated child has no tab");
+        // Without delegation list_agents is still offered (it lists the tabs), once.
+        let only = ToolsConfig { delegate: false, open: false, call: false, ..with.clone() };
+        assert_eq!(enabled_tools(&only, 0), [LIST_AGENTS, SEND_MESSAGE, WAIT_FOR_REPLY]);
+        assert!(!enabled_tools(&with, 0).contains(&READ_MESSAGES), "chats receive prompts, not an inbox");
+        assert_eq!(terminal_tools(&only), [LIST_AGENTS, SEND_MESSAGE, WAIT_FOR_REPLY, READ_MESSAGES]);
+        assert!(!terminal_tools(&on()).contains(&READ_MESSAGES));
+        assert!(terminal_tools(&ToolsConfig { enabled: false, ..with.clone() }).is_empty());
+        let parsed: ToolsConfig = serde_json::from_value(json!({ "enabled": true, "messages": true })).unwrap();
+        assert!(parsed.messages);
+        assert!(!serde_json::from_value::<ToolsConfig>(json!({ "enabled": true })).unwrap().messages, "old frontends: off");
+    }
+
+    #[test]
+    fn message_tools_are_allowed_unasked_only_when_on_and_exact() {
+        let with = ToolsConfig { messages: true, ..on() };
+        for tool in ["mcp__flowcode__send_message", "mcp__flowcode__wait_for_reply", "mcp__flowcode__read_messages", "mcp__flowcode__list_agents"] {
+            assert_eq!(auto_allow(&with, &claude(tool)).as_deref(), Some("once"), "{tool}");
+            assert_eq!(auto_allow(&on(), &claude(tool)), None, "switch off: {tool}");
+        }
+        assert_eq!(auto_allow(&with, &claude("mcp__other__send_message")), None);
+        assert_eq!(auto_allow(&with, &claude("mcp__flowcode__delegate_task")), None);
+        let titled = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
+        assert_eq!(auto_allow(&with, &titled("Tool: flowcode/send_message", json!({ "to": "t1", "text": "hi" }))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&with, &titled("flowcode/wait_for_reply", json!({ "message_id": "m-1" }))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&with, &request(json!({ "title": "flowcode/read_messages" }))).as_deref(), Some("once"));
+        // A shell command titled like the tool is not the tool.
+        assert_eq!(auto_allow(&with, &titled("flowcode/send_message", json!({ "command": "rm -rf /" }))), None);
+        assert_eq!(auto_allow(&with, &titled("flowcode/send_message", json!({ "to": "t1", "text": "x", "cmd": "y" }))), None);
+        assert_eq!(auto_allow(&with, &titled("echo flowcode/send_message", json!({ "to": "t1" }))), None);
+        assert_eq!(auto_allow(&with, &request(json!({ "title": "flowcode/send_message" }))), None, "send_message takes input");
+        assert_eq!(auto_allow(&with, &titled("flowcode/read_messages", json!("x"))), None);
     }
 
     #[test]

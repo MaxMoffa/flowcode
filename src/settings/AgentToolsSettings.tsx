@@ -1,8 +1,11 @@
 import { useI18n } from "../i18n";
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
-import { MAX_PARALLEL_RANGE, setAgentToolsSetting, useAgentToolsSettings } from "../agents/agentToolsSettings";
+import { MAX_PARALLEL_RANGE, setAgentToolsSetting, useAgentToolsSettings, type MessagesAccept } from "../agents/agentToolsSettings";
 import { useAvailableClis } from "../agents/useAvailableClis";
 import { Segmented, SettingRow, SettingsGroup, Switch } from "./SettingsControls";
+
+const ACCEPT_OPTIONS: MessagesAccept[] = ["always", "ask", "never"];
+const ACCEPT_LABELS = { always: "tabs.peerAccept.always", ask: "tabs.peerAccept.ask", never: "tabs.peerAccept.never" } as const;
 
 const PARALLEL_OPTIONS = Array.from({ length: MAX_PARALLEL_RANGE.max - MAX_PARALLEL_RANGE.min + 1 }, (_, i) => String(MAX_PARALLEL_RANGE.min + i));
 
@@ -73,6 +76,22 @@ export function AgentToolsSettings() {
                   />
                 </SettingRow>
               </>
+            )}
+          </SettingsGroup>
+
+          <SettingsGroup title={t("settings.agentTools.messages.label")}>
+            <SettingRow id="agentToolsMessages" label={t("settings.agentTools.messages.label")} desc={t("settings.agentTools.messages.desc")}>
+              <Switch checked={settings.messages} onChange={(on) => setAgentToolsSetting("messages", on)} label={t("settings.agentTools.messages.label")} stateLabels={onOff} />
+            </SettingRow>
+            {settings.messages && (
+              <SettingRow id="agentToolsMessagesAccept" label={t("settings.agentTools.messages.defaultAccept")} desc={t("settings.agentTools.messages.defaultAcceptDesc")}>
+                <Segmented
+                  ariaLabel={t("settings.agentTools.messages.defaultAccept")}
+                  value={settings.messagesAccept}
+                  options={ACCEPT_OPTIONS.map((value) => ({ value, label: t(ACCEPT_LABELS[value]) }))}
+                  onChange={(value) => setAgentToolsSetting("messagesAccept", value as MessagesAccept)}
+                />
+              </SettingRow>
             )}
           </SettingsGroup>
         </>

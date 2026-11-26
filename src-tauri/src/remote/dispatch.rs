@@ -247,6 +247,31 @@ impl Conn {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 }
             }
+            ClientMsg::PeerDecide { message_id, decision } => {
+                if message_id.len() <= MAX_ID_BYTES && decision.len() <= MAX_ID_BYTES {
+                    let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+                    tauri::async_runtime::spawn(async move {
+                        let result = crate::blocking(move || crate::agent_messages::decide(&app, &message_id, &decision)).await;
+                        if let Err(message) = result {
+                            let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                        }
+                    });
+                } else {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                }
+            }
+            ClientMsg::ChatQueueHint { chat_id, count } => {
+                if chat_id.len() <= MAX_ID_BYTES {
+                    let app = self.shared.app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::blocking(move || {
+                            crate::agent_messages::queue_hint(&app, &chat_id, count as usize);
+                            Ok(())
+                        })
+                        .await;
+                    });
+                }
+            }
             ClientMsg::ChatAsk { chat_id, request_id, action, content } => {
                 let short = chat_id.len() <= MAX_ID_BYTES
                     && action.len() <= MAX_ID_BYTES

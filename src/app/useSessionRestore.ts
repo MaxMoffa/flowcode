@@ -59,6 +59,7 @@ export function useSessionRestore(S: ShellCtx) {
             label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
             customLabel: t.customLabel,
             notifyMuted: t.notifyMuted,
+            peerAccept: t.peerAccept,
             nestedShell: wslDistro !== undefined ? "wsl" : undefined,
             wslDistro: wslDistro ?? undefined,
             profileId: t.profileId,
@@ -80,6 +81,7 @@ export function useSessionRestore(S: ShellCtx) {
               // No saved session (or not restoring it): a fresh chat, nothing to resume yet.
               talked: keepChat && t.sessionId ? undefined : false,
               lastActiveAt: keepChat ? t.lastActiveAt : undefined,
+              peerAccept: t.peerAccept,
             });
           }
         } else if (t.kind === "editor") {

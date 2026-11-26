@@ -39,6 +39,8 @@ const WAIT_MS = 45_000;
 
 /** The desktop pages a chat's log: a fresh follow gets its newest page, older ones come on request. */
 let chatPaging = false;
+/** The desktop takes queue hints and consent answers for messages between agents. */
+let agentMessages = false;
 /** Chunks of a replay (or of an older page) that is still arriving, applied together when its last one is in: one render instead of one per frame. */
 const replayBuf = new Map<string, unknown[]>();
 const olderBuf = new Map<string, unknown[]>();
@@ -61,7 +63,11 @@ const infoOf = (chatId: string): ChatInfo | undefined => currentChats()?.find((c
 
 function patchSession(chatId: string, change: (s: ChatSession) => ChatSession) {
   const { sessions } = store.get();
-  store.set({ sessions: { ...sessions, [chatId]: change(sessions[chatId] ?? emptySession()) } });
+  const before = sessions[chatId]?.queued.length ?? 0;
+  const next = change(sessions[chatId] ?? emptySession());
+  store.set({ sessions: { ...sessions, [chatId]: next } });
+  // Messages from other tabs' agents wait behind the ones queued here: the desktop hears how many (never the text).
+  if (agentMessages && next.queued.length !== before) send({ t: "chatqueuehint", chatId, count: next.queued.length });
 }
 
 /** Opens the chats that should stream and closes the rest; a no-op until the list of this connection is known. */
@@ -266,6 +272,7 @@ function onChatMsg(m: ServerMsg) {
     case "ready":
       promptReceipts = !!m.caps?.includes("chatPromptAck");
       chatPaging = !!m.caps?.includes("chatPaging");
+      agentMessages = !!m.caps?.includes("agentMessages");
       // A new link forgot every stream: half-received answers are void, and a page asked for is asked again.
       replayBuf.clear();
       olderBuf.clear();
@@ -346,6 +353,8 @@ export function forceChatPrompt(chatId: string, index: number) {
 }
 
 export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
+/** Answers the consent card of a message from another agent; false when the link refused it. */
+export const decidePeerMessage = (messageId: string, decision: "accept" | "always" | "decline"): Promise<boolean> => sendChecked({ t: "peerdecide", messageId, decision });
 /** Edits the message scheduled for the usage limit's reset (`text`), or cancels it (`null`). */
 export const resumeChat = (chatId: string, text: string | null) => send({ t: "chatresume", chatId, text });
 /** Answers a permission request; false when the link refused it, so the caller can offer the buttons again. */

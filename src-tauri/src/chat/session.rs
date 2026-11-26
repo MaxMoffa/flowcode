@@ -253,6 +253,12 @@ impl Chat {
         if ends_autonomous {
             self.end_autonomous("end_turn");
         }
+        // A turn ended (its end, an error, an autonomous turn's end): a message from another tab may go now.
+        // After the log lock: delivery prompts this very chat.
+        if after == ChatStatus::Idle && before != ChatStatus::Idle && self.link.is_none() {
+            let limit = matches!(&event.body, ChatBody::Error { limit: true, .. });
+            crate::agent_messages::on_idle(&self.app, &self.id, limit);
+        }
         Ok(())
     }
 
@@ -272,6 +278,9 @@ impl Chat {
         };
         if moved {
             self.changed();
+            if self.link.is_none() {
+                crate::agent_messages::on_idle(&self.app, &self.id, false);
+            }
         }
     }
 
@@ -858,6 +867,8 @@ impl Chat {
         if let Some(state) = self.app.try_state::<ChatState>() {
             state.close_children(self);
         }
+        // Messages waiting for it fail, and their senders are told.
+        crate::agent_messages::on_closed(&self.app, &crate::chat_mcp::Owner::Chat(self.id.clone()));
     }
 
     /// Waits (briefly) for the process to be gone, killing it if it lingers -
@@ -1229,7 +1240,7 @@ mod tests {
     #[test]
     fn a_tasks_answer_is_the_agents_text_of_the_last_turn() {
         let text = |kind: &str, text: &str| ChatBody::Update { update: json!({ "sessionUpdate": kind, "content": { "type": "text", "text": text } }) };
-        let user = ChatBody::User { text: "go".into(), attachments: Vec::new(), images: Vec::new() };
+        let user = ChatBody::User { text: "go".into(), attachments: Vec::new(), images: Vec::new(), peer: None };
         let mut answer = String::new();
         accumulate_answer(&mut answer, &text("agent_message_chunk", "Hel"));
         accumulate_answer(&mut answer, &text("agent_thought_chunk", "hmm"));

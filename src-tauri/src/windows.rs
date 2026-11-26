@@ -207,6 +207,9 @@ pub struct TabInfo {
     /// `Some(false)` when the tab's agent notifications are muted.
     #[serde(default)]
     pub notify: Option<bool>,
+    /// The tab's answer to messages from other agents (`always`, `ask`, `never`); `None`: the global default.
+    #[serde(default)]
+    pub accept: Option<String>,
 }
 
 /// One chat tab as its window reports it: the remote access server joins it
@@ -219,6 +222,9 @@ pub struct ChatTabInfo {
     /// Position in the window's strip, terminals and chats together.
     #[serde(default)]
     pub index: Option<u32>,
+    /// As `TabInfo::accept`.
+    #[serde(default)]
+    pub accept: Option<String>,
 }
 
 /// Window label -> its terminal tabs, as last reported.

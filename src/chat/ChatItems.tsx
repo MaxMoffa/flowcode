@@ -13,6 +13,7 @@ import { LinkPreviews } from "./LinkPreviews";
 import { ChatImages } from "./ChatImage";
 import { CompactionDivider } from "./CompactionDivider";
 import { UserText } from "./CommandChip";
+import { PeerMessageCard, PeerOutStrip } from "./PeerMessageCard";
 import { basename } from "../lib/path";
 import { ChatPathLink } from "../lib/fileLinks";
 import { STEP_CATEGORIES, subagentInfo, subagentReport, subagentState, summarizeSteps, type SubagentItem, type TimelineStep } from "./chatTimeline";
@@ -490,6 +491,10 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
       return <GoalMarker item={item} />;
     case "diagnosis":
       return <DiagnosisAttachedCard />;
+    case "peer":
+      return <PeerMessageCard peer={item.peer} />;
+    case "peerOut":
+      return <PeerOutStrip out={item.out} />;
     case "ask": {
       if (!item.resolved) return null;
       const text = item.resolved.action === "accept" ? askSummary(item.questions, item.resolved.content) : "";

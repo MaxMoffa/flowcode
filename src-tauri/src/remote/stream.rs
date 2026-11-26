@@ -129,6 +129,12 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
             return;
         }
     }
+    // Likewise the cards of the messages it received or sent.
+    for (method, params) in crate::agent_messages::of_terminal(&shared.app, &pty_id) {
+        if !send_ext(&out, &pty_id, method, params) {
+            return;
+        }
+    }
 
     // Set while output is being dropped; `lost_seq` is the newest dropped.
     let mut lost_seq = 0u64;

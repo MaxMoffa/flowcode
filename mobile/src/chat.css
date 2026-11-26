@@ -4176,3 +4176,25 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
   .chat-round.chat-mic.is-listening::after,
   .chat-subcard-bar.is-running i::after { animation: none; }
 }
+
+/* Messages between the agents of different tabs (ChatPeer.tsx): the incoming card and the outgoing strip (a delegate strip with a state word). */
+.chat-peer { margin: 8px 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--agent) 32%, var(--border)); border-left: 3px solid var(--agent); border-radius: 12px; background: color-mix(in srgb, var(--agent) 6%, var(--bg)); }
+.chat-peer.is-pending_consent { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.chat-peer.is-declined, .chat-peer.is-expired, .chat-peer.is-failed { opacity: .72; }
+.chat-peer-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); }
+.chat-peer-logo { display: inline-flex; flex: none; color: var(--agent); }
+.chat-peer-title { min-width: 0; overflow: hidden; color: var(--fg); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.chat-peer-hops { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 11px; background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.chat-peer-body { margin-top: 6px; }
+.chat-peer-body.is-folded { max-height: 9.6em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.chat-peer-more { margin-top: 2px; padding: 4px 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; }
+.chat-peer-state { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.chat-peer-state.is-failed, .chat-peer-out-state.is-failed { color: var(--danger); }
+.chat-peer-note { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.chat-peer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chat-peer-out-state { flex: none; margin-left: auto; font-size: 12px; white-space: nowrap; }
+.chat-peer-out-live { padding: 0 12px 10px 37px; overflow: hidden; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.chat-peer-out-body { padding: 0 12px 10px 37px; }
+.chat-peer-out-error { margin-top: 6px; font-size: 12.5px; color: var(--danger); }
+.chat-peer-out-reply { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--agent); }
+.chat-peer-out-reply-label { font-size: 12px; font-weight: 600; color: var(--muted); }

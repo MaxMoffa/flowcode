@@ -207,7 +207,7 @@ pub enum RemoteOut {
 pub fn remote_ext(method: &str) -> bool {
     matches!(
         method,
-        "_flowcode/open" | "_flowcode/call" | "_flowcode/delegate" | "_flowcode/delegate_request" | "_flowcode/delegate_request_resolved"
+        "_flowcode/open" | "_flowcode/call" | "_flowcode/delegate" | "_flowcode/delegate_request" | "_flowcode/delegate_request_resolved" | "_flowcode/peer_in" | "_flowcode/peer_out"
     )
 }
 

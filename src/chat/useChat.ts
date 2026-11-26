@@ -519,6 +519,16 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     setQueued((q) => q.slice(1));
   }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId, online, phase]);
 
+  // Messages from other tabs' agents go only behind the user's own queued ones: the backend hears how many there are (never their text).
+  const hintedRef = useRef("");
+  useEffect(() => {
+    if (!chatId || attachChatId) return;
+    const hint = `${chatId}:${queued.length}`;
+    if (hintedRef.current === hint || (hintedRef.current === "" && queued.length === 0)) return;
+    hintedRef.current = hint;
+    invoke("chat_queue_hint", { chatId, count: queued.length }).catch(() => {});
+  }, [chatId, attachChatId, queued.length]);
+
   const cancel = useCallback(() => {
     // A delegated child is stopped through its task, so the orchestrator hears of it (status `cancelled`).
     const taskId = modelRef.current.task?.taskId;

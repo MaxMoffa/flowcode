@@ -24,13 +24,13 @@ export function windowSnapshot(state: WindowSnapshotState, bounds?: SavedWindow[
     tabs: kept.map((tab): SavedTab => {
       if (tab.kind === "terminal") {
         const term = terminals.get(tab.id);
-        return { kind: "terminal", cwd: tab.cwd, label: tab.label, customLabel: tab.customLabel, notifyMuted: tab.notifyMuted,
+        return { kind: "terminal", cwd: tab.cwd, label: tab.label, customLabel: tab.customLabel, notifyMuted: tab.notifyMuted, peerAccept: tab.peerAccept,
           shell: state.shellOf(tab), profileId: tab.profileId,
           content: !restoreContent ? undefined : term?.wasUsed() ? term.serialize() : restoredContent.get(tab.id) };
       }
       if (tab.kind === "chat") {
         const sessionId = restoreContent && tab.talked !== false ? tab.sessionId : undefined;
-        return { kind: "chat", agent: tab.agent, cwd: tab.cwd, label: tab.label, profileId: tab.profileId, sessionId, viewId: tab.viewId, shell: tab.shell, lastActiveAt: sessionId ? tab.lastActiveAt : undefined };
+        return { kind: "chat", agent: tab.agent, cwd: tab.cwd, label: tab.label, profileId: tab.profileId, sessionId, viewId: tab.viewId, shell: tab.shell, lastActiveAt: sessionId ? tab.lastActiveAt : undefined, peerAccept: tab.peerAccept };
       }
       if (tab.kind === "editor") return { kind: "editor", path: tab.path, label: tab.label };
       if (tab.kind === "changelog") return { kind: "changelog" };

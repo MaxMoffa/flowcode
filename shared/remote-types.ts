@@ -331,6 +331,8 @@ export type RemoteCap =
   /** `chatresume`: editing or cancelling the message scheduled for the usage limit's reset. */
   | "chatResume"
   | "chatPaging"
+  /** `peerdecide` / `chatqueuehint`, and the `_flowcode/peer_in` / `_flowcode/peer_out` cards: messages between the agents of different tabs. */
+  | "agentMessages"
   /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
   | "chatClear"
   /** `updatecheck` / `updateinstall` / `update`: updating the desktop's Flowcode from the phone. */
@@ -447,6 +449,10 @@ export type ClientMsg =
   | { t: "chatresume"; chatId: string; text: string | null }
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
+  /** Needs "agentMessages": answers the consent card of a message from another tab's agent (`_flowcode/peer_in`). */
+  | { t: "peerdecide"; messageId: string; decision: "accept" | "always" | "decline" }
+  /** Needs "agentMessages": how many messages the phone queued for the chat (count only), so other agents' messages wait behind them. */
+  | { t: "chatqueuehint"; chatId: string; count: number }
   /** Answers an agent's question (`ask` event): `accept` with the form `content`, `decline` (skip) or `cancel`. */
   | { t: "chatask"; chatId: string; requestId: unknown; action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }
   | { t: "chatmode"; chatId: string; modeId: string }

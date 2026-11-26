@@ -6,6 +6,8 @@ import type { ChatItem } from "../chat/chatModel";
 import type { ChatPermissionOption } from "../chat/chatTypes";
 import { t } from "../i18n";
 import { addCall, removeCallByKey, useCallsEnabled, type CallOption } from "./callStore";
+import { decidePeer } from "../chat/peerActions";
+import { firstLine } from "../chat/peerMessage";
 
 interface Answers {
   permission: (requestId: string, optionId: string | null) => void;
@@ -49,6 +51,31 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
     }
     const pending = new Set<string>();
     for (const item of items) {
+      // A message from another tab's agent waiting for consent: accept or decline right in the bubble.
+      if (item.type === "peer" && item.peer.state === "pending_consent") {
+        const key = `peer:${item.peer.msgId}`;
+        pending.add(key);
+        if (raised.current.has(key) && !repaint) continue;
+        raised.current.add(key);
+        const msgId = item.peer.msgId;
+        addCall({
+          key,
+          tabId,
+          agent,
+          kind: "question",
+          title: t("calls.title.peer", { agent: item.peer.from.agent ? cliName(item.peer.from.agent) : "agent", tab: item.peer.from.label }),
+          detail: firstLine(item.peer.text),
+          options: [
+            { id: "accept", label: t("chat.peer.consent.accept"), tone: "primary" },
+            { id: "decline", label: t("chat.peer.consent.decline"), tone: "danger" },
+          ],
+          onOption: (id) => decidePeer(msgId, id === "accept" ? "accept" : "decline"),
+          parked,
+          sessionId,
+          label,
+        });
+        continue;
+      }
       if (item.type !== "permission" && item.type !== "ask") continue;
       if (item.resolved !== undefined) continue;
       if (item.type === "permission") {

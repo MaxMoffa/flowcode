@@ -29,6 +29,7 @@ mod errors;
 mod launch;
 pub(crate) mod log;
 mod models;
+mod peer;
 mod session;
 mod state;
 use delegate::{Delegations, TaskLink};
@@ -39,6 +40,7 @@ use errors::*;
 pub(crate) use launch::*;
 use log::*;
 pub(crate) use models::*;
+pub(crate) use peer::*;
 pub(crate) use session::*;
 pub(crate) use state::*;
 
@@ -147,6 +149,10 @@ pub enum ChatBody {
         /// them; absent for events logged without any.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<UserImage>,
+        /// Set when the prompt is another agent's message (`agent_messages`): who sent it. `text` is then the
+        /// message as sent, not the framed prompt the agent got.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        peer: Option<Value>,
     },
     /// The agent asks for permission; answered with `chat_permission`.
     Permission { request_id: Value, tool_call: Value, options: Value },
@@ -335,12 +341,12 @@ mod tests {
     #[test]
     fn user_events_list_their_images_only_when_there_are_some() {
         let image = UserImage { name: "a.png".into(), mime_type: "image/png".into(), id: "ab".into() };
-        let with = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: vec!["a.png".into()], images: vec![image] } };
+        let with = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: vec!["a.png".into()], images: vec![image], peer: None } };
         assert_eq!(
             serde_json::to_value(&with).unwrap(),
             json!({ "seq": 1, "at": 2, "kind": "user", "text": "hi", "attachments": ["a.png"], "images": [{ "name": "a.png", "mimeType": "image/png", "id": "ab" }] })
         );
-        let without = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new() } };
+        let without = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new(), peer: None } };
         assert_eq!(serde_json::to_value(&without).unwrap(), json!({ "seq": 1, "at": 2, "kind": "user", "text": "hi" }));
     }
 
@@ -403,7 +409,7 @@ mod tests {
     #[test]
     fn status_follows_events() {
         use ChatStatus::*;
-        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new() };
+        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new(), peer: None };
         let update = ChatBody::Update { update: json!({ "sessionUpdate": "usage_update" }) };
         let permission = ChatBody::Permission { request_id: json!(1), tool_call: json!({}), options: json!([]) };
         let resolved = ChatBody::PermissionResolved { request_id: json!(1), option_id: None };

@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn the_log_merges_a_streamed_message_but_the_feed_gets_every_chunk() {
         let mut log = big_log();
-        let user = log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 1);
+        let user = log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new(), peer: None }, 1);
         let live: Vec<ChatEvent> = ["Hel", "lo ", "wörld"]
             .iter()
             .enumerate()
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn a_replay_from_inside_a_merged_run_gets_only_the_rest() {
         let mut log = big_log();
-        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         for t in ["a", "bé", "c", "d"] {
             log.push(chunk("agent_message_chunk", t), 0); // seqs 2..=5
         }
@@ -503,21 +503,21 @@ mod tests {
     fn the_log_drops_its_oldest_past_the_caps() {
         let mut log = Log::new(3, MAX_LOG_BYTES);
         for n in 1..=5 {
-            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new() }, 0);
+            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         }
         assert_eq!(summary(&log.after(0)), vec![(3, "3".into()), (4, "4".into()), (5, "5".into())]);
 
         // By bytes: each of these is 64 + 100 bytes, room for two.
         let mut log = Log::new(100, 400);
         for n in 1..=4u8 {
-            log.push(ChatBody::User { text: n.to_string().repeat(100), attachments: Vec::new(), images: Vec::new() }, 0);
+            log.push(ChatBody::User { text: n.to_string().repeat(100), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         }
         assert_eq!(log.after(0).iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
         assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
 
         // A merged run counts its whole text against the cap.
         let mut log = Log::new(100, 400);
-        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         for _ in 0..10 {
             log.push(chunk("agent_message_chunk", &"x".repeat(50)), 0);
         }
@@ -527,12 +527,12 @@ mod tests {
 
         // The newest entry is kept even when alone over the cap.
         let mut log = Log::new(100, 10);
-        log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new(), images: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         assert_eq!(log.events.len(), 1);
     }
 
     fn user(text: &str) -> ChatBody {
-        ChatBody::User { text: text.into(), attachments: Vec::new(), images: Vec::new() }
+        ChatBody::User { text: text.into(), attachments: Vec::new(), images: Vec::new(), peer: None }
     }
 
     /// Ten turns of: user message, tool call, tool update, reply.
@@ -585,7 +585,7 @@ mod tests {
     fn a_reset_log_keeps_counting() {
         let mut log = big_log();
         log.push(chunk("agent_message_chunk", "old history"), 0);
-        log.push(ChatBody::User { text: "old".into(), attachments: Vec::new(), images: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "old".into(), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         log.reset();
         assert!(log.after(0).is_empty());
         assert_eq!(log.bytes, 0);
@@ -644,7 +644,7 @@ mod tests {
         log.push(ChatBody::Exit { code: Some(0) }, 0);
         assert!(log.bytes <= before + 64, "nothing old to shrink but the entries just past the window");
         for n in 0..10 {
-            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new() }, 0);
+            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new(), peer: None }, 0);
         }
         let all = log.after(0);
         let ChatBody::Update { update } = &all[0].body else { panic!() };
@@ -669,6 +669,6 @@ mod tests {
         assert_eq!(approx_size(&json!("abc")), 5);
         assert_eq!(approx_size(&json!({ "k": "v" })), 2 + 1 + 4 + 3);
         assert_eq!(approx_size(&json!([1, null])), 2 + 8 + 8);
-        assert!(body_size(&ChatBody::User { text: "x".repeat(1000), attachments: Vec::new(), images: Vec::new() }) >= 1000);
+        assert!(body_size(&ChatBody::User { text: "x".repeat(1000), attachments: Vec::new(), images: Vec::new(), peer: None }) >= 1000);
     }
 }

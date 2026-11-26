@@ -2,6 +2,9 @@ import type { AgentCli } from "../agents/cliInfo";
 import type { ChatStatus } from "../chat/chatTypes";
 import type { ChatDiagnosis } from "../crash/diagnosis";
 
+/** A tab's answer to messages from other tabs' agents (the backend's `agent_messages::Accept`). */
+export type PeerAccept = "always" | "ask" | "never";
+
 export interface TermTab {
   kind: "terminal";
   id: string;
@@ -14,6 +17,8 @@ export interface TermTab {
   customLabel?: boolean;
   /** The user muted this tab's agent notifications (tab context menu). */
   notifyMuted?: boolean;
+  /** How this tab answers messages from other tabs' agents (tab context menu); absent = the global default. */
+  peerAccept?: PeerAccept;
   /** Still showing the new tab page (see src/newtab) - no shell has been
    * started yet; it starts once the user picks a command, a shell, a recent
    * terminal or a favorite. `cwd` is already the default shell's start
@@ -70,6 +75,8 @@ export interface ChatTab {
   /** The agent's session, reported once it exists; saved so a restart
    * resumes the conversation. */
   sessionId?: string;
+  /** As `TermTab.peerAccept`. */
+  peerAccept?: PeerAccept;
   /** The agent view the chat is shown with (see src/agentViews); absent = the
    * default. */
   viewId?: string;

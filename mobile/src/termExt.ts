@@ -1,6 +1,8 @@
 // What the agent in a desktop terminal tab does through Flowcode's MCP tools, as the desktop reports it on the terminal stream (`ext` messages): its delegations, and pages it asks to open.
 import { parseDelegate, type DelegateInfo } from "../../src/chat/chatModel";
 import { EMPTY_TERMINAL_DELEGATES, upsertTerminalDelegate, type TerminalDelegates } from "../../src/terminal/terminalDelegates";
+import { applyTerminalPeer, EMPTY_TERMINAL_PEERS, type TerminalPeers } from "../../src/terminal/terminalPeers";
+import { PEER_IN_METHOD, PEER_OUT_METHOD } from "../../src/chat/peerMessage";
 import { isPreviewableFile } from "../../shared/agentOpen";
 import type { ServerMsg } from "../../shared/remote-types";
 import { relativeArtifactPath } from "./agentPreview";
@@ -8,7 +10,7 @@ import { localLinkPage, parseTyped, type Page } from "./browserUrl";
 import { onMessage } from "./remote";
 import { createStore } from "./store";
 
-const store = createStore<{ delegations: Record<string, TerminalDelegates> }>({ delegations: {} });
+const store = createStore<{ delegations: Record<string, TerminalDelegates>; peers: Record<string, TerminalPeers> }>({ delegations: {}, peers: {} });
 const NONE: DelegateInfo[] = [];
 
 /** A terminal tab's agent asked to open `target` (a URL or a file); `cwd` is where it asked from. */
@@ -27,6 +29,11 @@ export function applyTermExt(ptyId: string, method: string, params: unknown) {
     const prev = store.get().delegations[ptyId] ?? EMPTY_TERMINAL_DELEGATES;
     const next = upsertTerminalDelegate(prev, delegate);
     if (next !== prev) store.set({ delegations: { ...store.get().delegations, [ptyId]: next } });
+  } else if (method === PEER_IN_METHOD || method === PEER_OUT_METHOD) {
+    // Messages from and to other tabs' agents (a desktop with `agentMessages` seeds the open ones when the stream starts).
+    const prev = store.get().peers[ptyId] ?? EMPTY_TERMINAL_PEERS;
+    const next = applyTerminalPeer(prev, method, params);
+    if (next !== prev) store.set({ peers: { ...store.get().peers, [ptyId]: next } });
   } else if (method === "_flowcode/open") {
     const { target, cwd } = (params && typeof params === "object" ? params : {}) as { target?: unknown; cwd?: unknown };
     if (typeof target !== "string" || target === "") return;
@@ -40,6 +47,20 @@ export function pruneTermExt(alive: Set<string>) {
   const current = store.get().delegations;
   const kept = Object.fromEntries(Object.entries(current).filter(([id]) => alive.has(id)));
   if (Object.keys(kept).length !== Object.keys(current).length) store.set({ delegations: kept });
+  const peers = store.get().peers;
+  const keptPeers = Object.fromEntries(Object.entries(peers).filter(([id]) => alive.has(id)));
+  if (Object.keys(keptPeers).length !== Object.keys(peers).length) store.set({ peers: keptPeers });
+}
+
+/** The messages of the terminal's agent, received and sent. */
+export function useTermPeers(ptyId: string): TerminalPeers {
+  return store.useSelector((s) => s.peers[ptyId] ?? EMPTY_TERMINAL_PEERS);
+}
+
+/** The user closed the terminal's message cards (what still waits stays). */
+export function dismissTermPeers(ptyId: string, next: (prev: TerminalPeers) => TerminalPeers) {
+  const prev = store.get().peers[ptyId];
+  if (prev) store.set({ peers: { ...store.get().peers, [ptyId]: next(prev) } });
 }
 
 onMessage((m: ServerMsg) => {
