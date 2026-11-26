@@ -55,6 +55,9 @@ const MODE_TIMEOUT: Duration = Duration::from_secs(30);
 const GOAL_EXT_METHOD: &str = "_flowcode/goal";
 /// Flowcode's own: `/clear` replaced the session on the same agent process - the views empty the chat.
 pub(super) const CLEARED_EXT_METHOD: &str = "_flowcode/cleared";
+/// The agent started a turn by itself (no prompt of ours): the views show it working until its `turnEnd`.
+/// Sent by the backend alone, so a view never opens a turn the backend won't close.
+pub(super) const AUTONOMOUS_EXT_METHOD: &str = "_flowcode/autonomous";
 /// Flowcode's own: the resume message scheduled for the usage limit's reset
 /// changed - `state` "armed" (with `at`, `text`), "cancelled" or "sent", and
 /// the `limitId` (the views' limit item) it was armed for.
@@ -205,7 +208,8 @@ impl ChatStatus {
 /// `permissions_pending` says whether a permission request is still open
 /// (after the bookkeeping of this very event).
 ///
-/// Only the user's prompt starts a turn: agents keep sending updates between
+/// Only the user's prompt - or the agent's own main-conversation output
+/// (`starts_autonomous_turn`) - starts a turn: agents keep sending updates between
 /// turns (usage, commands, session info), and an adapter may even ask for a
 /// permission outside one (it is still recorded, and answerable) - none of
 /// that may make an idle chat look busy, or a prompt would be refused as
@@ -221,9 +225,27 @@ fn next_status(before: ChatStatus, body: &ChatBody, permissions_pending: bool) -
         (_, ChatBody::TurnEnd { .. } | ChatBody::Error { .. }) => Idle,
         (_, ChatBody::Ext { .. }) => before,
         (Idle, ChatBody::User { .. }) => in_turn,
+        // The agent started a turn by itself (a cross-session message, a finished background task).
+        (Idle, ChatBody::Update { update }) if starts_autonomous_turn(update) => in_turn,
         (Idle, _) => Idle,
         (Busy | Waiting, _) => in_turn,
     }
+}
+
+/// Whether an update seen while idle is the agent's own output starting a turn with no prompt pending: the
+/// main conversation's message, thought or tool call - not housekeeping (usage, commands, session info) nor a
+/// native subagent's work (`parentToolUseId`), which can trail the turn that ended.
+fn starts_autonomous_turn(update: &Value) -> bool {
+    matches!(update.get("sessionUpdate").and_then(Value::as_str), Some("agent_message_chunk" | "agent_thought_chunk" | "tool_call"))
+        && update.pointer("/_meta/claudeCode/parentToolUseId").is_none_or(Value::is_null)
+}
+
+/// Whether an update is the Claude adapter's end-of-result marker of an autonomous cycle: a `usage_update`
+/// carrying `_meta["_claude/origin"]` (only results with an origin have it).
+fn is_autonomous_end_marker(body: &ChatBody) -> bool {
+    matches!(body, ChatBody::Update { update }
+        if update.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update")
+            && update.pointer("/_meta").and_then(|m| m.get("_claude/origin")).is_some())
 }
 
 /// Whether an event emitted while the chat is `before` is news a phone should
@@ -240,10 +262,14 @@ fn is_live(before: ChatStatus, body: &ChatBody) -> bool {
 /// Whether a prompt may be sent to a chat that is `status`. One turn at a time:
 /// two windows (or a phone and the desktop) prompting at once must not
 /// interleave turns, so anything but idle is refused (the frontend queues the
-/// message and sends it when the turn ends).
-fn prompt_gate(status: ChatStatus) -> Result<(), String> {
+/// message and sends it when the turn ends). The exception: a turn the agent
+/// started by itself (`autonomous`) takes a prompt while it runs - the adapter
+/// merges it in and its response ends the turn - but not while a permission is
+/// open (`Waiting`).
+fn prompt_gate(status: ChatStatus, autonomous: bool) -> Result<(), String> {
     match status {
         ChatStatus::Idle => Ok(()),
+        ChatStatus::Busy if autonomous => Ok(()),
         ChatStatus::Exited => Err("agent_exited: the agent has exited".into()),
         ChatStatus::Starting => Err("agent_busy: the agent is still starting".into()),
         ChatStatus::Busy | ChatStatus::Waiting => Err("agent_busy: the agent is still working on its turn".into()),
@@ -432,10 +458,49 @@ mod tests {
 
     #[test]
     fn prompts_go_only_to_an_idle_agent() {
-        assert!(prompt_gate(ChatStatus::Idle).is_ok());
+        assert!(prompt_gate(ChatStatus::Idle, false).is_ok());
         for status in [ChatStatus::Busy, ChatStatus::Waiting, ChatStatus::Starting] {
-            assert!(prompt_gate(status).unwrap_err().starts_with("agent_busy"), "{status:?}");
+            assert!(prompt_gate(status, false).unwrap_err().starts_with("agent_busy"), "{status:?}");
         }
-        assert!(prompt_gate(ChatStatus::Exited).unwrap_err().starts_with("agent_exited"));
+        assert!(prompt_gate(ChatStatus::Exited, false).unwrap_err().starts_with("agent_exited"));
+    }
+
+    #[test]
+    fn an_autonomous_turn_takes_a_prompt_unless_waiting() {
+        assert!(prompt_gate(ChatStatus::Busy, true).is_ok());
+        assert!(prompt_gate(ChatStatus::Waiting, true).unwrap_err().starts_with("agent_busy"));
+        assert!(prompt_gate(ChatStatus::Starting, true).unwrap_err().starts_with("agent_busy"));
+        assert!(prompt_gate(ChatStatus::Exited, true).unwrap_err().starts_with("agent_exited"));
+    }
+
+    #[test]
+    fn the_agent_output_alone_starts_a_turn() {
+        use ChatStatus::*;
+        let upd = |v: Value| ChatBody::Update { update: v };
+        for kind in ["agent_message_chunk", "agent_thought_chunk", "tool_call"] {
+            let body = upd(json!({ "sessionUpdate": kind }));
+            assert_eq!(next_status(Idle, &body, false), Busy, "{kind}");
+            assert_eq!(next_status(Idle, &body, true), Waiting, "{kind}");
+            // A null parent is still the main conversation.
+            let main = upd(json!({ "sessionUpdate": kind, "_meta": { "claudeCode": { "parentToolUseId": null } } }));
+            assert_eq!(next_status(Idle, &main, false), Busy, "{kind}");
+            // A native subagent's output doesn't.
+            let sub = upd(json!({ "sessionUpdate": kind, "_meta": { "claudeCode": { "parentToolUseId": "toolu_1" } } }));
+            assert_eq!(next_status(Idle, &sub, false), Idle, "{kind}");
+            // Nor while starting (history replay).
+            assert_eq!(next_status(Starting, &body, false), Starting, "{kind}");
+        }
+        for kind in ["usage_update", "available_commands_update", "session_info_update", "tool_call_update", "current_mode_update"] {
+            assert_eq!(next_status(Idle, &upd(json!({ "sessionUpdate": kind })), false), Idle, "{kind}");
+        }
+    }
+
+    #[test]
+    fn only_a_usage_update_with_an_origin_ends_an_autonomous_turn() {
+        let usage = |meta: Value| ChatBody::Update { update: json!({ "sessionUpdate": "usage_update", "_meta": meta }) };
+        assert!(is_autonomous_end_marker(&usage(json!({ "_claude/origin": { "kind": "task" } }))));
+        assert!(!is_autonomous_end_marker(&usage(json!({}))));
+        assert!(!is_autonomous_end_marker(&ChatBody::Update { update: json!({ "sessionUpdate": "usage_update" }) }));
+        assert!(!is_autonomous_end_marker(&ChatBody::Update { update: json!({ "sessionUpdate": "agent_message_chunk", "_meta": { "_claude/origin": {} } }) }));
     }
 }

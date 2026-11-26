@@ -128,8 +128,8 @@ impl ChatState {
             chat_id,
             text.to_string(),
             Vec::new(),
-            |status| {
-                let resume = take_resume_for_prompt(status, &mut lock(resume_slot), generation, text)?;
+            |status, autonomous| {
+                let resume = take_resume_for_prompt(status, autonomous, &mut lock(resume_slot), generation, text)?;
                 *taken.borrow_mut() = Some(resume);
                 Ok(())
             },
@@ -149,7 +149,7 @@ impl ChatState {
         chat_id: &str,
         text: String,
         attachments: Vec<Attachment>,
-        gate: impl FnOnce(ChatStatus) -> Result<(), String>,
+        gate: impl FnOnce(ChatStatus, bool) -> Result<(), String>,
         after_user: impl FnOnce(&Chat),
     ) -> Result<(), String> {
         if attachments.len() > 16 { return Err("at most 16 attachments per prompt".into()); }
@@ -161,7 +161,7 @@ impl ChatState {
         if !attachments.is_empty() {
             let status = *lock(&chat.status);
             if status != ChatStatus::Idle {
-                return prompt_gate(status);
+                prompt_gate(status, chat.autonomous.load(Ordering::Acquire))?;
             }
         }
         // File IO first: a failure here must not leave a turn open.
@@ -270,6 +270,10 @@ impl ChatState {
         let chat = self.get(chat_id)?;
         let running = matches!(*lock(&chat.status), ChatStatus::Busy | ChatStatus::Waiting);
         let sent = if running { chat.notify("session/cancel", json!({ "sessionId": chat.session_id()? })) } else { Ok(()) };
+        // A turn the agent began by itself has no prompt response to end it.
+        if running {
+            chat.end_autonomous("cancelled");
+        }
         // ACP: every permission request still open when a turn is cancelled
         // is answered as cancelled.
         chat.cancel_permissions();
@@ -1125,6 +1129,10 @@ pub(super) fn start_once(
         goal: Mutex::new(goal::GoalTrack::default()),
         resume: Mutex::new(None),
         resume_gen: AtomicU64::new(0),
+        autonomous: AtomicBool::new(false),
+        last_event_at: AtomicU64::new(0),
+        autonomous_watch: AtomicBool::new(false),
+        ready_at: AtomicU64::new(0),
     });
     {
         let chat = Arc::clone(&chat);

@@ -731,6 +731,9 @@ function trackTurn(next: ChatModelState, update: ChatUpdate, at: number): ChatMo
   return turn === next.turn ? next : { ...next, turn };
 }
 
+/** The backend saw the agent start a turn by itself (a cross-session message, a finished background task): busy until its `turnEnd`. */
+export const AUTONOMOUS_EXT_METHOD = "_flowcode/autonomous";
+
 function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
   switch (ev.kind) {
     case "update": {
@@ -740,6 +743,11 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "ext": {
       // The agent was given a fresh session: everything before is gone (the models and thinking levels come again as events).
       if (ev.method === CLEARED_EXT_METHOD) return { ...initialChat(), status: "idle" };
+      if (ev.method === AUTONOMOUS_EXT_METHOD) {
+        if (state.status !== "idle" || state.turnActive) return state;
+        const next = withItems(state, state.items, true);
+        return next.turn ? next : { ...next, turn: { startedAt: ev.at, outChars: 0 } };
+      }
       if (ev.method === MODEL_EXT_METHOD) {
         const params = (ev.params ?? {}) as Record<string, unknown>;
         if (!Array.isArray(params.availableModels) && str(params.currentModelId) === null) return state;

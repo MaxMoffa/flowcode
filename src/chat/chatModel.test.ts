@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, CLEARED_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, applyEvents, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, CLEARED_EXT_METHOD, AUTONOMOUS_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 import { buildAskContent } from "./askQuestions";
 
@@ -294,20 +294,49 @@ describe("chat model", () => {
     expect(settleChat(s).turn).toBeNull();
   });
 
-  // Before: agent chunks, tool calls and plans set turnActive, so a resumed
-  // session's replayed history (or a stray update after turnEnd) left the chat
-  // "busy" with no turnEnd to come. Now only a `user` event starts a turn.
-  it("does not start a turn from replayed history or stray updates", () => {
-    const s = run([
+  // The replay of a resumed session's history arrives while "starting": it must never leave the chat busy.
+  it("does not start a turn from replayed history", () => {
+    const replayed = run([
       chunk("user_message_chunk", "ciao"),
       chunk("agent_message_chunk", "risposta"),
       update({ sessionUpdate: "tool_call", toolCallId: "h1", title: "Read", status: "completed" }),
       update({ sessionUpdate: "plan", entries: [{ content: "a", status: "pending" }] }),
-    ]);
+    ], initialChat());
+    const s = settleChat(replayed);
     expect(s.turnActive).toBe(false);
     expect(s.status).toBe("idle");
     expect(s.turn).toBeNull();
     expect(s.items.map((i) => i.type)).toEqual(["user", "agent", "tool"]);
+  });
+
+  it("starts a turn when the backend says the agent began one by itself, ended by turnEnd", () => {
+    const autonomous = (at: number): ChatEvent => ({ kind: "ext", seq: next(), at, method: AUTONOMOUS_EXT_METHOD, params: {} });
+    let s = run([chunk("agent_message_chunk", "ping"), autonomous(40)]);
+    expect(s.status).toBe("busy");
+    expect(s.turnActive).toBe(true);
+    expect(s.turn?.startedAt).toBe(40);
+    s = run([update({ sessionUpdate: "tool_call", toolCallId: "a1", status: "in_progress" })], s);
+    expect(s.status).toBe("busy");
+    s = run([{ kind: "turnEnd", seq: next(), at: 0, stopReason: "end_turn" }], s);
+    expect(s.status).toBe("idle");
+    expect(s.turn).toBeNull();
+    // Agent output alone opens nothing: only the backend, which also closes it, decides.
+    expect(run([chunk("agent_message_chunk", "stray")]).status).toBe("idle");
+    expect(applyEvents(settleChat(initialChat()), [chunk("agent_message_chunk", "ping"), autonomous(1)]).status).toBe("busy");
+  });
+
+  it("does not start a turn from housekeeping updates or a subagent's output", () => {
+    const meta = { _meta: { claudeCode: { parentToolUseId: "toolu_1" } } };
+    for (const s of [
+      run([update({ sessionUpdate: "usage_update", used: 1, size: 2 })]),
+      run([update({ sessionUpdate: "available_commands_update", availableCommands: [] })]),
+      run([update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "sub" }, ...meta })]),
+      run([update({ sessionUpdate: "tool_call", toolCallId: "s1", status: "pending", ...meta })]),
+      applyEvents(settleChat(initialChat()), [update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "sub" }, ...meta })]),
+    ]) {
+      expect(s.status).toBe("idle");
+      expect(s.turnActive).toBe(false);
+    }
   });
 
   it("stays busy through a turn started here until its turnEnd", () => {

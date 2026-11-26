@@ -133,7 +133,21 @@ pub(super) struct Chat {
     pub(super) resume: Mutex<Option<ScheduledResume>>,
     /// Numbers the schedules, so a replaced one's timer gives up.
     pub(super) resume_gen: AtomicU64,
+    /// The running turn was started by the agent itself (no prompt of ours): its end is the adapter's result
+    /// marker, the `AUTONOMOUS_IDLE_MS` fallback, or a prompt merged into it. Written under the status lock.
+    pub(super) autonomous: AtomicBool,
+    /// When the last event came (ms), for the autonomous turn's fallback.
+    pub(super) last_event_at: AtomicU64,
+    /// A thread is watching the autonomous turn for the fallback.
+    pub(super) autonomous_watch: AtomicBool,
+    /// When the handshake ended (ms): output just after it is the agent's startup notices, not a turn.
+    pub(super) ready_at: AtomicU64,
 }
+
+/// An autonomous turn with no event for this long is ended (the adapter sent no end marker).
+const AUTONOMOUS_IDLE_MS: u64 = 120_000;
+/// Output this soon after the handshake opens no turn: Vibe, for one, sends its MCP/auth notices as agent text then.
+const STARTUP_GRACE_MS: u64 = 5_000;
 
 /// A prompt Flowcode sends by itself when the plan's usage limit resets
 /// (`chat_resume_schedule`), unless the user writes first or cancels it.
@@ -149,7 +163,22 @@ pub(super) struct ScheduledResume {
 impl Chat {
     /// Logs an event and sends it to the owner window and the phones.
     pub(super) fn emit(&self, body: ChatBody) {
-        let _ = self.emit_when(body, |_| Ok(()));
+        let _ = self.emit_when(body, |_, _| Ok(()));
+    }
+
+    /// Ends a turn the agent started by itself: no prompt response will come for it. Only if the chat is
+    /// still in one - checked under the log lock, so the marker, the fallback timer and a cancel can't
+    /// each end it.
+    pub(super) fn end_autonomous(&self, stop_reason: &str) {
+        let _ = self.emit_when(ChatBody::TurnEnd { stop_reason: stop_reason.into() }, |_, autonomous| if autonomous { Ok(()) } else { Err(String::new()) });
+    }
+
+    /// Starts the thread that ends an autonomous turn the agent leaves hanging, unless one already runs.
+    pub(super) fn watch_autonomous(self: &Arc<Self>) {
+        if self.autonomous.load(Ordering::Acquire) && !self.autonomous_watch.swap(true, Ordering::AcqRel) {
+            let weak = Arc::downgrade(self);
+            std::thread::spawn(move || watch_autonomous_turn(weak));
+        }
     }
 
     /// `emit`, if `allow` accepts the status the chat is in; its error
@@ -161,19 +190,35 @@ impl Chat {
     /// take the log and the feed in one go; neither send blocks (a broadcast
     /// and a queued webview event). Lock order: log, status, permissions -
     /// nothing may call this holding `permissions` or `status`.
-    pub(super) fn emit_when(&self, body: ChatBody, allow: impl FnOnce(ChatStatus) -> Result<(), String>) -> Result<(), String> {
+    pub(super) fn emit_when(&self, body: ChatBody, allow: impl FnOnce(ChatStatus, bool) -> Result<(), String>) -> Result<(), String> {
         let mut log = lock(&self.log);
-        let (before, after) = {
+        let (before, after, opened_autonomous) = {
             let mut status = lock(&self.status);
             let before = *status;
-            allow(before)?;
+            allow(before, self.autonomous.load(Ordering::Acquire))?;
             let permissions_pending = !lock(&self.permissions).is_empty() || !lock(&self.asks).is_empty();
-            *status = next_status(before, &body, permissions_pending);
+            // A delegated child works only on its task's prompt: an update before that prompt must not open a
+            // turn of its own, whose synthetic end would finish the task early.
+            let idle_update = before == ChatStatus::Idle && matches!(body, ChatBody::Update { .. });
+            let startup_notice = idle_update && now_ms().saturating_sub(self.ready_at.load(Ordering::Relaxed)) < STARTUP_GRACE_MS;
+            *status = if idle_update && (self.link.is_some() || startup_notice) { before } else { next_status(before, &body, permissions_pending) };
             if *status != before {
                 self.status_at.store(now_ms(), Ordering::Relaxed);
             }
-            (before, *status)
+            // A turn begun by an update alone is the agent's own; a prompt, the turn's end, an error or the exit close that.
+            let opened = matches!(body, ChatBody::Update { .. }) && before == ChatStatus::Idle && *status != ChatStatus::Idle;
+            match &body {
+                ChatBody::Update { .. } if opened => self.autonomous.store(true, Ordering::Release),
+                ChatBody::User { .. } | ChatBody::TurnEnd { .. } | ChatBody::Error { .. } | ChatBody::Exit { .. } => self.autonomous.store(false, Ordering::Release),
+                _ => {}
+            }
+            (before, *status, opened)
         };
+        self.last_event_at.store(now_ms(), Ordering::Relaxed);
+        // The adapter's result of an autonomous cycle; with a prompt of ours pending, its response ends the turn instead.
+        let ends_autonomous = self.autonomous.load(Ordering::Acquire)
+            && is_autonomous_end_marker(&body)
+            && !lock(&self.pending).values().any(|p| matches!(p, Pending::Prompt));
         let live = is_live(before, &body);
         if self.link.is_some() {
             accumulate_answer(&mut lock(&self.answer), &body);
@@ -202,6 +247,12 @@ impl Chat {
         if self.link.is_some() {
             delegate::child_event(self, &event.body);
         }
+        if opened_autonomous {
+            self.emit(ChatBody::Ext { method: AUTONOMOUS_EXT_METHOD.into(), params: json!({}) });
+        }
+        if ends_autonomous {
+            self.end_autonomous("end_turn");
+        }
         Ok(())
     }
 
@@ -215,6 +266,7 @@ impl Chat {
             if moved {
                 *status = ChatStatus::Idle;
                 self.status_at.store(now_ms(), Ordering::Relaxed);
+                self.ready_at.store(now_ms(), Ordering::Relaxed);
             }
             moved
         };
@@ -254,6 +306,7 @@ impl Chat {
             lock(&self.launches).clear();
             *lock(&self.goal) = goal::GoalTrack::default();
             *lock(&self.status) = ChatStatus::Idle;
+            self.autonomous.store(false, Ordering::Release);
             self.status_at.store(now_ms(), Ordering::Relaxed);
         }
         self.emit(ChatBody::Ext { method: CLEARED_EXT_METHOD.into(), params: json!({}) });
@@ -651,7 +704,7 @@ impl Chat {
                         // The staleness is checked under the log lock, so a
                         // late update can't pass it, then land after the
                         // `forget_session` that emptied the log.
-                        let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
+                        let stale = |_, _| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
                         // Pictures go to disk before the log lock is taken.
                         let mut update = update.clone();
                         if self.agent == "cline" {
@@ -666,16 +719,18 @@ impl Chat {
                         }
                         crate::chat_images::stash_images(&mut update);
                         let _ = self.emit_when(ChatBody::Update { update }, stale);
+                        self.watch_autonomous();
                     }
                 } else if method.trim_start_matches('_') == OPENCODE_CHILD_UPDATE {
                     // OpenCode (sub-agents): the children's work comes as extension notifications, not `session/update`.
                     let Some((child_params, mut update)) = opencode_child_update(&mut lock(&self.launches), &mut lock(&self.children), &params) else { return };
-                    let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
+                    let stale = |_, _| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
                     if !route_child_update(&mut lock(&self.children), &child_params, &mut update) {
                         return;
                     }
                     crate::chat_images::stash_images(&mut update);
                     let _ = self.emit_when(ChatBody::Update { update }, stale);
+                    self.watch_autonomous();
                 } else if method == "$/cancel_request" {
                     if let Some(request_id) = params.get("requestId") {
                         self.withdraw_request(request_id);
@@ -940,13 +995,35 @@ pub(super) fn send_resume_when_due(chat: Weak<Chat>, generation: u64) {
     }
 }
 
+/// Ends the autonomous turn of a chat that goes quiet for `AUTONOMOUS_IDLE_MS`
+/// (no end marker came), checking every 10 s. Gives up with the turn, the
+/// chat's exit or its close. A turn waiting on a permission isn't hung.
+fn watch_autonomous_turn(chat: Weak<Chat>) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        let Some(chat) = chat.upgrade() else { return };
+        if chat.closed.load(Ordering::Relaxed) || chat.exited.load(Ordering::Acquire) || !chat.autonomous.load(Ordering::Acquire) {
+            chat.autonomous_watch.store(false, Ordering::Release);
+            // A new autonomous turn may have begun after the check: keep watching it if nobody else started.
+            if chat.autonomous.load(Ordering::Acquire) && !chat.closed.load(Ordering::Relaxed) && !chat.autonomous_watch.swap(true, Ordering::AcqRel) {
+                continue;
+            }
+            return;
+        }
+        let quiet = now_ms().saturating_sub(chat.last_event_at.load(Ordering::Relaxed)) >= AUTONOMOUS_IDLE_MS;
+        if quiet && *lock(&chat.status) == ChatStatus::Busy {
+            chat.end_autonomous("end_turn");
+        }
+    }
+}
+
 /// The decision of `ChatState::prompt_resume`'s gate, under the status lock:
 /// the chat must accept a prompt (`prompt_gate`) and the slot must still hold
 /// the resume of `generation` with exactly `text`. On success the resume is
 /// taken out of the slot, so it is consumed atomically with the turn starting.
 /// Nothing is touched on error.
-pub(super) fn take_resume_for_prompt(status: ChatStatus, slot: &mut Option<ScheduledResume>, generation: u64, text: &str) -> Result<ScheduledResume, String> {
-    prompt_gate(status)?;
+pub(super) fn take_resume_for_prompt(status: ChatStatus, autonomous: bool, slot: &mut Option<ScheduledResume>, generation: u64, text: &str) -> Result<ScheduledResume, String> {
+    prompt_gate(status, autonomous)?;
     match slot {
         Some(r) if r.generation == generation => {
             if r.text != text {
@@ -1219,18 +1296,18 @@ mod tests {
     fn a_resume_is_taken_only_by_the_prompt_that_starts_the_turn() {
         // Busy: refused, the resume stays.
         let mut slot = sample_resume(1, "go");
-        assert!(take_resume_for_prompt(ChatStatus::Busy, &mut slot, 1, "go").unwrap_err().starts_with("agent_busy"));
+        assert!(take_resume_for_prompt(ChatStatus::Busy, false, &mut slot, 1, "go").unwrap_err().starts_with("agent_busy"));
         assert!(slot.is_some());
         // Another schedule replaced it: gone, untouched.
-        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut slot, 2, "go").unwrap_err(), "resume_gone");
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, false, &mut slot, 2, "go").unwrap_err(), "resume_gone");
         assert!(slot.is_some());
         // Edited between the peek and the acquisition: changed, untouched.
-        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut slot, 1, "old text").unwrap_err(), "resume_changed");
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, false, &mut slot, 1, "old text").unwrap_err(), "resume_changed");
         assert_eq!(slot.as_ref().unwrap().text, "go");
         // Nothing scheduled.
-        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut None, 1, "go").unwrap_err(), "resume_gone");
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, false, &mut None, 1, "go").unwrap_err(), "resume_gone");
         // Accepted: handed out and the slot emptied.
-        let taken = take_resume_for_prompt(ChatStatus::Idle, &mut slot, 1, "go").unwrap();
+        let taken = take_resume_for_prompt(ChatStatus::Idle, false, &mut slot, 1, "go").unwrap();
         assert_eq!((taken.generation, taken.text.as_str()), (1, "go"));
         assert!(slot.is_none());
     }
