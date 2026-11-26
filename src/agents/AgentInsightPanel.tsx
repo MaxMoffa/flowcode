@@ -197,6 +197,7 @@ function AgentBody({ agent, onCompactChat, onUnpin, onPin }: { agent: ActiveAgen
           <div className="agent-insight-who">
             <b title={label}>{label}</b>
             <small title={subtitle}>{subtitle}</small>
+            {agent.acpVersion === 2 && <small className="agent-insight-muted">{t("chat.header.acpV2")}</small>}
           </div>
           {headAction && (
             <button type="button" className="agent-insight-unpin" title={headAction.title} aria-label={headAction.title} onClick={headAction.run}>

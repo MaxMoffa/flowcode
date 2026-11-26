@@ -138,7 +138,7 @@ export function renderTabStack(S: ShellCtx): ReactNode {
       if (tab.kind === "chat") {
         // The shown conversation (its fields are the tab's) and the parked ones, all mounted: a hidden one keeps its agent running.
         const panes: (ChatPane & { shown: boolean })[] = [
-          { paneKey: tab.paneKey ?? tab.id, label: tab.label, sessionId: tab.sessionId, viewId: tab.viewId, status: tab.status, talked: tab.talked, lastActiveAt: tab.lastActiveAt, shown: true },
+          { paneKey: tab.paneKey ?? tab.id, label: tab.label, sessionId: tab.sessionId, viewId: tab.viewId, status: tab.status, talked: tab.talked, lastActiveAt: tab.lastActiveAt, acpVersion: tab.acpVersion, shown: true },
           ...(tab.parked ?? []).map((p) => ({ ...p, shown: false })),
         ];
         return (
@@ -162,6 +162,7 @@ export function renderTabStack(S: ShellCtx): ReactNode {
                     patchChatPane(tab.id, pane.paneKey, active ? { status, lastActiveAt: Date.now() } : { status });
                   }
                 },
+                onAcpVersion: (acpVersion) => patchChatPane(tab.id, pane.paneKey, { acpVersion }),
                 onViewChange: (viewId) => patchChatPane(tab.id, pane.paneKey, { viewId }),
                 onTalked: (talked) => {
                   // Absent counts as talked (a restored or resumed chat); only a real change is written.
@@ -200,6 +201,7 @@ export function renderTabStack(S: ShellCtx): ReactNode {
                     title={pane.label}
                     onSessionId={cb.onSessionId}
                     onStatus={cb.onStatus}
+                    onAcpVersion={cb.onAcpVersion}
                     onViewChange={cb.onViewChange}
                     onTalked={cb.onTalked}
                     onCloser={cb.onCloser}

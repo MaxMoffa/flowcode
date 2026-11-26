@@ -33,6 +33,7 @@ export function useActiveAgentSync(
   const aaParentId = chatTab?.delegate?.parentTabId ?? null;
   const aaParentLabel = parentTab?.label ?? "";
   const aaParentAgent = parentTab?.agent ?? "";
+  const aaAcpVersion = chatTab ? (chatTab.acpVersion ?? null) : null;
   useEffect(() => {
     setActiveAgent(
       aaCli
@@ -48,8 +49,9 @@ export function useActiveAgentSync(
             tabId: aaTabId,
             cwd: aaCwd,
             delegateOf: aaTaskId && aaParentId ? { taskId: aaTaskId, parentTabId: aaParentId, parentLabel: aaParentLabel, parentAgent: aaParentAgent } : null,
+            acpVersion: aaAcpVersion,
           }
         : null,
     );
-  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus, aaKind, aaTabId, aaCwd, aaTaskId, aaParentId, aaParentLabel, aaParentAgent]);
+  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus, aaKind, aaTabId, aaCwd, aaTaskId, aaParentId, aaParentLabel, aaParentAgent, aaAcpVersion]);
 }

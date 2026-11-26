@@ -21,7 +21,7 @@ export interface Handoff {
 }
 
 /** The callbacks of a chat pane's AgentSessionView (see `stableChatCallbacks`). */
-export type ChatCallbacks = Pick<ComponentProps<typeof AgentSessionView>, "onOpenDelegate" | "onFirstPromptSent" | "onSessionId" | "onStatus" | "onViewChange" | "onTalked" | "onCloser" | "onSwitchToTerminal" | "onOpenFile" | "onOpenLogin">;
+export type ChatCallbacks = Pick<ComponentProps<typeof AgentSessionView>, "onOpenDelegate" | "onFirstPromptSent" | "onSessionId" | "onStatus" | "onAcpVersion" | "onViewChange" | "onTalked" | "onCloser" | "onSwitchToTerminal" | "onOpenFile" | "onOpenLogin">;
 
 /** What `openChatTab` may be told besides the agent and folder. */
 export interface OpenChatOptions { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string; label?: string; diagnosis?: ChatDiagnosis; firstPrompt?: string; background?: boolean; onCreated?: (tabId: string) => void }

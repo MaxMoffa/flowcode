@@ -113,6 +113,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const [announcedModels, setAnnouncedModels] = useState<ChatModels | null>(null);
   // The thinking levels announced at the start; the live ones come from the conversation's events (`model.thought`).
   const [announcedThought, setAnnouncedThought] = useState<ChatThought | null>(null);
+  // The ACP version the agent speaks (2 when the experimental flag took effect for this chat); null when unknown.
+  const [acpVersion, setAcpVersion] = useState<number | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   // The WSL distro the agent runs in (its paths are Linux ones); null for a Windows chat.
   const [wslDistro, setWslDistro] = useState<string | null>(null);
@@ -340,6 +342,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           setModes(started.modes);
           setAnnouncedModels(started.models ?? null);
           setAnnouncedThought(started.thought ?? null);
+          setAcpVersion(started.acpVersion ?? null);
           // An attached chat's session is its owner's business: no tab saves it.
           if (!attachChatId) onSessionIdRef.current(started.sessionId);
           // Subscribe before fetching the replay, and hold what arrives
@@ -824,6 +827,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
         setModes(started.modes);
         setAnnouncedModels(started.models ?? null);
         setAnnouncedThought(started.thought ?? null);
+        setAcpVersion(started.acpVersion ?? null);
         onSessionIdRef.current(started.sessionId);
         forgetGoalChat(id);
         forgetCacheWarning(id);
@@ -856,7 +860,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     forgetCacheWarning(id);
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, previewing, older, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, acpVersion, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, previewing, older, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

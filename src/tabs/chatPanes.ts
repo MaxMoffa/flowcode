@@ -19,7 +19,7 @@ export function patchChatPane(tabs: AppTab[], tabId: string, paneKey: string, pa
 
 /** `next` becomes the conversation shown in chat tab `t`; the one shown until now is parked, its agent keeps running. */
 export function swapChatPane(t: ChatTab, next: ChatPane): ChatTab {
-  const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt };
+  const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt, acpVersion: t.acpVersion };
   return {
     ...t,
     paneKey: next.paneKey,

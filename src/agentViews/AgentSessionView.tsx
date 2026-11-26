@@ -62,6 +62,8 @@ interface AgentSessionViewProps {
   title: string;
   onSessionId: (id: string) => void;
   onStatus: (status: ChatStatus, error?: string | null) => void;
+  /** The ACP version the agent speaks for this chat (2 under the experimental flag); null when unknown. */
+  onAcpVersion: (acpVersion: number | null) => void;
   onViewChange: (viewId: string) => void;
   /** Whether the session has a conversation to resume: true once the first prompt was sent, false when a resume fell back to a fresh session. */
   onTalked: (talked: boolean) => void;
@@ -99,6 +101,7 @@ function AgentSessionViewInner({
   title,
   onSessionId,
   onStatus,
+  onAcpVersion,
   onViewChange,
   onTalked,
   onCloser,
@@ -109,7 +112,12 @@ function AgentSessionViewInner({
   const { t, language } = useI18n();
   const views = useAgentViews();
   const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, diagnosisId: diagnosis?.reportId, hidden, initialActivityAt: lastActiveAt, onSessionId, onStatus });
-  const { model, phase, error, sessionId } = chat;
+  const { model, phase, error, sessionId, acpVersion } = chat;
+  // The header's popover shows the protocol version: reported to the tab, which publishes it with the agent in front.
+  useEffect(() => {
+    onAcpVersion(acpVersion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acpVersion]);
   // A new chat starting shows the conversation (the frog's pond); a resumed one shows it as soon as there is
   // something to show (the saved preview, or messages), and ghost bubbles until then.
   const previewing = (chat as { previewing?: boolean }).previewing ?? false;

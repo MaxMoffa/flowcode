@@ -1536,6 +1536,7 @@ export const it = {
   "chat.goal.panelLabel": "Goal della chat",
   "chat.goal.placeholder": "Aggiungi un'indicazione al goal…",
   "chat.goal.failed": "Azione sul goal non riuscita: {error}",
+  "chat.header.acpV2": "ACP v2",
   "chat.dictate.ready": "Dettatura pronta: clicca il microfono.",
   "chat.dictate.downloadingTip": "Scarico il modello di dettatura… {percent}%",
   "chat.dictate.model.base.name": "Leggero",

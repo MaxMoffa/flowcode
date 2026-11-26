@@ -100,6 +100,8 @@ export interface ChatTab {
   explorerPath?: string;
   /** When the conversation last had real activity (ms epoch): a turn started or ended here, or the history said so for a session resumed from it. Saved; drives the "prompt cache expired" notice. */
   lastActiveAt?: number;
+  /** The ACP version the agent speaks for this chat (2 under the experimental flag). Not saved: the chat reports it once started. */
+  acpVersion?: number | null;
   /** A delegated child's chat shown read-only next to its orchestrator's tab (see src/chat/DelegateCards): the tab attaches to
    * the child's running chat instead of starting an agent, and closing it only detaches. Never saved: after a restart the
    * child is gone, and so is the tab. */
@@ -131,6 +133,7 @@ export interface ChatPane {
   status?: ChatStatus;
   talked?: boolean;
   lastActiveAt?: number;
+  acpVersion?: number | null;
 }
 
 export interface EditorTab {

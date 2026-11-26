@@ -1530,6 +1530,7 @@ export const en: Record<MessageKey, string> = {
   "chat.goal.panelLabel": "Chat goal",
   "chat.goal.placeholder": "Add a hint for the goal…",
   "chat.goal.failed": "Goal action failed: {error}",
+  "chat.header.acpV2": "ACP v2",
   "chat.dictate.ready": "Dictation ready: click the microphone.",
   "chat.dictate.downloadingTip": "Downloading the dictation model… {percent}%",
   "chat.dictate.model.base.name": "Light",

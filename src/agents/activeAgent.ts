@@ -21,6 +21,8 @@ interface ActiveAgent {
   cwd: string;
   /** Set when the chat is a delegated child: who asked for the task, and where that chat's tab is. */
   delegateOf: DelegateOf | null;
+  /** The ACP version a chat speaks (2 under the experimental flag); absent or null for terminals and unknown. */
+  acpVersion?: number | null;
 }
 
 interface DelegateOf {
@@ -47,7 +49,8 @@ const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
     a.delegateOf?.taskId === b.delegateOf?.taskId &&
     a.delegateOf?.parentTabId === b.delegateOf?.parentTabId &&
     a.delegateOf?.parentLabel === b.delegateOf?.parentLabel &&
-    a.delegateOf?.parentAgent === b.delegateOf?.parentAgent);
+    a.delegateOf?.parentAgent === b.delegateOf?.parentAgent &&
+    a.acpVersion === b.acpVersion);
 
 // App knows the active tab, the popovers live in portals far from it.
 const store = createStore<ActiveAgent | null>(null, same);

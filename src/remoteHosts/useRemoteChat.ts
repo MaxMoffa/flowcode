@@ -370,6 +370,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     modes,
     models,
     thought,
+    // A chat on another PC: its host doesn't report the protocol version here.
+    acpVersion: null,
     chatId,
     // A remote PC's agent runs on that PC, never in a WSL distro of this one.
     wslDistro: null,
