@@ -487,6 +487,13 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
       );
     case "compaction":
       return <CompactionDivider item={item} />;
+    case "notice":
+      return (
+        <div className={"chat-stop chat-notice" + (item.severity === "warning" || item.severity === "error" ? " is-warning" : "")} role="status">
+          <div className="chat-notice-title">{item.title}</div>
+          {item.description && <div className="chat-notice-detail">{item.description}</div>}
+        </div>
+      );
     case "goal":
       return <GoalMarker item={item} />;
     case "diagnosis":

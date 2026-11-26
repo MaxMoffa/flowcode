@@ -394,6 +394,13 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
       return <ChatPeerOut out={item.out} onLink={onLink} />;
     case "compaction":
       return <ChatCompaction item={item} onLink={onLink} />;
+    case "notice":
+      return (
+        <div className={"chat-stop chat-notice" + (item.severity === "warning" || item.severity === "error" ? " is-warning" : "")} role="status">
+          <div className="chat-notice-title">{item.title}</div>
+          {item.description && <div className="chat-notice-detail">{item.description}</div>}
+        </div>
+      );
     case "goal":
       return <ChatGoalMarker item={item} />;
     case "stop":

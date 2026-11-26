@@ -934,6 +934,11 @@ pub(super) fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: 
     if native_subagents_enabled() && chat.agent == "claude" {
         capabilities["subagents"] = json!({});
     }
+    // Codex: its warnings (deprecated config keys, blocking hooks, model reroutes...) come as `notice` updates the
+    // chat shows once as a quiet card, instead of agent text that repeats under the last answer at every resume.
+    if chat.agent == "codex" {
+        capabilities["session"]["notices"] = json!({});
+    }
     // OpenCode only reports its sub-agents' work to clients that ask for it (see `opencode_child_update`).
     if chat.agent == "opencode" {
         capabilities["_meta"]["opencode/child-session-updates"] = json!(true);

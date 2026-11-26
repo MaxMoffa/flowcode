@@ -104,6 +104,8 @@ export type ChatItem =
   | { type: "stop"; id: string; reason: string }
   /** The agent compacted its context (ACP `compaction_update`): a divider at that point, everything above it is now only a summary for the agent. `status`: `in_progress`, `completed`, `failed` or `cancelled`; `manual`: the user asked for it (`/compact`), as opposed to the agent's own. */
   | { type: "compaction"; id: string; compactionId: string; status: string; summary: string; error?: string; at: number; manual: boolean }
+  /** A notice of the agent itself, not of the conversation (ACP `notice`: a deprecated config key, a hook that blocked the turn, a model reroute...). `severity`: `info`, `warning`... */
+  | { type: "notice"; id: string; severity: string; title: string; description?: string }
   /** The goal (`/goal`) ended at this point: reached, or given up as impossible (Claude). A marker in the conversation; the composer's chip says the rest. */
   | { type: "goal"; id: string; status: "complete" | "failed"; objective: string; at: number; durationMs?: number; iterations?: number; reason?: string }
   /** The agent of a crash's diagnosis chat attached its diagnosis to the crash report (`_flowcode/crashdiagnosis`). */
@@ -762,6 +764,16 @@ function applyCompaction(state: ChatModelState, update: ChatUpdate, at: number):
   });
 }
 
+/** A notice, once per text: Codex repeats its config warnings at every start and resume. */
+function applyNotice(state: ChatModelState, update: ChatUpdate, seq: number): ChatModelState {
+  const title = (str(update.title) ?? "").trim();
+  const description = (str(update.description) ?? "").trim();
+  if (!title && !description) return state;
+  if (state.items.some((i) => i.type === "notice" && i.title === title && (i.description ?? "") === description)) return state;
+  const notice: ChatItem = { type: "notice", id: `notice:${seq}`, severity: str(update.severity) ?? "info", title: title || description, ...(title && description ? { description } : {}) };
+  return withItems(state, [...state.items, notice]);
+}
+
 function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at: number): ChatModelState {
   switch (update.sessionUpdate) {
     case "user_message_chunk":
@@ -785,6 +797,8 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at:
     case "compaction_update":
     case "compaction_summary_chunk":
       return applyCompaction(state, update, at);
+    case "notice":
+      return applyNotice(state, update, seq);
     case "plan":
       return { ...state, plan: (update.entries as ChatPlanEntry[]) ?? [] };
     case "available_commands_update":

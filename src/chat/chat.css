@@ -1750,6 +1750,19 @@ summary.chat-step-row {
   overflow-wrap: anywhere;
 }
 
+/* A notice of the agent itself (a deprecated config key, a blocking hook...): quiet, once. */
+.chat-notice {
+  font-size: 13px;
+}
+.chat-notice.is-warning .chat-notice-title::before {
+  content: "⚠ ";
+}
+.chat-notice-detail {
+  margin-top: 4px;
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+
 /* --- states ------------------------------------------------------------- */
 .chat-state {
   display: flex;

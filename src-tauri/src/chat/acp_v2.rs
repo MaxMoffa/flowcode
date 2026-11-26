@@ -502,7 +502,7 @@ fn translate_update(state: &mut V2State, session_id: &str, update: &Value) -> Ve
         // A native subagent's own session chatter (its config, commands, plan, usage...) is not the chat's: it would
         // move the model, mode, command list or plan of the main chat. Dropped here, before it can change `state.mode`.
         "config_option_update" | "available_commands_update" | "plan_update" | "plan_removed" | "usage_update" | "session_info_update"
-        | "compaction_update" | "compaction_summary_chunk"
+        | "compaction_update" | "compaction_summary_chunk" | "notice"
             if state.is_child(session_id) =>
         {
             vec![]
@@ -533,8 +533,8 @@ fn translate_update(state: &mut V2State, session_id: &str, update: &Value) -> Ve
             update_out(announced)
         }
         "user_message_chunk" | "agent_message_chunk" | "agent_thought_chunk" | "usage_update" | "session_info_update"
-        | "compaction_update" | "compaction_summary_chunk" | "session_message" => update_out(update.clone()),
-        // user_message (live echo), current_mode_update (v2 has none), notice, session_message_chunk,
+        | "compaction_update" | "compaction_summary_chunk" | "session_message" | "notice" => update_out(update.clone()),
+        // user_message (live echo), current_mode_update (v2 has none), session_message_chunk,
         // tool_call_content_chunk, `_`-prefixed extensions (Codex `_subagent_update`, `_async_task_*`), unknown.
         _ => vec![],
     }
@@ -1314,13 +1314,13 @@ mod tests {
     #[test]
     fn passes_known_kinds_and_drops_unknown_ones() {
         let mut st = state();
-        for kind in ["usage_update", "session_info_update", "compaction_update", "compaction_summary_chunk", "session_message"] {
+        for kind in ["usage_update", "session_info_update", "compaction_update", "compaction_summary_chunk", "session_message", "notice"] {
             let update = json!({ "sessionUpdate": kind, "x": 1 });
             assert_eq!(one(run(&mut st, update.clone())), update, "{kind}");
         }
         let sub = json!({ "sessionUpdate": "subagent_update", "sessionId": "kid", "title": "Explore", "state": { "state": "running" } });
         assert_eq!(one(run(&mut st, sub.clone())), sub);
-        for kind in ["notice", "tool_call_content_chunk", "_subagent_update", "_async_task_state_update", "something_new", "current_mode_update"] {
+        for kind in ["tool_call_content_chunk", "_subagent_update", "_async_task_state_update", "something_new", "current_mode_update"] {
             assert!(run(&mut st, json!({ "sessionUpdate": kind })).is_empty(), "{kind}");
         }
         assert!(run(&mut st, json!({ "nothing": true })).is_empty());

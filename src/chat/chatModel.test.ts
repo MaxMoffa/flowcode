@@ -1022,3 +1022,17 @@ describe("_flowcode/background", () => {
     expect(applyEvent(s2, ext("junk")).background).toBe(s2.background);
   });
 });
+
+describe("agent notices", () => {
+  it("shows a notice once per text, without opening a turn", () => {
+    const warn = update({ sessionUpdate: "notice", severity: "warning", title: "[features].multi_agent is deprecated." });
+    const s = run([warn, chunk("agent_message_chunk", "ciao"), warn, update({ sessionUpdate: "notice", severity: "info", title: "Model rerouted", description: "Switched from a to b." })]);
+    const notices = s.items.filter((i) => i.type === "notice");
+    expect(notices).toEqual([
+      { type: "notice", id: expect.any(String), severity: "warning", title: "[features].multi_agent is deprecated." },
+      { type: "notice", id: expect.any(String), severity: "info", title: "Model rerouted", description: "Switched from a to b." },
+    ]);
+    expect(run([warn]).status).toBe("idle");
+    expect(run([update({ sessionUpdate: "notice", title: "  " })]).items).toEqual([]);
+  });
+});
