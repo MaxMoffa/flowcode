@@ -150,6 +150,21 @@
   text-align: center;
 }
 
+/* Another PC's terminal shows the host's grid as is: the box is exactly the
+   pixel size xterm sets on its screen (scrolled by the container when bigger
+   than the view, top-left when smaller). */
+.remote-terminal > .terminal-host {
+  flex: none;
+  width: max-content;
+  height: max-content;
+  min-width: 0;
+  overflow: visible;
+}
+
+.remote-terminal .xterm {
+  width: max-content;
+}
+
 .remote-terminal-ended {
   position: absolute;
   inset: auto 0 0 0;

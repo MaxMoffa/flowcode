@@ -69,9 +69,11 @@
   overflow: hidden;
 }
 
-.terminal-container .xterm,
-.terminal-container .xterm-viewport,
-.terminal-container .xterm-screen {
+/* Not on another PC's terminal: its grid is the host's, and its box takes the
+   size xterm gives the screen (remote-hosts.css). */
+.terminal-container:not(.remote-terminal) .xterm,
+.terminal-container:not(.remote-terminal) .xterm-viewport,
+.terminal-container:not(.remote-terminal) .xterm-screen {
   width: 100% !important;
 }
 

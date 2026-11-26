@@ -145,23 +145,13 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     });
 
     const measured = () => container.clientWidth > 0 && container.clientHeight > 0;
-    // The grid is the host's: this box takes the pixel size of exactly that many cells (scrolling when it is bigger than the view, top-left when smaller).
-    const fitBox = () => {
-      const cell = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } } })._core?._renderService?.dimensions?.css?.cell;
-      if (!cell || !(cell.width > 0) || !(cell.height > 0)) return;
-      const w = `${Math.ceil(cell.width * term.cols)}px`;
-      const h = `${Math.ceil(cell.height * term.rows)}px`;
-      if (el.style.width !== w) el.style.width = w;
-      if (el.style.height !== h) el.style.height = h;
-      el.style.flex = "none";
-    };
-    const renderSub = term.onRender(fitBox);
+    // The grid is the host's. The box takes the pixel size xterm gives its screen (CSS: max-content in remote-hosts.css),
+    // scrolled when bigger than the view, top-left when smaller: nothing to measure here.
     const applyGrid = (cols: number, rows: number) => {
       if (!(cols > 0) || !(rows > 0)) return;
       const c = Math.min(cols, MAX_COLS);
       const r = Math.min(rows, MAX_ROWS);
       if (term.cols !== c || term.rows !== r) term.resize(c, r);
-      fitBox();
     };
     // Opens or closes the stream so it matches whether anybody is looking. The open claims no size.
     const sync = () => {
@@ -244,7 +234,6 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
       data.dispose();
       userEvents.forEach((n) => ta?.removeEventListener(n, markUser, true));
       ro.disconnect();
-      renderSub.dispose();
       syncRef.current = () => {};
       if (openedRef.current) void sendToHost(hostId, { t: "close", ptyId });
       openedRef.current = false;
