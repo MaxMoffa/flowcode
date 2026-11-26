@@ -400,10 +400,17 @@ export function activatePage(id: string) {
 interface MirrorHooks {
   close: (tag: MirrorTag) => void;
   navigate: (tag: MirrorTag, url: string) => void;
+  /** Opens `url` as a new tab of the PC whose browser is mirrored now; false when none is (or it can't take that address). */
+  open: (url: string) => boolean;
 }
 let mirrorHooks: MirrorHooks | null = null;
 export function setMirrorHooks(hooks: MirrorHooks | null) {
   mirrorHooks = hooks;
+}
+
+/** A new tab typed in the panel while another PC is in front belongs to that PC: true when it went there. */
+export function openUrlOnMirrorHost(url: string): boolean {
+  return mirrorHooks?.open(url) ?? false;
 }
 
 export type MirrorTarget = { kind: "url"; url: string } | { kind: "file"; path: string } | { kind: "pdf"; src: string };

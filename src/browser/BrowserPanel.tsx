@@ -26,6 +26,7 @@ import {
   normalizeTypedUrl,
   openPopupFromPage,
   openUrlInPreview,
+  openUrlOnMirrorHost,
   pageLoadFinished,
   pageLoadStarted,
   restorePages,
@@ -613,7 +614,7 @@ export function BrowserPanel({ dragging, motion = "open" }: { dragging: boolean;
     if (!typed) return;
     const url = isLocalUrl(typed) ? normalizeLocalUrl(typed) : typed;
     if (!newTab && page?.kind === "url" && !isPdfTarget(url)) navigatePage(page.id, url);
-    else openUrlInPreview(url);
+    else if (!openUrlOnMirrorHost(url)) openUrlInPreview(url);
   };
 
   // Detected servers not already shown as a page (same port on a local address).

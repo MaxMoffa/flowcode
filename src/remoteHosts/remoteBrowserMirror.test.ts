@@ -4,7 +4,7 @@ const invoke = vi.fn(async (_cmd: string, _args?: unknown) => 41000);
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (cmd: string, args?: unknown) => invoke(cmd, args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 
-import { browserTabsSnapshot, closePage, dropMirroredPages, getBrowser, navigatePage, restorePages, closePages, setMirrorHooks, upsertMirroredPage, type MirrorTag } from "../browser/browserStore";
+import { browserTabsSnapshot, closePage, dropMirroredPages, getBrowser, navigatePage, openUrlOnMirrorHost, restorePages, closePages, setMirrorHooks, upsertMirroredPage, type MirrorTag } from "../browser/browserStore";
 import { toHostUrl } from "../browser/mirrorUrl";
 import { mirrorKey, mirrorTarget } from "./remoteBrowserMirror";
 
@@ -60,7 +60,7 @@ describe("a remote browser tab as a page here", () => {
 
   it("drops what the other PC closed or left, without telling it, and keeps other hosts' pages", () => {
     const close = vi.fn();
-    setMirrorHooks({ close, navigate: vi.fn() });
+    setMirrorHooks({ close, navigate: vi.fn(), open: () => false });
     upsertMirroredPage(tag("p1"), { kind: "url", url: "http://x/" });
     upsertMirroredPage(tag("p2"), { kind: "url", url: "http://y/" });
     upsertMirroredPage({ hostId: "h2", remoteId: "p1", key: "k" }, { kind: "url", url: "http://z/" });
@@ -72,10 +72,19 @@ describe("a remote browser tab as a page here", () => {
     expect(getBrowser().pages.some((p) => p.mirror?.hostId === "h2")).toBe(true);
   });
 
+  it("sends a new tab to the mirrored PC, and opens it here when no PC takes it", () => {
+    const open = vi.fn((url: string) => url.startsWith("http"));
+    setMirrorHooks({ close: vi.fn(), navigate: vi.fn(), open });
+    expect(openUrlOnMirrorHost("http://localhost:5173/")).toBe(true);
+    expect(open).toHaveBeenCalledWith("http://localhost:5173/");
+    setMirrorHooks(null);
+    expect(openUrlOnMirrorHost("http://localhost:5173/")).toBe(false);
+  });
+
   it("tells the other PC when the user closes or navigates a mirrored page, and does not bring a closed one back", () => {
     const close = vi.fn();
     const navigate = vi.fn();
-    setMirrorHooks({ close, navigate });
+    setMirrorHooks({ close, navigate, open: () => false });
     const id = upsertMirroredPage(tag("p1"), { kind: "url", url: "http://x/" });
     navigatePage(id, "http://typed/");
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining(tag("p1")), "http://typed/");

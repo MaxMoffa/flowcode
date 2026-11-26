@@ -31,7 +31,17 @@ export async function mirrorTarget(hostId: string, page: BrowserTabPage): Promis
   return page.kind === "pdf" ? { kind: "pdf", src: url } : { kind: "url", url };
 }
 
+/** The PC whose browser is mirrored now (the one in front), and the nonce of the tab we asked it to open: that tab comes forward when it shows up. */
+let current: { hostId: string; pending: string | null } | null = null;
+
 setMirrorHooks({
+  open: (url) => {
+    if (!current || !/^https?:\/\//i.test(url)) return false;
+    const nonce = crypto.randomUUID();
+    current.pending = nonce;
+    void sendToHost(current.hostId, { t: "browserop", op: { op: "openUrl", url, nonce } });
+    return true;
+  },
   close: (tag) => void sendToHost(tag.hostId, { t: "browserop", op: { op: "close", id: tag.remoteId } }),
   // An address on this end of the page's tunnel means the same port on the other PC.
   navigate: (tag, url) => void sendToHost(tag.hostId, { t: "browserop", op: { op: "navigate", id: tag.remoteId, url: toHostUrl(url, tag) } }),
@@ -65,15 +75,20 @@ function startBrowserMirror(hostId: string): { stop: () => void; refresh: () => 
     dropMirroredPages(hostId, live);
     const wasFirst = first;
     first = false;
+    // The tab we asked for: it comes forward once, like a tab opened here.
+    const asked = current?.hostId === hostId && current.pending && snapshot.opened?.nonce === current.pending ? snapshot.opened.pageId : null;
+    if (asked && current) current.pending = null;
     for (const { page, target } of resolved) {
       if (!target) continue;
-      upsertMirroredPage({ hostId, remoteId: page.id, key: mirrorKey(page), ...(page.kind === "url" ? { origin: page.url } : {}) }, target, wasFirst && page.id === snapshot.activeId);
+      const activate = (wasFirst && page.id === snapshot.activeId) || page.id === asked;
+      upsertMirroredPage({ hostId, remoteId: page.id, key: mirrorKey(page), ...(page.kind === "url" ? { origin: page.url } : {}) }, target, activate);
     }
   };
 
   const fromMessages = (msgs: ServerMsg[]) => {
     for (const m of msgs) if (m.t === "browsertabs") void apply(m.tabs);
   };
+  current = { hostId, pending: null };
   const off = onHostMessages(hostId, fromMessages);
   // The snapshot the backend already holds: the host only sends it when it changes.
   invoke<ServerMsg[]>("remote_host_cached", { id: hostId })
@@ -88,6 +103,7 @@ function startBrowserMirror(hostId: string): { stop: () => void; refresh: () => 
   return {
     stop: () => {
       stopped = true;
+      if (current?.hostId === hostId) current = null;
       clearInterval(keepalive);
       off();
       dropMirroredPages(hostId);
