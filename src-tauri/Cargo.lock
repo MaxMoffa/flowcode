@@ -1647,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1689,7 +1689,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-installer"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "flowcode-shared",
  "mslnk",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-remote-proto"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "data-encoding",
  "flate2",
@@ -1717,7 +1717,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-shared"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "raw-window-handle",
  "tauri",
