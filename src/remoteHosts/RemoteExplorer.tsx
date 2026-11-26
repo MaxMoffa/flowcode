@@ -14,6 +14,8 @@ interface Listing {
   truncated: boolean;
 }
 
+const POLL_MS = 15_000;
+
 const joinPath = (dir: string, name: string) => dir + (/[\\/]$/.test(dir) ? "" : dir.includes("\\") ? "\\" : "/") + name;
 
 /** The folders of the other PC's tab in front, one level at a time, read through its file explorer (`fs`). Read-only. */
@@ -44,7 +46,12 @@ export function RemoteExplorer({ hostId, cwd, visible }: { hostId: string; cwd: 
   useEffect(() => {
     if (!visible || !online) return;
     load();
-    return () => void seq.current++;
+    // The other PC's folders change under us: look again now and then while this is on screen.
+    const timer = setInterval(load, POLL_MS);
+    return () => {
+      clearInterval(timer);
+      seq.current++;
+    };
   }, [visible, online, load]);
 
   const mine = listing && listing.path === path ? listing : null;
@@ -68,6 +75,11 @@ export function RemoteExplorer({ hostId, cwd, visible }: { hostId: string; cwd: 
         <span className="file-tree-header-label" title={path}>
           {path}
         </span>
+        <button type="button" className="file-tree-menu-btn" aria-label={t("files.refresh")} title={t("files.refresh")} disabled={!online} onClick={load}>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5" />
+          </svg>
+        </button>
         <button type="button" className={"file-tree-menu-btn" + (showHidden ? " is-active" : "")} aria-pressed={showHidden} aria-label={t("remoteHosts.explorer.hidden")} title={t("remoteHosts.explorer.hidden")} onClick={() => setShowHidden((v) => !v)}>
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z" />

@@ -105,7 +105,7 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
     if (row.tabId) return selectRemoteKey(hostId, row.tabId);
     if (!canResume || !row.sessionId) return;
     expectNewTab(hostId, agent.view === "chat" ? chatLike(row.cli, row.cwd) : terminalLike(row.cwd, row.cli));
-    void sendToHost(hostId, { t: "resume", cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, ...(row.profile ? { profile: row.profile } : {}), view: agent.view });
+    void sendToHost(hostId, { t: "resume", cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, ...(row.wslDistro ? { wslDistro: row.wslDistro } : {}), ...(row.profile ? { profile: row.profile } : {}), view: agent.view });
   };
 
   const newSession = (cli: AgentCli) => {

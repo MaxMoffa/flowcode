@@ -43,6 +43,10 @@ export interface MirrorTag {
   hostId: string;
   remoteId: string;
   key: string;
+  /** The address this end really loads (a tunnel address for a page of the other PC's loopback): a change of it (a new tunnel) reloads the page. */
+  local?: string;
+  /** The other PC's own address of a url page; with `local` it maps a tunnel address back. */
+  origin?: string;
 }
 
 export type PreviewPage =
@@ -405,10 +409,12 @@ export function setMirrorHooks(hooks: MirrorHooks | null) {
 export type MirrorTarget = { kind: "url"; url: string } | { kind: "file"; path: string } | { kind: "pdf"; src: string };
 
 /** Adds the mirror of a remote tab, or updates it when the other PC changed what it shows (a url page navigates, another kind is replaced). Our own changes (key unchanged) are left alone. Returns the page id. */
-export function upsertMirroredPage(tag: MirrorTag, target: MirrorTarget, activate = false): string {
+export function upsertMirroredPage(tagIn: MirrorTag, target: MirrorTarget, activate = false): string {
+  const tag: MirrorTag = { ...tagIn, local: target.kind === "url" ? target.url : target.kind === "pdf" ? target.src : target.path };
   const same = (p: PreviewPage) => p.mirror?.hostId === tag.hostId && p.mirror.remoteId === tag.remoteId;
   const existing = store.get().pages.find(same);
-  if (existing?.mirror?.key === tag.key) return existing.id;
+  // Unchanged page on the same tunnel: ours to leave alone. A new tunnel address (link lost and back) must reach the page.
+  if (existing?.mirror?.key === tag.key && existing.mirror.local === tag.local) return existing.id;
   if (existing?.kind === "url" && target.kind === "url") {
     updateUrlPage(existing.id, (p) => ({ ...p, requestedUrl: target.url, mirror: tag }));
     return existing.id;

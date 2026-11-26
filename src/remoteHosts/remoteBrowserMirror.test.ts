@@ -5,6 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (cmd: string, args?: unknown) =
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 
 import { browserTabsSnapshot, closePage, dropMirroredPages, getBrowser, navigatePage, restorePages, closePages, setMirrorHooks, upsertMirroredPage, type MirrorTag } from "../browser/browserStore";
+import { toHostUrl } from "../browser/mirrorUrl";
 import { mirrorKey, mirrorTarget } from "./remoteBrowserMirror";
 
 const tag = (remoteId: string, key = "k"): MirrorTag => ({ hostId: "h1", remoteId, key });
@@ -33,11 +34,28 @@ describe("a remote browser tab as a page here", () => {
 
   it("updates a mirrored page in place when the other PC navigates, and ignores our own changes", () => {
     const id = upsertMirroredPage(tag("p1", "url|a"), { kind: "url", url: "http://localhost:41000/" });
-    expect(upsertMirroredPage(tag("p1", "url|a"), { kind: "url", url: "http://other" })).toBe(id);
+    expect(upsertMirroredPage(tag("p1", "url|a"), { kind: "url", url: "http://localhost:41000/" })).toBe(id);
     const page = () => getBrowser().pages.find((p) => p.id === id);
     expect(page()).toMatchObject({ requestedUrl: "http://localhost:41000/" });
     expect(upsertMirroredPage(tag("p1", "url|b"), { kind: "url", url: "http://localhost:41000/b" })).toBe(id);
     expect(page()).toMatchObject({ requestedUrl: "http://localhost:41000/b", mirror: { key: "url|b" } });
+  });
+
+  it("reloads a page whose tunnel moved even when the other PC did not change it", () => {
+    const id = upsertMirroredPage({ ...tag("p1", "url|a"), origin: "http://localhost:3000/" }, { kind: "url", url: "http://localhost:41000/" });
+    const page = () => getBrowser().pages.find((p) => p.id === id);
+    expect(upsertMirroredPage(tag("p1", "url|a"), { kind: "url", url: "http://localhost:42000/" })).toBe(id);
+    expect(page()).toMatchObject({ requestedUrl: "http://localhost:42000/", mirror: { key: "url|a", local: "http://localhost:42000/" } });
+  });
+
+  it("maps the tunnel address back to the other PC's, and shows it that way", () => {
+    const t = { local: "http://localhost:41000/", origin: "http://localhost:3000/" };
+    expect(toHostUrl("http://localhost:41000/x?y=1#z", t)).toBe("http://localhost:3000/x?y=1#z");
+    expect(toHostUrl("http://127.0.0.1:41000/x", t)).toBe("http://localhost:3000/x");
+    expect(toHostUrl("http://localhost:5000/x", t)).toBe("http://localhost:5000/x");
+    expect(toHostUrl("https://example.com:41000/", t)).toBe("https://example.com:41000/");
+    expect(toHostUrl("http://localhost:41000/", { local: "http://localhost:41000/", origin: "https://localhost/" })).toBe("https://localhost/");
+    expect(toHostUrl("http://localhost:41000/", {})).toBe("http://localhost:41000/");
   });
 
   it("drops what the other PC closed or left, without telling it, and keeps other hosts' pages", () => {
@@ -60,15 +78,15 @@ describe("a remote browser tab as a page here", () => {
     setMirrorHooks({ close, navigate });
     const id = upsertMirroredPage(tag("p1"), { kind: "url", url: "http://x/" });
     navigatePage(id, "http://typed/");
-    expect(navigate).toHaveBeenCalledWith(tag("p1"), "http://typed/");
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining(tag("p1")), "http://typed/");
     expect(getBrowser().pages[0]).toMatchObject({ requestedUrl: "http://x/" });
     const closed = closePages([id]);
-    expect(close).toHaveBeenCalledWith(tag("p1"));
+    expect(close).toHaveBeenCalledWith(expect.objectContaining(tag("p1")));
     restorePages(closed!);
     expect(getBrowser().pages.some((p) => p.id === id)).toBe(false);
     const id2 = upsertMirroredPage(tag("p2"), { kind: "url", url: "http://y/" });
     closePage(id2);
-    expect(close).toHaveBeenLastCalledWith(tag("p2"));
+    expect(close).toHaveBeenLastCalledWith(expect.objectContaining(tag("p2")));
   });
 
   it("does not share mirrored pages with the phone", () => {

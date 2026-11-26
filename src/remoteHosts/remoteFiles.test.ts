@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { absoluteRemote, joinRemote } from "./remoteFiles";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+
+let listCalls = 0;
+let listReply: () => Promise<unknown> = () => Promise.resolve({ response: { kind: "list", entries: [], truncated: false } });
+vi.mock("./hostRequest", () => ({
+  hostRequest: () => {
+    listCalls++;
+    return listReply();
+  },
+}));
+
+import { absoluteRemote, checkRemotePath, joinRemote } from "./remoteFiles";
 import { relativeToFolder } from "./RemoteLinks";
 import { loopbackPort } from "./remoteTunnel";
 
@@ -16,6 +26,14 @@ describe("paths of another PC", () => {
     expect(absoluteRemote("C:\\proj\\x\\..\\a.ts", null)).toBe("C:\\proj\\a.ts");
     expect(absoluteRemote("/etc/hosts", null)).toBe("/etc/hosts");
     expect(absoluteRemote("a.ts", null)).toBeNull();
+  });
+
+  it("keeps UNC paths in either spelling", () => {
+    expect(absoluteRemote("//wsl.localhost/Ubuntu/home/me/a.ts", null)).toBe("//wsl.localhost/Ubuntu/home/me/a.ts");
+    expect(absoluteRemote("//wsl.localhost/Ubuntu/home/../a.ts", null)).toBe("//wsl.localhost/Ubuntu/a.ts");
+    expect(absoluteRemote("\\\\srv\\share\\x\\a.ts", null)).toBe("\\\\srv\\share\\x\\a.ts");
+    expect(absoluteRemote("///etc/hosts", null)).toBe("/etc/hosts");
+    expect(absoluteRemote("a.ts", "//wsl.localhost/Ubuntu/home")).toBe("//wsl.localhost/Ubuntu/home/a.ts");
   });
 
   it("tells whether a path is under a folder", () => {
@@ -41,5 +59,32 @@ describe("addresses on the other PC's loopback", () => {
     expect(loopbackPort("https://example.com:5173/")).toBeNull();
     expect(loopbackPort("file:///C:/a.html")).toBeNull();
     expect(loopbackPort("not a url")).toBeNull();
+  });
+});
+
+describe("link lookup in a folder listing", () => {
+  const listing = (...names: string[]) => ({ response: { kind: "list", entries: names.map((name) => ({ name, dir: false })), truncated: false } });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    listCalls = 0;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("does not remember a failed listing", async () => {
+    listReply = () => Promise.reject(new Error("timeout"));
+    expect(await checkRemotePath("h-fail", "a.ts", "/p")).toBeNull();
+    listReply = () => Promise.resolve(listing("a.ts"));
+    expect((await checkRemotePath("h-fail", "a.ts", "/p"))?.path).toBe("/p/a.ts");
+    expect(listCalls).toBe(2);
+  });
+
+  it("re-lists once on a miss against an old listing, not a fresh one", async () => {
+    listReply = () => Promise.resolve(listing("a.ts"));
+    expect(await checkRemotePath("h-miss", "b.ts", "/p")).toBeNull(); // fresh: no second ask
+    expect(listCalls).toBe(1);
+    vi.advanceTimersByTime(3_000);
+    listReply = () => Promise.resolve(listing("a.ts", "b.ts"));
+    expect((await checkRemotePath("h-miss", "b.ts", "/p"))?.path).toBe("/p/b.ts");
+    expect(listCalls).toBe(2);
   });
 });

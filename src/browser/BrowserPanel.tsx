@@ -45,6 +45,7 @@ import type { PresenceState } from "../hooks/usePresence";
 import { useExitGhost } from "../hooks/useExitGhost";
 import { DUR_OUT } from "../lib/motion";
 import { DownloadsBar, DownloadsButton, DownloadsPopover, useDownloads } from "./BrowserDownloads";
+import { toHostUrl } from "./mirrorUrl";
 import "./browser-panel.css";
 import "./browser-control.css";
 
@@ -188,6 +189,8 @@ const ServerIcon = () =>
 
 /** The address split the way the field shows it: a bold part and a muted one. */
 function describePage(page: PreviewPage): { bold: string; muted: string; full: string } {
+  // A page of another PC's browser shows that PC's address, not our end of the tunnel.
+  if (page.kind === "url" && page.mirror) page = { ...page, url: toHostUrl(page.url, page.mirror) };
   if (page.kind === "file") return { bold: basename(page.path), muted: parentPath(page.path), full: page.path };
   if (page.kind === "pdf" && !/^https?:\/\//i.test(page.src)) return { bold: basename(page.src), muted: parentPath(page.src), full: page.src };
   const url = page.kind === "pdf" ? page.src : page.url;

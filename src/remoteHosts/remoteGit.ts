@@ -19,6 +19,17 @@ export function remoteGitBackend(hostId: string): GitBackend {
     discard: (root, paths, untracked) => ask<void>({ op: "discard", root, paths, untracked }),
     branches: (root) => ask<GitBranches>({ op: "branches", root }),
     switchBranch: (root, name, createFromRemote) => ask<void>({ op: "switch", root, name, createFromRemote }),
-    readText: (path) => readRemoteFile(hostId, path).then((f) => f.text, () => ""),
+    // A file the host says is gone reads as empty (a deleted file's diff); any other failure, or a cut-off read, rejects so the diff shows an error instead of a wrong one.
+    readText: (path) =>
+      readRemoteFile(hostId, path).then(
+        (f) => {
+          if (f.truncated) throw new Error("File too large to diff on the other PC");
+          return f.text;
+        },
+        (e: unknown) => {
+          if (/not found|non trovato/i.test(String((e as Error)?.message ?? e))) return "";
+          throw e;
+        },
+      ),
   };
 }

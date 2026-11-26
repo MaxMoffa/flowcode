@@ -19,13 +19,15 @@ export function absoluteRemote(path: string, cwd: string | null): string | null 
   }
   const sep = full.includes("\\") && !full.includes("/") ? "\\" : "/";
   const drive = /^[A-Za-z]:/.test(full) ? full.slice(0, 2) : "";
-  const unc = full.startsWith("\\\\");
+  // `\\host\share` and its `//host/share` spelling (WSL roots from a Windows host); `//` then a slash is just a root.
+  const uncBack = full.startsWith("\\\\");
+  const uncFwd = !uncBack && /^\/\/[^\\/]/.test(full);
   const parts: string[] = [];
   for (const seg of full.slice(drive.length).split(/[\\/]+/)) {
     if (seg === "..") parts.pop();
     else if (seg && seg !== ".") parts.push(seg);
   }
-  const lead = unc ? "\\\\" : drive ? drive + sep : sep === "/" ? "/" : "";
+  const lead = uncBack ? "\\\\" : uncFwd ? "//" : drive ? drive + sep : sep === "/" ? "/" : "";
   return lead + parts.join(sep);
 }
 
@@ -47,18 +49,25 @@ interface DirListing {
 }
 
 const DIR_TTL_MS = 20_000;
+/** A miss against a listing older than this is re-checked once: the file may have been created since. */
+const MISS_RELIST_MS = 2_000;
 const listings = new Map<string, DirListing>();
 
-function listDir(hostId: string, dir: string): DirListing["entries"] {
+function listDir(hostId: string, dir: string, fresh = false): DirListing {
   const key = `${hostId}\0${dir}`;
   const hit = listings.get(key);
-  if (hit && Date.now() - hit.at < DIR_TTL_MS) return hit.entries;
+  if (!fresh && hit && Date.now() - hit.at < DIR_TTL_MS) return hit;
   if (listings.size > 200) listings.clear();
   const entries = hostRequest(hostId, "fs", (requestId) => ({ t: "fs", requestId, request: { op: "list", path: dir } }), 15_000)
     .then((m) => (m.response?.kind === "list" ? { entries: m.response.entries, truncated: m.response.truncated } : null))
     .catch(() => null);
-  listings.set(key, { at: Date.now(), entries });
-  return entries;
+  const listing: DirListing = { at: Date.now(), entries };
+  listings.set(key, listing);
+  // Failures and timeouts are not remembered: the next link asks again.
+  void entries.then((r) => {
+    if (!r && listings.get(key) === listing) listings.delete(key);
+  });
+  return listing;
 }
 
 /** What `path` (relative ones against `cwd`) is on the other PC, found in its parent's listing (one listing serves every link in that folder); null when nothing is there or it can't be told. */
@@ -66,11 +75,19 @@ export async function checkRemotePath(hostId: string, path: string, cwd: string 
   const full = absoluteRemote(path, cwd);
   const split = full && parentOf(full);
   if (!full || !split) return null;
-  const listing = await listDir(hostId, split.dir);
-  if (!listing) return null;
   const windows = /^[A-Za-z]:|^\\\\/.test(full);
   const same = (a: string, b: string) => (windows ? a.toLowerCase() === b.toLowerCase() : a === b);
-  const entry = listing.entries.find((e) => same(e.name, split.name));
+  const find = (l: { entries: LsEntry[] }) => l.entries.find((e) => same(e.name, split.name));
+  let used = listDir(hostId, split.dir);
+  let listing = await used.entries;
+  if (!listing) return null;
+  let entry = find(listing);
+  if (!entry && Date.now() - used.at > MISS_RELIST_MS) {
+    used = listDir(hostId, split.dir, true);
+    listing = await used.entries;
+    if (!listing) return null;
+    entry = find(listing);
+  }
   if (!entry) return null;
   return { path: joinRemote(split.dir, entry.name), kind: entry.dir ? "dir" : "file", text: !entry.dir };
 }

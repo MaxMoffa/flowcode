@@ -4,11 +4,12 @@
 // tagged with where it came from; its content loads through the tunnel, so a
 // dev server of the other PC or a file next to a page opens here. Which page
 // is in front stays this window's own choice.
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { BrowserTabPage, BrowserTabsSnapshot, ServerMsg } from "../../shared/remote-types";
 import { dropMirroredPages, setMirrorHooks, upsertMirroredPage, type MirrorTarget } from "../browser/browserStore";
-import { onHostMessages, sendToHost, useHost } from "./remoteHosts";
+import { onHostMessages, sendToHost, useHost, useHostLink } from "./remoteHosts";
+import { toHostUrl } from "../browser/mirrorUrl";
 import { browserPageFileUrl, tunnelUrl } from "./remoteTunnel";
 
 /** The other PC may use either separator. */
@@ -32,16 +33,22 @@ export async function mirrorTarget(hostId: string, page: BrowserTabPage): Promis
 
 setMirrorHooks({
   close: (tag) => void sendToHost(tag.hostId, { t: "browserop", op: { op: "close", id: tag.remoteId } }),
-  navigate: (tag, url) => void sendToHost(tag.hostId, { t: "browserop", op: { op: "navigate", id: tag.remoteId, url } }),
+  // An address on this end of the page's tunnel means the same port on the other PC.
+  navigate: (tag, url) => void sendToHost(tag.hostId, { t: "browserop", op: { op: "navigate", id: tag.remoteId, url: toHostUrl(url, tag) } }),
 });
 
-/** Mirrors `hostId`'s browser tabs into the panel until stopped; the pages go with it. Returns the stop function. */
-function startBrowserMirror(hostId: string): () => void {
+/** The host keeps a tunnel only while it is used: touching it this often keeps the mirrored pages' addresses alive. */
+const KEEPALIVE_MS = 4 * 60_000;
+
+/** Mirrors `hostId`'s browser tabs into the panel until stopped; the pages go with it. `refresh` asks the tunnels again (after a new link). */
+function startBrowserMirror(hostId: string): { stop: () => void; refresh: () => void } {
   let stopped = false;
   let generation = 0;
   let first = true;
+  let last: BrowserTabsSnapshot | null = null;
 
   const apply = async (snapshot: BrowserTabsSnapshot) => {
+    last = snapshot;
     const mine = ++generation;
     const resolved = await Promise.all(
       snapshot.pages.map(async (page) => {
@@ -60,7 +67,7 @@ function startBrowserMirror(hostId: string): () => void {
     first = false;
     for (const { page, target } of resolved) {
       if (!target) continue;
-      upsertMirroredPage({ hostId, remoteId: page.id, key: mirrorKey(page) }, target, wasFirst && page.id === snapshot.activeId);
+      upsertMirroredPage({ hostId, remoteId: page.id, key: mirrorKey(page), ...(page.kind === "url" ? { origin: page.url } : {}) }, target, wasFirst && page.id === snapshot.activeId);
     }
   };
 
@@ -73,10 +80,19 @@ function startBrowserMirror(hostId: string): () => void {
     .then((msgs) => !stopped && fromMessages(msgs))
     .catch(() => {});
 
-  return () => {
-    stopped = true;
-    off();
-    dropMirroredPages(hostId);
+  const refresh = () => {
+    if (last && last.pages.length > 0) void apply(last);
+  };
+  const keepalive = setInterval(refresh, KEEPALIVE_MS);
+
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(keepalive);
+      off();
+      dropMirroredPages(hostId);
+    },
+    refresh,
   };
 }
 
@@ -84,5 +100,17 @@ function startBrowserMirror(hostId: string): () => void {
 export function useRemoteBrowserMirror(hostId: string) {
   const host = useHost(hostId);
   const active = host?.status === "online" && host.caps.includes("browserTabs");
-  useEffect(() => (active ? startBrowserMirror(hostId) : undefined), [hostId, active]);
+  const refreshRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const mirror = startBrowserMirror(hostId);
+    refreshRef.current = mirror.refresh;
+    return () => {
+      refreshRef.current = null;
+      mirror.stop();
+    };
+  }, [hostId, active]);
+  // A new link: the tunnels of the old one may be gone; resolve the targets again (pages with a new address reload).
+  const link = useHostLink(hostId);
+  useEffect(() => refreshRef.current?.(), [link]);
 }

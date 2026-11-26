@@ -14,6 +14,7 @@ import { newTabId } from "../tabs/tabId";
 import { isDialogTab, listedTabs, makeTermTab, patchTermTab } from "../tabs/tabState";
 import type { TabsCtx } from "./shellContext";
 import { appWindow } from "./appWindow";
+import { LOCAL_HOST, setActiveHost } from "../remoteHosts/remoteHosts";
 
 /** Tab lifecycle: selecting, opening editors/diffs/singletons, moving between windows, closing. */
 export function useTabs(S: TabsCtx) {
@@ -118,6 +119,7 @@ export function useTabs(S: TabsCtx) {
    * caller already knows it is text (a chat/terminal path link: the backend
    * sniffed it) - and moves to `line` (1-based) when given. */
   function openInEditor(path: string, line?: number) {
+    setActiveHost(LOCAL_HOST); // local-only tab: bring this PC in front
     const existing = latestRef.current.tabs.find((t) => t.kind === "editor" && t.path === path);
     // Two opens before the next render both miss `existing`: they share one
     // id, and the updater drops the second add.
@@ -139,6 +141,7 @@ export function useTabs(S: TabsCtx) {
 
   /** Opens (or focuses) the diff of one file from the Git tab. */
   function openDiff(root: string, change: GitChange, staged: boolean) {
+    setActiveHost(LOCAL_HOST);
     const existing = latestRef.current.tabs.find(
       (t) => t.kind === "diff" && t.root === root && t.path === change.path && t.staged === staged,
     );
@@ -172,6 +175,7 @@ export function useTabs(S: TabsCtx) {
    * two quick calls can't add it twice. Also shows the side panel even if it
    * was collapsed: each of these pages keeps its navigation there. */
   function openSingleton(tab: Extract<AppTab, { kind: "settings" | "changelog" | "whatsNew" }>, replace = false) {
+    setActiveHost(LOCAL_HOST); // local-only tab: bring this PC in front
     setSidebarCollapsed(false);
     setTabs((prev) =>
       prev.some((p) => p.kind === tab.kind)
@@ -500,6 +504,7 @@ export function useTabs(S: TabsCtx) {
 
   /** A History row open in a tab was picked: the tab comes forward, showing that conversation if it is a parked one. */
   function openHistoryTab(tabId: string, sessionId?: string) {
+    setActiveHost(LOCAL_HOST);
     if (sessionId) showChatSession(tabId, sessionId);
     selectTab(tabId);
   }

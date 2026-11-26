@@ -20,7 +20,6 @@ export async function tunnelUrl(hostId: string, url: string): Promise<string> {
   if (port === null) return url;
   const local = await invoke<number>("remote_host_tunnel", { id: hostId, port });
   const u = new URL(url);
-  u.protocol = "http:";
   u.hostname = "localhost";
   u.port = String(local);
   return u.toString();

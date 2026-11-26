@@ -10,7 +10,8 @@ vi.mock("./hostRequest", () => ({
     return reply.error ? Promise.reject(new Error(reply.error)) : Promise.resolve({ t: "git", requestId: "r1", result: reply.result });
   },
 }));
-vi.mock("./remoteFiles", () => ({ readRemoteFile: () => Promise.reject(new Error("gone")) }));
+let read: () => Promise<{ text: string; truncated: boolean }> = () => Promise.reject(new Error("gone"));
+vi.mock("./remoteFiles", () => ({ readRemoteFile: () => read() }));
 
 import { remoteGitBackend } from "./remoteGit";
 
@@ -40,8 +41,19 @@ describe("git of another PC", () => {
     const git = remoteGitBackend("h");
     reply = { result: null };
     expect(await git.showFile("/repo", "a.ts", "HEAD")).toBe("");
+    read = () => Promise.reject(new Error("Path not found"));
     expect(await git.readText("/repo/a.ts")).toBe("");
     reply = { error: "nothing to commit" };
     await expect(git.commit("/repo", "x")).rejects.toThrow("nothing to commit");
+  });
+
+  it("rejects a read that failed or was cut off instead of faking a diff side", async () => {
+    const git = remoteGitBackend("h");
+    read = () => Promise.reject(new Error("timeout"));
+    await expect(git.readText("/repo/a.ts")).rejects.toThrow("timeout");
+    read = () => Promise.resolve({ text: "partial", truncated: true });
+    await expect(git.readText("/repo/a.ts")).rejects.toThrow(/too large/);
+    read = () => Promise.resolve({ text: "full", truncated: false });
+    expect(await git.readText("/repo/a.ts")).toBe("full");
   });
 });
