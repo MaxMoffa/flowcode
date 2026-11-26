@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, prependOlder, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
+import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, foldReplayBatch, sendBackoffMs, canDispatch, prependOlder, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
 import { t } from "../i18n";
 import { eventsActivity } from "../chat/cacheWarning";
 import { forgetCacheWarning } from "../chat/useCacheWarning";
@@ -18,7 +18,7 @@ import { cliName, type AgentCli } from "../agents/cliInfo";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { loopbackPort, tunnelUrl } from "./remoteTunnel";
 import { newQueueId } from "../chat/useChat";
-import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, remoteCallTabId, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
+import { cancelExpectedTab, chatLike, claimBusyRefusal, expectNewTab, onHostMessages, remoteCallTabId, sendToHost, setPromptInFlight, showRemoteNotice, useHost, useHostLink, useHostState } from "./remoteHosts";
 
 const queueIds = new WeakMap<object, string>();
 /** A list key for a queued message of the shared reducer (its items carry none): kept per item object. */
@@ -28,10 +28,20 @@ function queueIdOf(q: object): string {
   return id;
 }
 
+/** A chat that was asked for and showed nothing for this long failed to open. */
+const REPLAY_TIMEOUT_MS = 15_000;
+
+/** What `useRemoteChat` hands the view: a chat session, plus why opening the chat failed and how to try again. */
+export type RemoteChat = ChatSession & {
+  /** The other PC refused to open the chat, or never answered: shown instead of the endless "loading". */
+  openError: string | null;
+  retryOpen: () => void;
+};
+
 /** Follows a chat of another PC and hands it to the desktop's agent views as if it ran here: the same
  * `ChatSession` `useChat` gives. The conversation is the remote's own event stream, folded by the
  * phone's reducer (shared/remoteChatSession.ts); messages typed while the agent works are queued here. */
-export function useRemoteChat(hostId: string, chatId: string): ChatSession {
+export function useRemoteChat(hostId: string, chatId: string): RemoteChat {
   const [session, setSession] = useState<RemoteSession>(emptySession);
   const sessionRef = useRef(session);
   // The composer's copies of the files of queued messages, by the id the other PC stored them under (see queuedFiles).
@@ -43,7 +53,10 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
       staged.clear();
     };
   }, []);
-  const info = useHostState(hostId).chats.find((c) => c.chatId === chatId);
+  const hostState = useHostState(hostId);
+  const info = hostState.chats.find((c) => c.chatId === chatId);
+  const chatsFresh = hostState.chatsFresh;
+  const link = useHostLink(hostId);
   const infoRef = useRef(info);
   infoRef.current = info;
   const host = useHost(hostId);
@@ -63,6 +76,28 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const [clearCount, setClearCount] = useState(0);
   const sessionKey = info?.sessionId;
   const seenSession = useRef(sessionKey);
+  // This view asked for a replay (`chatopen`) that hasn't ended: a replay batch arriving while it is false was asked for by another window (or is a resync) and only adds what is new.
+  const replayPending = useRef(false);
+  const replayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
+  // The link for which this chat was seen in a fresh `chats` list: a chat the host no longer lists is not opened again after a reconnect.
+  const [openableLink, setOpenableLink] = useState<number | null>(null);
+  useEffect(() => {
+    if (info && chatsFresh && openableLink !== link) setOpenableLink(link);
+  }, [info, chatsFresh, link, openableLink]);
+  // A send that never left backs off (1 s, 2 s, 4 s... up to 15 s) instead of retrying at once.
+  const sendFailures = useRef(0);
+  const blockedUntil = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pumpRef = useRef<() => void>(() => {});
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (replayTimer.current) clearTimeout(replayTimer.current);
+    },
+    [],
+  );
   const onlineRef = useRef(online);
   onlineRef.current = online;
   // This view among the window's senders to the host: an `agent_busy` refusal names no chat, so it is ours only while our prompt is the window's one in flight (see `claimBusyRefusal`).
@@ -95,21 +130,36 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const pump = useCallback(() => {
     const s = sessionRef.current;
     if (!onlineRef.current || !canDispatch(s, chatStatus(infoRef.current, s.model))) return;
+    if (Date.now() < blockedUntil.current) return;
     const taken = takeQueued(s, promptReceipts ? promptRequestId() : null);
     if (!taken) return;
     const sentAt = taken.session.sentAtSeq ?? -1;
     update(() => taken.session);
     void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.files.length > 0 ? { attachments: taken.files } : {}), ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
-      if (!ok) update((cur) => putBack(cur, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
-      // Out of the queue for good: its files are on the other PC, the staged copies are not needed.
-      else takeStaged(stagedRef.current, taken.files).forEach(discardAttachment);
+      if (!ok) {
+        update((cur) => putBack(cur, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
+        const wait = sendBackoffMs(++sendFailures.current);
+        blockedUntil.current = Date.now() + wait;
+        if (retryTimer.current) clearTimeout(retryTimer.current);
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          pumpRef.current();
+        }, wait);
+      } else {
+        sendFailures.current = 0;
+        // Out of the queue for good: its files are on the other PC, the staged copies are not needed.
+        takeStaged(stagedRef.current, taken.files).forEach(discardAttachment);
+      }
     });
   }, [hostId, chatId, update, promptReceipts]);
+  pumpRef.current = pump;
 
   useEffect(() => {
     const prev = seenSession.current;
+    // The id passes through undefined while the agent renews its session: remember only real ones, or the reset below is skipped.
+    if (!sessionKey) return;
     seenSession.current = sessionKey;
-    if (!sessionKey || !prev || prev === sessionKey) return;
+    if (!prev || prev === sessionKey) return;
     replayBuf.current = [];
     olderBuf.current = [];
     forgetCacheWarning(chatId);
@@ -126,14 +176,27 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
 
   // Follow the chat while this view is mounted and the link is up; a new link forgot every stream, so ask again from where we are.
   useEffect(() => {
-    if (!online) return;
+    if (!online || openableLink !== link) return;
     // `lastSeq` starts at -1 (nothing seen yet) but the wire field is unsigned: -1 is refused as an invalid message and the chat never loads.
     replayBuf.current = [];
     olderBuf.current = [];
     update((s) => (s.older.loading ? { ...s, older: { ...s.older, loading: false } } : s));
+    setOpenError(null);
+    replayPending.current = true;
+    if (replayTimer.current) clearTimeout(replayTimer.current);
+    // No replay at all (not even an error): the other PC dropped the request; a chat already shown just waits for the next link.
+    replayTimer.current = setTimeout(() => {
+      replayTimer.current = null;
+      if (replayPending.current && !sessionRef.current.loaded) setOpenError(t("remoteHosts.chatOpenTimeout"));
+    }, REPLAY_TIMEOUT_MS);
     void sendToHost(hostId, { t: "chatopen", chatId, afterSeq: Math.max(0, sessionRef.current.model.lastSeq), ...(pagingRef.current ? { paged: true } : {}) });
-    return () => void sendToHost(hostId, { t: "chatclose", chatId });
-  }, [hostId, chatId, online, update, generation]);
+    return () => {
+      replayPending.current = false;
+      if (replayTimer.current) clearTimeout(replayTimer.current);
+      replayTimer.current = null;
+      void sendToHost(hostId, { t: "chatclose", chatId });
+    };
+  }, [hostId, chatId, online, link, openableLink, update, generation, retryTick]);
 
   useEffect(
     () =>
@@ -149,6 +212,14 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             update((s) => requeueRefused(s) ?? s);
             continue;
           }
+          // The host refused to follow the chat (too many open, not found...): nothing will load, so say so (with a retry) instead of waiting.
+          if (m.t === "error" && !m.fatal && m.chatId === chatId && !sessionRef.current.loaded) {
+            replayPending.current = false;
+            if (replayTimer.current) clearTimeout(replayTimer.current);
+            replayTimer.current = null;
+            setOpenError(m.message);
+            continue;
+          }
           if (m.t === "chatolder" && m.chatId === chatId) {
             olderBuf.current = [...olderBuf.current, ...m.events];
             if (m.partial) continue;
@@ -158,17 +229,29 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             continue;
           }
           if (m.t !== "chatevents" || m.chatId !== chatId) continue;
+          const status = infoRef.current?.status;
+          const busy = status === "busy" || status === "waiting";
+          // A replay this view didn't ask for (another window opened the chat, or a resync): only what is new, and the paging stays as it is.
+          if (m.replay && !replayPending.current) {
+            update((s) => foldReplayBatch(s, m.events, { requested: false, busy }));
+            continue;
+          }
+          if (m.replay) {
+            if (replayTimer.current) clearTimeout(replayTimer.current);
+            replayTimer.current = null;
+            setOpenError(null);
+          }
           if (m.replay && m.partial) {
             replayBuf.current = [...replayBuf.current, ...m.events];
             continue;
           }
           const events = replayBuf.current.length > 0 ? [...replayBuf.current, ...m.events] : m.events;
           replayBuf.current = [];
-          const status = infoRef.current?.status;
+          if (m.replay) replayPending.current = false;
           const wasUncertain = sessionRef.current.deliveryUncertain;
           const page = m.replay && m.hasMore !== undefined ? { hasMore: m.hasMore, firstSeq: m.firstSeq ?? 0 } : undefined;
           update((s) => {
-            const next = applyEvents(s, events, { replay: m.replay, busy: status === "busy" || status === "waiting", page });
+            const next = foldReplayBatch(s, events, { requested: m.replay, busy, page });
             return m.replay && !promptReceipts && next.sentRequestId ? pauseUnconfirmedPrompt(next) : next;
           });
           if (!m.replay) {
@@ -245,17 +328,26 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     },
     [hostId, chatId, update, pump],
   );
-  const cancel = useCallback(() => void sendToHost(hostId, { t: "chatcancel", chatId }), [hostId, chatId]);
-  const answerPermission = useCallback((requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId, requestId, optionId }), [hostId, chatId]);
+  // A message that didn't leave (the link is down) says so: Stop and the answers to the agent are not queued like prompts.
+  const warnNotSent = useCallback((ok: boolean) => {
+    if (!ok) showRemoteNotice(t("remoteHosts.notSent"));
+    return ok;
+  }, []);
+  const cancel = useCallback(() => void sendToHost(hostId, { t: "chatcancel", chatId }).then(warnNotSent), [hostId, chatId, warnNotSent]);
+  const answerPermission = useCallback((requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId, requestId, optionId }).then(warnNotSent), [hostId, chatId, warnNotSent]);
   const answerAsk = useCallback(
-    (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void sendToHost(hostId, { t: "chatask", chatId, requestId, action, content }),
-    [hostId, chatId],
+    (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) =>
+      sendToHost(hostId, { t: "chatask", chatId, requestId, action, content }).then((ok) => {
+        // Rejects so the card can be answered again.
+        if (!warnNotSent(ok)) throw new Error("offline");
+      }),
+    [hostId, chatId, warnNotSent],
   );
   // A delegate's permission or question is answered in its own chat, which the host resolves by id.
-  const answerDelegatePermission = useCallback((childChatId: string, requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId: childChatId, requestId, optionId }), [hostId]);
+  const answerDelegatePermission = useCallback((childChatId: string, requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId: childChatId, requestId, optionId }).then(warnNotSent), [hostId, warnNotSent]);
   const answerDelegateAsk = useCallback(
-    (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => sendToHost(hostId, { t: "chatask", chatId: childChatId, requestId, action, content }).then(() => {}),
-    [hostId],
+    (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => sendToHost(hostId, { t: "chatask", chatId: childChatId, requestId, action, content }).then((ok) => void warnNotSent(ok)),
+    [hostId, warnNotSent],
   );
   const setMode = useCallback((modeId: string) => void sendToHost(hostId, { t: "chatmode", chatId, modeId }), [hostId, chatId]);
   /** The remote says the outcome: its `_flowcode/model` event, or a refusal as a host error (shown as the window's notice, see `onRemoteNotice`, not in this chat). A link that refused the message gets a local error here. */
@@ -363,10 +455,17 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
 
   useChatCalls((info?.agent ?? "claude") as AgentCli, info ? callTab : undefined, session.model.items, { permission: answerPermission, ask: answerAsk }, false, { parked: false, label: info?.label });
 
+  const retryOpen = useCallback(() => {
+    setOpenError(null);
+    setRetryTick((n) => n + 1);
+  }, []);
+
   return {
+    openError,
+    retryOpen,
     model,
     phase: session.loaded ? "ready" : "starting",
-    error: null,
+    error: openError,
     modes,
     models,
     thought,

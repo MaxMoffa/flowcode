@@ -1,7 +1,8 @@
-import { Suspense } from "react";
+import { Suspense, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
+import { OfflineIcon } from "../net/OfflineIcon";
 import { basename } from "../lib/path";
 import type { ChatStatus } from "../chat/chatTypes";
 import "../chat/chat.css";
@@ -36,6 +37,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   const status: ChatStatus = model.status;
   const working = status === "busy" || status === "waiting";
   const canTerminal = !!host?.caps.includes("chat");
+  const online = host?.status === "online";
   const toTerminal = () => {
     // The chat turns into a terminal tab over there: bring that one to the front when it appears.
     expectNewTab(hostId, terminalLike(info?.cwd));
@@ -47,6 +49,14 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
     if (hostChats.some((c) => c.chatId === delegate.childChatId)) selectRemoteKey(hostId, `chat:${delegate.childChatId}`);
   };
 
+  // Same shortcut as a local chat: Ctrl+` hands the session to a terminal (not mid-turn).
+  function onViewKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.ctrlKey && e.key === "`" && canTerminal && online && !working) {
+      e.preventDefault();
+      toTerminal();
+    }
+  }
+
   /** A view asking for another one; the terminal is the other PC's own tab. */
   function switchView(id: string) {
     if (agentView(id)?.transport === "pty" && canTerminal) toTerminal();
@@ -55,7 +65,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   return (
     <RemoteChatImageProvider hostId={hostId} chatId={chatId}>
       <RemoteLinks hostId={hostId} chatId={chatId} cwd={info.cwd}>
-      <div className="chat-view" style={hidden ? { display: "none" } : undefined}>
+      <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
         <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status} subagent={nav.sub ? subagentHeader(nav.sub, nav.back) : null}>
           {(close) => {
             const menuAction = (action: () => void) => {
@@ -78,7 +88,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
                   <span>{t("chat.menu.copyId")}</span>
                 </button>
                 <div className="chat-menu-sep" role="separator" />
-                <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
+                <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working || !online} onClick={() => menuAction(chat.cancel)}>
                   <StopIcon />
                   <span>{t("chat.menu.stop")}</span>
                 </button>
@@ -86,6 +96,15 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
             );
           }}
         </AgentHeader>
+
+        {!online && (
+          <div className="chat-offline-strip" role="status" style={{ margin: "0 12px 6px" }}>
+            <OfflineIcon size={14} />
+            <span>{t("remoteHosts.chatOffline", { name: host?.hostName ?? "" })}</span>
+            <span className="chat-offline-muted"> · {t("remoteHosts.chatOfflineQueued")}</span>
+            <span className="chat-offline-dot" aria-hidden="true" />
+          </div>
+        )}
 
         {chat.phase === "ready" ? (
           View && (
@@ -96,10 +115,24 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
         ) : (
           <div className="chat-column">
             <div className="chat-content">
-              <div className="chat-state">
-                <span className="chat-spinner" aria-hidden="true" />
-                <div>{t("remoteHosts.loadingChat")}</div>
-              </div>
+              {chat.openError ? (
+                <div className="chat-state">
+                  <div className="chat-state-title">{t("chat.failed")}</div>
+                  <div className="chat-error" role="alert">
+                    {chat.openError}
+                  </div>
+                  <div className="chat-state-actions">
+                    <button type="button" className="chat-btn is-primary" onClick={chat.retryOpen}>
+                      {t("remoteHosts.chatOpenRetry")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="chat-state">
+                  <span className="chat-spinner" aria-hidden="true" />
+                  <div>{t("remoteHosts.loadingChat")}</div>
+                </div>
+              )}
             </div>
           </div>
         )}

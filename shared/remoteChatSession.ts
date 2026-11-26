@@ -87,6 +87,22 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
 }
 
 /**
+ * Folds a `chatevents` batch flagged `replay`. `requested`: the answer to this view's own `chatopen`, which settles
+ * the load and the paging. A replay this view did not ask for (another window of the same client re-opened the chat,
+ * or the host resynced a lagging stream) only brings the events newer than `lastSeq`, as live ones: it must not touch
+ * `loaded`, the paging (`hasMore` / `firstSeq`) or the busy/settled guess of a whole replay.
+ */
+export function foldReplayBatch(session: ChatSession, raw: unknown[], opts: { requested: boolean; busy: boolean; page?: { hasMore: boolean; firstSeq: number } }): ChatSession {
+  if (!opts.requested) return applyEvents(session, raw, { replay: false, busy: opts.busy });
+  return applyEvents(session, raw, { replay: true, busy: opts.busy, page: opts.page });
+}
+
+/** How long to wait before handing the queue's next message to a link that refused the last one (1 s, 2 s, 4 s... up to 15 s); `failures` counts the refusals in a row. */
+export function sendBackoffMs(failures: number): number {
+  return Math.min(15_000, 1000 * 2 ** Math.max(0, Math.min(failures, 10) - 1));
+}
+
+/**
  * Puts an older page (the answer to `chatolder`) in front of the conversation.
  * It is folded alone (a page starts at a user turn, so nothing in it waits for
  * an event of the newer ones); an item the session already has keeps its newer

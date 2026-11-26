@@ -20,7 +20,15 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
   const [visited, setVisited] = useState<readonly string[]>([]);
 
   useEffect(() => {
-    if (activeKey) setVisited((prev) => (prev[prev.length - 1] === activeKey ? prev : rememberVisit(prev, activeKey)));
+    if (!activeKey) return;
+    // Closed tabs are dropped first: they would count against the cap of chats kept mounted.
+    const live = new Set(remoteEntries(tabs, chats).map((e) => e.key));
+    setVisited((prev) => {
+      const kept = prev.filter((k) => live.has(k));
+      if (kept[kept.length - 1] === activeKey && kept.length === prev.length) return prev;
+      return rememberVisit(kept, activeKey);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
 
   const mounted = entries.filter((e) => e.key === activeKey || visited.includes(e.key));

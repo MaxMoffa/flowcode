@@ -302,6 +302,8 @@ export type RemoteCap =
   | "opencode"
   | "cline"
   | "closeTab"
+  /** `resized`: the host tells viewers when a terminal's grid changes; a desktop client never claims a size of its own. */
+  | "resized"
   /** `chats`, `chatevents` and the `chat*` / `newchat` client messages. */
   | "chat"
   /** `views` / `viewfile`: agent view plugins installed on the desktop. */
@@ -363,11 +365,14 @@ export type ServerMsg =
   | { t: "stats"; requestId: string; result?: ActivityStats; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
-  | { t: "error"; message: string; ptyId?: string; fatal: boolean }
+  /** `chatId`: the refusal concerns that chat (a failed `chatopen`: too many open chats, not found...); absent on hosts older than that. */
+  | { t: "error"; message: string; ptyId?: string; chatId?: string; fatal: boolean }
   | { t: "tabs"; tabs: Tab[] }
   | { t: "snapshot"; ptyId: string; data: string; cols: number; rows: number }
   | { t: "output"; ptyId: string; data: string }
   | { t: "exit"; ptyId: string }
+  /** The pty's grid changed on the host (its own window, or another client): the viewer follows. Needs the "resized" cap; older hosts only tell it in `snapshot`. */
+  | { t: "resized"; ptyId: string; cols: number; rows: number }
   /** An app event of the terminal `ptyId` (what its agent does through Flowcode's tools): `method` is `_flowcode/open`, `_flowcode/call`, `_flowcode/delegate`, `_flowcode/delegate_request` or `_flowcode/delegate_request_resolved`. Sent only while the stream is open; the tab's delegations come first, as `_flowcode/delegate`. A desktop older than this never sends it. */
   | { t: "ext"; ptyId: string; method: string; params: unknown }
   | { t: "usage"; items: UsageItem[] }

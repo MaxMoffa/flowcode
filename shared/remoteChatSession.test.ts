@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acknowledgePrompt, applyEvents, canDispatch, emptySession, forceQueued, pauseUnconfirmedPrompt, putBack, takeQueued } from "./remoteChatSession";
+import { acknowledgePrompt, applyEvents, canDispatch, emptySession, foldReplayBatch, forceQueued, pauseUnconfirmedPrompt, putBack, sendBackoffMs, takeQueued } from "./remoteChatSession";
 
 describe("prompt delivery receipts", () => {
   it("retries a busy refusal that arrives after the other turn already ended", () => {
@@ -49,5 +49,34 @@ describe("prompt delivery receipts", () => {
     expect(replayed.deliveryUncertain).toBe(true);
     expect(canDispatch(replayed, "idle")).toBe(false);
     expect(canDispatch(forceQueued(replayed, 0), "idle")).toBe(true);
+  });
+});
+
+describe("replay a view did not ask for", () => {
+  const ev = (seq: number) => ({ kind: "user", seq, at: 0, text: `m${seq}` });
+  it("applies only newer events and leaves paging and loaded alone", () => {
+    const base = applyEvents(emptySession(), [ev(5), ev(6)], { replay: true, busy: false, page: { hasMore: true, firstSeq: 5 } });
+    expect(base.loaded).toBe(true);
+    expect(base.older).toEqual({ has: true, firstSeq: 5, loading: false });
+    // Another window re-opened the chat from 0 (paged): its replay brings an older page plus one new event.
+    const next = foldReplayBatch(base, [ev(1), ev(2), ev(5), ev(6), ev(7)], { requested: false, busy: false, page: { hasMore: false, firstSeq: 1 } });
+    expect(next.older).toEqual({ has: true, firstSeq: 5, loading: false });
+    expect(next.model.lastSeq).toBe(7);
+    expect(next.events.map((e) => e.seq)).toEqual([5, 6, 7]);
+  });
+  it("does not mark a chat loaded", () => {
+    const next = foldReplayBatch(emptySession(), [ev(1)], { requested: false, busy: false });
+    expect(next.loaded).toBe(false);
+  });
+  it("a requested replay sets the paging", () => {
+    const next = foldReplayBatch(emptySession(), [ev(3)], { requested: true, busy: false, page: { hasMore: true, firstSeq: 3 } });
+    expect(next.loaded).toBe(true);
+    expect(next.older.has).toBe(true);
+  });
+});
+
+describe("sendBackoffMs", () => {
+  it("doubles from one second up to fifteen", () => {
+    expect([1, 2, 3, 4, 5, 6, 20].map(sendBackoffMs)).toEqual([1000, 2000, 4000, 8000, 15000, 15000, 15000]);
   });
 });

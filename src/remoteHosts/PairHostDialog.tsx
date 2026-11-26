@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { t, useI18n } from "../i18n";
-import { setActiveHost, type HostInfo } from "./remoteHosts";
+import { adoptHost, setActiveHost, type HostInfo } from "./remoteHosts";
 import "../dialog/modal.css";
 import "../settings/settings-page.css";
 import "./remote-hosts.css";
@@ -99,6 +99,10 @@ export function PairHostDialog({ onClose }: { onClose: () => void }) {
     setStage("waiting");
     try {
       const host = await invoke<HostInfo>("remote_host_pair", { ticket: found.ticket, deviceName: name.trim() || DEFAULT_DEVICE_NAME });
+      // Closed or cancelled while waiting: the pairing still happened (the list picks it up), but nothing switches under the user.
+      if (cancelled.current) return;
+      // In the store before switching: a list read that started earlier must not leave the new PC unknown.
+      adoptHost(host);
       setActiveHost(host.id);
       onClose();
     } catch (e) {

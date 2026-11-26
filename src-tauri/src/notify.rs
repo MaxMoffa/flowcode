@@ -18,12 +18,15 @@ pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String,
 /// many windows ask - each window watches the same usage limits (see
 /// src/notifications/limitResetWatcher.ts).
 #[tauri::command(async)]
-pub fn notify_once(app: AppHandle, key: String, label: String, title: String, body: String) {
+pub fn notify_once(app: AppHandle, key: String, label: String, title: String, body: String, phones: Option<bool>) {
     use std::collections::HashSet;
     use std::sync::{LazyLock, Mutex};
     static SHOWN: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
     if SHOWN.lock().unwrap_or_else(|e| e.into_inner()).insert(key) {
-        forward_to_phones(&app, &title, &body, "");
+        // An event of another PC (`phones: false`) is not this computer's to mirror to its own phones.
+        if phones.unwrap_or(true) {
+            forward_to_phones(&app, &title, &body, "");
+        }
         show(app, label, String::new(), title, body);
     }
 }

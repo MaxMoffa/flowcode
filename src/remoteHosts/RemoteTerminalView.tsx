@@ -1,7 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { TERMINAL_FONT } from "../terminal/terminalFont";
 import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { FileLinkResolverContext, useOpenPath, usePathMenu, type PathTarget } from "../lib/fileLinks";
 import { createPathLinkProvider } from "../terminal/pathLinkProvider";
@@ -13,13 +12,14 @@ import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { readTermColors } from "../terminal/termColors";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { useLinkMenu, useOpenLink } from "../terminal/useOpenLink";
-import { onHostMessages, sendToHost, setFrontRemoteTerminal, useHost, type RemoteTerminalHandle } from "./remoteHosts";
+import { onHostMessages, sendToHost, setFrontRemoteTerminal, useHost, useHostLink, type RemoteTerminalHandle } from "./remoteHosts";
 import "@xterm/xterm/css/xterm.css";
 import "../terminal/terminal.css";
 import "./remote-hosts.css";
 
-/** The pty is told the new grid only once it settles (a drag fires many sizes). */
-const RESIZE_DEBOUNCE_MS = 150;
+/** The biggest grid taken from the host (a sanity bound on what the wire says). */
+const MAX_COLS = 1000;
+const MAX_ROWS = 500;
 /** onData this soon after a keystroke counts as typed, even while output is being parsed. */
 const USER_INPUT_WINDOW_MS = 60;
 
@@ -32,13 +32,13 @@ interface RemoteTerminalViewProps {
   cwd?: string;
 }
 
-/** A terminal of another PC: the same screen as there, typed into from here. */
+/** A terminal of another PC: the same screen as there, typed into from here. This PC never imposes its size: the grid is the host's
+ * (its snapshot and `resized` messages), drawn top-left and scrolled when it is bigger than the view. */
 export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTerminalViewProps) {
   useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
   const openedRef = useRef(false);
   const syncRef = useRef<() => void>(() => {});
   const [ended, setEnded] = useState(false);
@@ -47,6 +47,9 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
   const terminalPalette = terminalPaletteId ? findPalette(terminalPaletteId) : undefined;
   const { fontSize } = useTerminalSettings();
   const online = useHost(hostId)?.status === "online";
+  const link = useHostLink(hostId);
+  const linkRef = useRef(link);
+  const wasVisible = useRef(false);
   const wantOpen = visible && online;
   const wantOpenRef = useRef(wantOpen);
   wantOpenRef.current = wantOpen;
@@ -102,8 +105,6 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
       allowProposedApi: true,
       minimumContrastRatio: 4.5,
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
     // OSC 8 hyperlinks: http(s) only, through the app's own link menu - never xterm's default confirm() + window.open.
     const hoverUri = { hover: (_e: MouseEvent, uri: string) => (hoverLinkRef.current = { uri }), leave: () => (hoverLinkRef.current = null) };
     term.options.linkHandler = { activate: (event, uri) => openLinkRef.current(event, uri), ...hoverUri };
@@ -125,9 +126,7 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     el.addEventListener("mousedown", keepRightClick, true);
     el.addEventListener("mouseup", keepRightClick, true);
     termRef.current = term;
-    fitRef.current = fit;
     let disposed = false;
-    let resizeTimer = 0;
 
     // Same keys as the local terminal: Ctrl+V pastes natively, Ctrl+C copies a selection.
     term.attachCustomKeyEventHandler((e) => {
@@ -146,31 +145,31 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     });
 
     const measured = () => container.clientWidth > 0 && container.clientHeight > 0;
-    const send = () => {
-      if (openedRef.current) void sendToHost(hostId, { t: "resize", ptyId, cols: term.cols, rows: term.rows });
+    // The grid is the host's: this box takes the pixel size of exactly that many cells (scrolling when it is bigger than the view, top-left when smaller).
+    const fitBox = () => {
+      const cell = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } } })._core?._renderService?.dimensions?.css?.cell;
+      if (!cell || !(cell.width > 0) || !(cell.height > 0)) return;
+      const w = `${Math.ceil(cell.width * term.cols)}px`;
+      const h = `${Math.ceil(cell.height * term.rows)}px`;
+      if (el.style.width !== w) el.style.width = w;
+      if (el.style.height !== h) el.style.height = h;
+      el.style.flex = "none";
     };
-    // Fits to the area, and tells the pty once the size settles.
-    const refit = () => {
-      if (disposed || !measured()) return;
-      const { cols, rows } = term;
-      try {
-        fit.fit();
-      } catch {
-        return;
-      }
-      if (term.cols !== cols || term.rows !== rows) {
-        window.clearTimeout(resizeTimer);
-        resizeTimer = window.setTimeout(send, RESIZE_DEBOUNCE_MS);
-      }
+    const renderSub = term.onRender(fitBox);
+    const applyGrid = (cols: number, rows: number) => {
+      if (!(cols > 0) || !(rows > 0)) return;
+      const c = Math.min(cols, MAX_COLS);
+      const r = Math.min(rows, MAX_ROWS);
+      if (term.cols !== c || term.rows !== r) term.resize(c, r);
+      fitBox();
     };
-    // Opens or closes the stream so it matches whether anybody is looking.
+    // Opens or closes the stream so it matches whether anybody is looking. The open claims no size.
     const sync = () => {
       if (disposed) return;
       if (wantOpenRef.current && !openedRef.current) {
         if (!measured()) return;
-        refit();
         openedRef.current = true;
-        void sendToHost(hostId, { t: "open", ptyId, cols: term.cols, rows: term.rows });
+        void sendToHost(hostId, { t: "open", ptyId });
       } else if (!wantOpenRef.current && openedRef.current) {
         openedRef.current = false;
         void sendToHost(hostId, { t: "close", ptyId });
@@ -201,15 +200,14 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
       if (openedRef.current) void sendToHost(hostId, { t: "input", ptyId, data: d });
     });
 
-    const ro = new ResizeObserver(() => {
-      refit();
-      sync();
-    });
+    const ro = new ResizeObserver(() => sync());
     ro.observe(container);
 
     // A snapshot replaces the screen: reset only once writes queued before it are applied, and hold the output that arrives meanwhile so it lands after.
     let held: string[] | null = null;
     let snapGen = 0;
+    // A `resized` that arrives while a snapshot is being applied lands after it.
+    let pendingGrid: { cols: number; rows: number } | null = null;
     const off = onHostMessages(hostId, (msgs) => {
       for (const m of msgs) {
         if (m.t === "snapshot" && m.ptyId === ptyId) {
@@ -217,12 +215,19 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
           const held0: string[] = (held = []);
           term.write("", () => {
             if (disposed || gen !== snapGen) return;
+            applyGrid(m.cols, m.rows);
             term.reset();
             write(m.data);
             held = null;
             held0.forEach(write);
+            if (pendingGrid) applyGrid(pendingGrid.cols, pendingGrid.rows);
+            pendingGrid = null;
             setEnded(false);
           });
+        } else if (m.t === "resized" && m.ptyId === ptyId) {
+          // Writes queued before it are applied first, so the grid changes at the same point in the stream as on the host.
+          if (held) pendingGrid = { cols: m.cols, rows: m.rows };
+          else term.write("", () => !disposed && applyGrid(m.cols, m.rows));
         } else if (m.t === "output" && m.ptyId === ptyId) {
           if (held) held.push(m.data);
           else write(m.data);
@@ -239,40 +244,34 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
       data.dispose();
       userEvents.forEach((n) => ta?.removeEventListener(n, markUser, true));
       ro.disconnect();
-      window.clearTimeout(resizeTimer);
+      renderSub.dispose();
       syncRef.current = () => {};
       if (openedRef.current) void sendToHost(hostId, { t: "close", ptyId });
       openedRef.current = false;
       term.dispose();
       termRef.current = null;
-      fitRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostId, ptyId]);
 
-  // In or out of sight, or the link coming back (the server forgot its streams then): open or close, and take focus when shown.
+  // In or out of sight, or the link coming back (the server forgot its streams then): open or close; focus only when it comes into view, not when the link toggles.
   useEffect(() => {
-    if (!online) openedRef.current = false;
+    if (!online || linkRef.current !== link) openedRef.current = false;
+    linkRef.current = link;
+    const takeFocus = visible && !wasVisible.current;
+    wasVisible.current = visible;
     const id = requestAnimationFrame(() => {
-      if (visible) {
-        try {
-          if (containerRef.current && containerRef.current.clientWidth > 0) fitRef.current?.fit();
-        } catch {
-          /* not laid out yet */
-        }
-      }
       syncRef.current();
-      if (wantOpen) termRef.current?.focus();
+      if (takeFocus) termRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [wantOpen, visible, online]);
+  }, [wantOpen, visible, online, link]);
 
+  // A new font size only redraws: the grid stays the host's (the box follows on render).
   useEffect(() => {
     const term = termRef.current;
-    if (!term) return;
-    term.options.fontSize = fontSize;
-    if (visible && containerRef.current && containerRef.current.clientWidth > 0) fitRef.current?.fit();
-  }, [fontSize, visible]);
+    if (term) term.options.fontSize = fontSize;
+  }, [fontSize]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -285,7 +284,7 @@ export function RemoteTerminalView({ hostId, ptyId, visible, cwd }: RemoteTermin
     <div
       ref={containerRef}
       className="terminal-container remote-terminal"
-      style={{ display: visible ? "flex" : "none", ...(terminalPalette ? (resolveTerminalPalette(terminalPalette, theme, contrast) as CSSProperties) : null) }}
+      style={{ display: visible ? "flex" : "none", overflow: "auto", alignItems: "flex-start", ...(terminalPalette ? (resolveTerminalPalette(terminalPalette, theme, contrast) as CSSProperties) : null) }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();

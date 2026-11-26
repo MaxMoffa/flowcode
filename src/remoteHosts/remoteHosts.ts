@@ -6,6 +6,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ChatInfo, ClientMsg, MirroredSettings, ServerMsg, Tab } from "../../shared/remote-types";
 import { remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
 import { isAgentBusy, isAgentExited } from "../chat/chatModel";
@@ -21,6 +22,8 @@ export interface HostInfo {
   error?: string;
   caps: string[];
   appVersion?: string;
+  /** Counts the links to this PC that became usable: a new number means every stream opened over the old one is gone. */
+  link: number;
 }
 
 /** The id the call bubbles (src/calls) know a tab of another PC by: `entryKey` is `pty:<id>` or `chat:<id>`. */
@@ -42,6 +45,8 @@ interface HostState {
   settings: MirroredSettings | null;
   /** `pty:<ptyId>` or `chat:<chatId>` of the tab in front. */
   activeKey: string | null;
+  /** The `chats` list is from the current link (a new link waits for its first one, or a short while): a chat missing from a stale list must not be reopened. */
+  chatsFresh: boolean;
 }
 
 interface Snapshot {
@@ -51,17 +56,22 @@ interface Snapshot {
   activeHost: ActiveHost;
 }
 
-const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, activeKey: null };
+const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, activeKey: null, chatsFresh: true };
 
 /** How long after "new terminal"/"new chat" the first tab to appear is taken as the new one. */
 const NEW_TAB_WAIT_MS = 10_000;
 
 export { remoteEntries, type RemoteEntry };
 
+/** How long a chat that left the list stays in front: a `/clear` that renews the session briefly drops it (and it comes back). */
+const VANISH_GRACE_MS = 3000;
+
 /** Keeps the tab in front while it exists. When it goes, its neighbour in `previous` takes its place (the next one, else
- * the one before) - like closing a local tab - rather than jumping to the first; with no history, the first one left. */
-export function pickActiveKey(current: string | null, keys: string[], previous: string[] = []): string | null {
+ * the one before) - like closing a local tab - rather than jumping to the first; with no history, the first one left.
+ * `grace`: the tab in front just left and may come back, so it stays in front for now. */
+export function pickActiveKey(current: string | null, keys: string[], previous: string[] = [], grace = false): string | null {
   if (current && keys.includes(current)) return current;
+  if (current && grace) return current;
   const at = current ? previous.indexOf(current) : -1;
   if (at >= 0) {
     const live = new Set(keys);
@@ -99,6 +109,11 @@ export function firstNewEntry(before: ReadonlySet<string>, entries: RemoteEntry[
 let snap: Snapshot = { hosts: {}, list: [], state: {}, activeHost: LOCAL_HOST };
 const subs = new Set<() => void>();
 const bus = new Map<string, Set<(msgs: ServerMsg[]) => void>>();
+/** The chat in front that just left a host's list: kept in front until `VANISH_GRACE_MS` passes. */
+const vanished = new Map<string, { key: string; at: number; previous: string[]; timer: ReturnType<typeof setTimeout> }>();
+/** Tabs this window asked to close (host id and key, when): they leave without the grace. */
+const closing = new Map<string, number>();
+const closingKey = (hostId: string, key: string) => `${hostId}\u0000${key}`;
 /** Keys before a "new" request, per host, until the new tab shows up (or the wait ends). */
 const pendingNew = new Map<string, { before: Set<string>; until: number; match?: (entry: RemoteEntry) => boolean; owner?: string }>();
 
@@ -114,10 +129,58 @@ function setHosts(fetched: HostInfo[]) {
   const hosts = Object.fromEntries(list.map((h) => [h.id, h]));
   const activeHost = snap.activeHost !== LOCAL_HOST && !hosts[snap.activeHost] ? LOCAL_HOST : snap.activeHost;
   const state = Object.fromEntries(Object.entries(snap.state).filter(([id]) => hosts[id]));
-  // Nothing more will come for an unpaired PC: drop its listeners and pending "new tab" wait.
-  for (const id of [...bus.keys()]) if (!hosts[id]) bus.delete(id);
+  // Nothing more will come for an unpaired PC: drop its pending "new tab" wait. Its listeners go only on an explicit forget (`forgetHost`): a list that is momentarily short must not make the open views deaf.
   for (const id of [...pendingNew.keys()]) if (!hosts[id]) pendingNew.delete(id);
+  for (const id of [...vanished.keys()]) if (!hosts[id]) clearVanished(id);
   commit({ ...snap, hosts, list, state, activeHost });
+}
+
+/** Adds a PC the backend just returned (a pairing) without waiting for the list refresh, so switching to it finds it. */
+export function adoptHost(h: HostInfo) {
+  if (snap.hosts[h.id]) return;
+  commit({ ...snap, hosts: { ...snap.hosts, [h.id]: h }, list: [...snap.list, h] });
+}
+
+function clearVanished(hostId: string) {
+  const v = vanished.get(hostId);
+  if (!v) return;
+  clearTimeout(v.timer);
+  vanished.delete(hostId);
+}
+
+/** The grace of a chat that left the list ended: if it is still gone and still in front, a neighbour takes its place. */
+function settleVanished(hostId: string) {
+  const v = vanished.get(hostId);
+  if (!v) return;
+  vanished.delete(hostId);
+  patchState(hostId, (s) => {
+    if (s.activeKey !== v.key) return s;
+    const keys = remoteEntries(s.tabs, s.chats).map((e) => e.key);
+    return keys.includes(v.key) ? s : { ...s, activeKey: pickActiveKey(v.key, keys, v.previous) };
+  });
+}
+
+/** The tab in front after a tabs/chats change: a chat that leaves the list keeps its place for a moment. */
+function chooseActive(hostId: string, current: string | null, keys: string[], previous: string[]): string | null {
+  if (current === null || keys.includes(current)) {
+    clearVanished(hostId);
+    return pickActiveKey(current, keys, previous);
+  }
+  const closedHere = Date.now() - (closing.get(closingKey(hostId, current)) ?? 0) < 5000;
+  if (closedHere) closing.delete(closingKey(hostId, current));
+  if (closedHere || !current.startsWith("chat:")) {
+    clearVanished(hostId);
+    return pickActiveKey(current, keys, previous);
+  }
+  let v = vanished.get(hostId);
+  if (!v || v.key !== current) {
+    clearVanished(hostId);
+    v = { key: current, at: Date.now(), previous, timer: setTimeout(() => settleVanished(hostId), VANISH_GRACE_MS) };
+    vanished.set(hostId, v);
+  }
+  if (Date.now() - v.at < VANISH_GRACE_MS) return pickActiveKey(current, keys, previous, true);
+  clearVanished(hostId);
+  return pickActiveKey(current, keys, v.previous);
 }
 
 function patchState(hostId: string, fn: (s: HostState) => HostState) {
@@ -127,11 +190,11 @@ function patchState(hostId: string, fn: (s: HostState) => HostState) {
 }
 
 /** Folds the messages that describe a host (tabs, chats, settings) into the store. */
-function applyMessages(hostId: string, msgs: ServerMsg[]) {
+function applyMessages(hostId: string, msgs: ServerMsg[], cached = false) {
   for (const m of msgs) {
     if (m.t !== "tabs" && m.t !== "chats" && m.t !== "settings") continue;
     patchState(hostId, (s) => {
-      const next = m.t === "tabs" ? { ...s, tabs: m.tabs } : m.t === "chats" ? { ...s, chats: m.chats } : { ...s, settings: m.settings };
+      const next = m.t === "tabs" ? { ...s, tabs: m.tabs } : m.t === "chats" ? { ...s, chats: m.chats, ...(cached ? {} : { chatsFresh: true }) } : { ...s, settings: m.settings };
       if (m.t === "settings") return next;
       const entries = remoteEntries(next.tabs, next.chats);
       const keys = entries.map((e) => e.key);
@@ -140,9 +203,27 @@ function applyMessages(hostId: string, msgs: ServerMsg[]) {
       if (pending && Date.now() > pending.until) pendingNew.delete(hostId);
       const fresh = pending && Date.now() <= pending.until ? firstNewEntry(pending.before, entries, pending.match) : null;
       if (fresh) pendingNew.delete(hostId);
-      return { ...next, activeKey: fresh ?? pickActiveKey(next.activeKey, keys, previous) };
+      if (fresh) clearVanished(hostId);
+      return { ...next, activeKey: fresh ?? chooseActive(hostId, next.activeKey, keys, previous) };
     });
   }
+}
+
+/** How long a new link waits for its first `chats` message before its chats are opened anyway. */
+const CHATS_WAIT_MS = 4000;
+
+/** A notice of a PC (a permission asked, a turn done): shown as a desktop notification, labelled with the PC, unless it is the tab in front of a focused window. */
+function showHostNotify(hostId: string, m: { title: string; body: string; tabId?: string }) {
+  const s = snap.state[hostId] ?? EMPTY_STATE;
+  if (snap.activeHost === hostId && document.hasFocus()) {
+    if (!m.tabId) return;
+    const entry = remoteEntries(s.tabs, s.chats).find((e) => (e.kind === "pty" ? e.tab.tabId : e.chat.tabId) === m.tabId);
+    if (entry && entry.key === s.activeKey) return;
+  }
+  // Every window gets the message: one notification per event, however many windows are open.
+  const key = `host-notify:${hostId}:${m.tabId ?? ""}:${m.title}:${m.body}:${Math.floor(Date.now() / 10_000)}`;
+  const title = `${snap.hosts[hostId]?.hostName ?? ""} · ${m.title}`;
+  void invoke("notify_once", { key, label: getCurrentWindow().label, title, body: m.body, phones: false }).catch(() => {});
 }
 
 let started = false;
@@ -153,14 +234,23 @@ function ensureRemoteHosts() {
   const refresh = () => invoke<HostInfo[]>("remote_hosts").then(setHosts).catch(() => {});
   void listen<HostInfo>("remote-host://state", (e) => {
     const h = e.payload;
-    const known = !!snap.hosts[h.id];
+    // A PC this window doesn't list (just forgotten, or not read yet): the list says whether it exists, a late event must not bring it back.
+    if (!snap.hosts[h.id]) {
+      refresh();
+      return;
+    }
+    const linkChanged = (snap.hosts[h.id].link ?? 0) !== (h.link ?? 0);
     const hosts = { ...snap.hosts, [h.id]: h };
-    commit({ ...snap, hosts, list: known ? snap.list.map((x) => (x.id === h.id ? h : x)) : [...snap.list, h] });
+    // A new link: the chats list in hand is the old link's until the host sends its own (or a short wait passes).
+    const state = linkChanged ? { ...snap.state, [h.id]: { ...(snap.state[h.id] ?? EMPTY_STATE), chatsFresh: false } } : snap.state;
+    commit({ ...snap, hosts, list: snap.list.map((x) => (x.id === h.id ? h : x)), state });
+    if (linkChanged) setTimeout(() => patchState(h.id, (s) => (s.chatsFresh ? s : { ...s, chatsFresh: true })), CHATS_WAIT_MS);
   });
   void listen<{ hostId: string; msgs: ServerMsg[] }>("remote-host://msgs", (e) => {
     const { hostId, msgs } = e.payload;
     applyMessages(hostId, msgs);
     bus.get(hostId)?.forEach((fn) => fn(msgs));
+    for (const m of msgs) if (m.t === "notify") showHostNotify(hostId, m);
     // The backend sends every window each host's messages: only the window with that PC in front says what went wrong.
     if (hostId !== snap.activeHost) return;
     for (const m of msgs) {
@@ -186,6 +276,8 @@ function useStore<T>(select: (s: Snapshot) => T): T {
 export const useHosts = () => useStore((s) => s.list);
 export const useHost = (id: string) => useStore((s) => s.hosts[id]);
 export const useActiveHost = () => useStore((s) => s.activeHost);
+/** The link counter of a PC (see `HostInfo.link`): effects that open streams depend on it, so a replaced link opens them again. */
+export const useHostLink = (id: string): number => useStore((s) => s.hosts[id]?.link ?? 0);
 export const useHostState = (id: string) => useStore((s) => s.state[id] ?? EMPTY_STATE);
 
 /** Messages of a host, in batches as the backend delivers them (output, snapshots, chat events...). */
@@ -197,6 +289,20 @@ export function onHostMessages(hostId: string, fn: (msgs: ServerMsg[]) => void):
 }
 
 const notices = new Set<(message: string) => void>();
+
+/** Tells the user something about a PC in this window's notice (a toast), whichever PC is in front. */
+export function showRemoteNotice(message: string) {
+  notices.forEach((fn) => fn(message));
+}
+
+/** Calls `fn` once the PC stops being online or its link is replaced: what was sent over the old link will never be answered. Returns the unsubscribe. */
+export function onHostLeavesOnline(hostId: string, fn: () => void): () => void {
+  const link = snap.hosts[hostId]?.link ?? 0;
+  return subscribe(() => {
+    const h = snap.hosts[hostId];
+    if (!h || h.status !== "online" || (h.link ?? 0) !== link) fn();
+  });
+}
 
 /** What a host's message has to tell the user, if anything: a non-fatal error (a fatal one ends the link and shows on the host's status). `agent_busy` is handled by the chat that sent the prompt (it goes back in the queue). */
 export function errorNotice(m: ServerMsg): string | null {
@@ -272,7 +378,14 @@ export function sendToHost(id: string, msg: ClientMsg): Promise<boolean> {
 
 export const connectHost = (id: string) => invoke("remote_host_connect", { id }).catch(() => {});
 export const disconnectHost = (id: string) => invoke("remote_host_disconnect", { id }).catch(() => {});
-export const forgetHost = (id: string) => invoke("remote_host_forget", { id }).catch(() => {});
+export const forgetHost = (id: string) =>
+  invoke("remote_host_forget", { id })
+    .then(() => {
+      // Explicit forget: nothing more will come for it, so its listeners go (a generic list refresh never does this).
+      bus.delete(id);
+      clearVanished(id);
+    })
+    .catch(() => {});
 
 /** Starts the reconnect loop of every paired PC, so their status in a menu is live. */
 export function connectAllHosts() {
@@ -286,7 +399,7 @@ export function setActiveHost(id: ActiveHost) {
   void connectHost(id);
   // The latest tabs/chats the backend already holds, so the strip is not empty until the next change.
   invoke<ServerMsg[]>("remote_host_cached", { id })
-    .then((msgs) => applyMessages(id, msgs))
+    .then((msgs) => applyMessages(id, msgs, true))
     .catch(() => {});
 }
 
@@ -321,6 +434,7 @@ export function terminalLike(cwd?: string, cli?: string): (entry: RemoteEntry) =
 
 /** Closes a tab of a PC: a terminal or a chat, when that PC can. The remote refuses the last tab of a window. */
 export function closeRemoteEntry(hostId: string, entry: RemoteEntry) {
+  closing.set(closingKey(hostId, entry.key), Date.now());
   const caps = snap.hosts[hostId]?.caps ?? [];
   if (entry.kind === "pty") {
     if (caps.includes("closeTab")) void sendToHost(hostId, { t: "closetab", ptyId: entry.tab.ptyId });

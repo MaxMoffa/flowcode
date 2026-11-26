@@ -38,6 +38,13 @@ describe("pickActiveKey", () => {
   it("is null with no tabs", () => {
     expect(pickActiveKey("pty:a", [])).toBeNull();
   });
+  it("keeps a vanished tab in front during its grace, then moves to a neighbour", () => {
+    const before = ["pty:a", "chat:c", "pty:d"];
+    expect(pickActiveKey("chat:c", ["pty:a", "pty:d"], before, true)).toBe("chat:c");
+    expect(pickActiveKey("chat:c", ["pty:a", "pty:d"], before, false)).toBe("pty:d");
+    // It came back: nothing to decide.
+    expect(pickActiveKey("chat:c", before, before, true)).toBe("chat:c");
+  });
 });
 
 describe("rememberVisit", () => {

@@ -1,5 +1,5 @@
 import type { ClientMsg, ServerMsg } from "../../shared/remote-types";
-import { onHostMessages, sendToHost } from "./remoteHosts";
+import { onHostLeavesOnline, onHostMessages, sendToHost } from "./remoteHosts";
 
 let sequence = 0;
 
@@ -15,6 +15,7 @@ export function hostRequest<K extends "history" | "fs" | "git">(hostId: string, 
       done = true;
       clearTimeout(timer);
       stop();
+      stopLink();
       if (error) reject(error);
       else resolve(value as Reply<K>);
     };
@@ -28,6 +29,8 @@ export function hostRequest<K extends "history" | "fs" | "git">(hostId: string, 
         return;
       }
     });
+    // The link dropped (or was replaced): the reply can't come, don't wait out the timeout.
+    const stopLink = onHostLeavesOnline(hostId, () => finish(new Error("offline")));
     const timer = setTimeout(() => finish(new Error("timeout")), timeoutMs);
     void sendToHost(hostId, build(requestId)).then((ok) => {
       if (!ok) finish(new Error("offline"));
