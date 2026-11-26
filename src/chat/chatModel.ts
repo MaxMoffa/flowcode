@@ -643,7 +643,11 @@ function applyNativeSubagent(state: ChatModelState, update: ChatUpdate, at: numb
       const description = str(update.description) ?? known?.description ?? undefined;
       return { ...state, nativeSubagents: { ...state.nativeSubagents, [child]: { title, description } } };
     }
-    const status = phase === "running" ? "in_progress" : phase === "idle" ? "completed" : phase ? "failed" : undefined;
+    // v2 (`state_update` mirrored on the parent): `requires_action` is still working, an idle that ended in an error or a refusal failed.
+    const stop = str((update.state as { stopReason?: unknown } | undefined)?.stopReason);
+    const status = phase === "running" || phase === "requires_action" ? "in_progress"
+      : phase === "idle" ? (stop === "error" || stop === "refusal" ? "failed" : "completed")
+      : phase ? "failed" : undefined;
     if (!status || launch.call.status === status) return state;
     const call: ChatToolCall = { ...launch.call, status, endedAt: status === "in_progress" ? undefined : launch.call.endedAt ?? at };
     return withItems(state, state.items.map((i) => (i === launch ? { ...launch, call } : i)));
@@ -674,6 +678,13 @@ function applyNativeSubagent(state: ChatModelState, update: ChatUpdate, at: numb
     return withItems(state, state.items.map((i) => (i === launch ? { ...launch, call } : i)));
   }
   return state;
+}
+
+/** The agent is gone: a native subagent launch still running has nobody left to say it ended. */
+function closeNativeSubagents(items: ChatItem[], at: number): ChatItem[] {
+  return items.map((item) => item.type === "tool" && item.call.subagentSessionId && item.call.status === "in_progress"
+    ? { ...item, call: { ...item.call, status: "failed" as const, endedAt: at } }
+    : item);
 }
 
 type CompactionItem = Extract<ChatItem, { type: "compaction" }>;
@@ -914,7 +925,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "exit": {
       // Nobody is left to answer an open permission request: it reads as cancelled (the backend says so too, this is in case it didn't).
       // Same for an open question.
-      const woken = closeWokenSteps(closeCodexSubagents(state.items, ev.at));
+      const woken = closeWokenSteps(closeNativeSubagents(closeCodexSubagents(state.items, ev.at), ev.at));
       const items = woken.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)
         ? woken.map((i) =>
             i.type === "permission" && i.resolved === undefined

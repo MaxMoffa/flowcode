@@ -818,17 +818,20 @@ pub(super) fn route_child_update(children: &mut HashMap<String, Option<String>>,
         return true;
     }
     if kind == "session_message" {
-        if is_child {
-            return false;
-        }
         let to = update.get("recipientSessionId").and_then(Value::as_str);
         let id = update.get("messageId").and_then(Value::as_str);
+        // A child's own copy of a message (its prompt, a reply) is dropped; only the one a child itself sends to a sub-agent of
+        // its own (the grandchild's launch, sent on the child's session by the sender) still names that launch.
+        if is_child && update.get("senderSessionId").and_then(Value::as_str) != Some(session) {
+            return false;
+        }
         if let (Some(to), Some(id)) = (to, id) {
             if let Some(launch @ None) = children.get_mut(to) {
                 *launch = Some(id.to_string());
+                return true;
             }
         }
-        return true;
+        return !is_child;
     }
     if !is_child {
         return true;
@@ -1310,6 +1313,25 @@ mod tests {
         // The main session is untouched.
         let mut main_config = json!({ "sessionUpdate": "config_option_update" });
         assert!(route_child_update(&mut children, &main, &mut main_config));
+    }
+
+    #[test]
+    fn a_grandchild_launch_sent_on_the_childs_session_is_kept() {
+        let mut children = HashMap::new();
+        let child = json!({ "sessionId": "kid" });
+        let mut a = json!({ "sessionUpdate": "subagent_update", "sessionId": "kid" });
+        assert!(route_child_update(&mut children, &json!({ "sessionId": "main" }), &mut a));
+        let mut b = json!({ "sessionUpdate": "subagent_update", "sessionId": "grand" });
+        assert!(route_child_update(&mut children, &child, &mut b));
+        // The kid's outgoing message names the grandchild's launch; the grandchild's incoming copy (not sent by it) is dropped.
+        let mut copy = json!({ "sessionUpdate": "session_message", "messageId": "other", "recipientSessionId": "grand" });
+        assert!(!route_child_update(&mut children, &json!({ "sessionId": "grand" }), &mut copy));
+        let mut launch = json!({ "sessionUpdate": "session_message", "messageId": "G", "recipientSessionId": "grand", "senderSessionId": "kid" });
+        assert!(route_child_update(&mut children, &child, &mut launch));
+        assert_eq!(children["grand"].as_deref(), Some("G"));
+        // Anything else the kid says to the main chat stays dropped.
+        let mut reply = json!({ "sessionUpdate": "session_message", "messageId": "R", "recipientSessionId": "main", "senderSessionId": "kid" });
+        assert!(!route_child_update(&mut children, &child, &mut reply));
     }
 
     #[test]

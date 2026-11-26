@@ -355,6 +355,14 @@ fn as_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 pub(super) fn translate(state: &mut V2State, session_id: &str, update: &Value) -> Vec<Out> {
     let Some(kind) = as_str(update, "sessionUpdate") else { return vec![] };
     match kind {
+        // A native subagent's own session chatter (its config, commands, plan, usage...) is not the chat's: it would
+        // move the model, mode, command list or plan of the main chat. Dropped here, before it can change `state.mode`.
+        "config_option_update" | "available_commands_update" | "plan_update" | "plan_removed" | "usage_update" | "session_info_update"
+        | "compaction_update" | "compaction_summary_chunk"
+            if state.is_child(session_id) =>
+        {
+            vec![]
+        }
         "state_update" => state_update(state, session_id, update),
         "tool_call" | "tool_call_update" => tool_call(state, session_id, update),
         "terminal_update" => terminal_update(state, session_id, update),
@@ -373,7 +381,12 @@ pub(super) fn translate(state: &mut V2State, session_id: &str, update: &Value) -
             if let Some(child) = as_str(update, "sessionId") {
                 state.children.insert(child.to_string());
             }
-            update_out(update.clone())
+            // `capabilities` (what the child session can do, e.g. cancel) is v2-only: nothing reads it.
+            let mut announced = update.clone();
+            if let Some(object) = announced.as_object_mut() {
+                object.remove("capabilities");
+            }
+            update_out(announced)
         }
         "user_message_chunk" | "agent_message_chunk" | "agent_thought_chunk" | "usage_update" | "session_info_update"
         | "compaction_update" | "compaction_summary_chunk" | "session_message" => update_out(update.clone()),
@@ -1267,6 +1280,77 @@ mod tests {
         assert_eq!(running, 7);
         // Replayed history: the user's message is back as a chunk, once.
         assert_eq!(updates.iter().filter(|u| u["sessionUpdate"] == "user_message_chunk").count(), 2);
+    }
+
+    /// What the chat shows of a fixture: every update translated, then routed like `Chat::handle_update` does
+    /// (`route_child_update`). `(session, update)`.
+    fn routed(fixture: &str) -> Vec<(String, Value)> {
+        let mut st = V2State::default();
+        let mut children = std::collections::HashMap::new();
+        let mut shown = Vec::new();
+        for line in fixture.lines().filter(|l| !l.trim().is_empty()) {
+            let msg: Value = serde_json::from_str(line).unwrap();
+            if msg.get("_dir").is_some() || msg.get("_comment").is_some() {
+                continue;
+            }
+            if msg.get("method").and_then(Value::as_str) == Some("session/update") {
+                let params = &msg["params"];
+                let sid = params["sessionId"].as_str().unwrap();
+                for out in translate(&mut st, sid, &params["update"]) {
+                    if let Out::Update(mut update) = out {
+                        if crate::chat::state::route_child_update(&mut children, params, &mut update) {
+                            shown.push((sid.to_string(), update));
+                        }
+                    }
+                }
+            } else if st.main.is_none() && msg.pointer("/result/configOptions").is_some() {
+                st.main = msg.pointer("/result/sessionId").and_then(Value::as_str).map(str::to_string);
+            }
+        }
+        shown
+    }
+
+    #[test]
+    fn a_claude_subagent_nests_under_its_launch_and_never_moves_the_chat() {
+        let shown = routed(CLAUDE_FIXTURE);
+        // Nothing of the child's session chatter reaches the chat.
+        for (session, update) in &shown {
+            let kind = update["sessionUpdate"].as_str().unwrap();
+            if session == "sess-child" {
+                assert!(!["config_option_update", "current_mode_update", "available_commands_update", "usage_update", "plan", "session_message"].contains(&kind), "child {kind} leaked");
+            }
+        }
+        // The child's tool call and text stay, under the launch id.
+        let call = shown.iter().find(|(_, u)| u["toolCallId"] == "toolu_child_ls").expect("child tool call");
+        assert_eq!(call.1["_meta"]["claudeCode"]["parentToolUseId"], "toolu_task");
+        let text = shown.iter().find(|(s, u)| s == "sess-child" && u["sessionUpdate"] == "agent_message_chunk").expect("child text");
+        assert_eq!(text.1["_meta"]["claudeCode"]["parentToolUseId"], "toolu_task");
+        // The model of the main chat never changed to the child's.
+        assert!(!shown.iter().any(|(_, u)| u.to_string().contains("haiku")));
+        // The parent's announcement, launch message, end state and reply do pass.
+        for want in ["subagent_update", "session_message"] {
+            assert!(shown.iter().any(|(s, u)| s == "sess-1" && u["sessionUpdate"] == want));
+        }
+        assert!(shown.iter().any(|(_, u)| u["sessionUpdate"] == "subagent_update" && u["state"]["state"] == "idle"));
+    }
+
+    #[test]
+    fn a_codex_standard_subagent_is_announced_nested_and_silent_about_its_config() {
+        let shown = routed(CODEX_FIXTURE);
+        for (session, update) in &shown {
+            let kind = update["sessionUpdate"].as_str().unwrap();
+            if session == "thr-kid2" {
+                assert!(!["config_option_update", "current_mode_update", "available_commands_update", "usage_update", "plan", "session_message"].contains(&kind), "child {kind} leaked");
+            }
+        }
+        assert!(!shown.iter().any(|(_, u)| u.to_string().contains("gpt-5.4") || u.to_string().contains("kid-only") || u.to_string().contains("kid step")));
+        // Launch: announce, then the message naming the launch id; the child's own work nests under it.
+        let at = |kind: &str| shown.iter().position(|(s, u)| s == "thr-1" && u["sessionUpdate"] == kind && u["sessionId"].as_str().is_none_or(|c| c == "thr-kid2")).unwrap();
+        assert!(at("subagent_update") < at("session_message"));
+        let call = shown.iter().find(|(_, u)| u["toolCallId"] == "kid_exec").expect("child tool call");
+        assert_eq!(call.1["_meta"]["claudeCode"]["parentToolUseId"], "call_spawn");
+        // Its end comes through the parent's subagent_update; the child's own state_update never became a turn signal.
+        assert!(shown.iter().any(|(s, u)| s == "thr-1" && u["sessionUpdate"] == "subagent_update" && u["sessionId"] == "thr-kid2" && u["state"]["state"] == "idle"));
     }
 
     #[test]

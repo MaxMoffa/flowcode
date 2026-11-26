@@ -749,6 +749,17 @@ describe("native subagents (ACP subagent_update)", () => {
     );
     expect(tool(state, "L")).toMatchObject({ status: "failed", content: [{ content: { text: "hello" } }] });
   });
+
+  it("keeps working through requires_action, fails on an error idle and closes on exit (v2)", () => {
+    let state = started();
+    state = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "requires_action" } }, 200)], state);
+    expect(tool(state, "L")?.status).toBe("in_progress");
+    state = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "idle", stopReason: "error" } }, 300)], state);
+    expect(tool(state, "L")).toMatchObject({ status: "failed", endedAt: 300 });
+    state = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "running" } }, 400)], state);
+    state = run([{ kind: "exit", seq: next(), at: 900 } as ChatEvent], state);
+    expect(tool(state, "L")).toMatchObject({ status: "failed", endedAt: 900 });
+  });
 });
 
 describe("delegation events", () => {
