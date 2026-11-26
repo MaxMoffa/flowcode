@@ -142,6 +142,8 @@ Da **Impostazioni → Funzionalità** puoi crearne uno con un modulo guidato opp
 ## Per sviluppatori
 
 Le sezioni seguenti servono solo se vuoi compilare Flowcode dai sorgenti o contribuire.
+Prima di proporre una modifica leggi [CONTRIBUTING.md](CONTRIBUTING.md) (in inglese): come è organizzato il
+progetto e le regole che ogni modifica segue.
 
 ### Stack
 

@@ -141,6 +141,8 @@ details about the format are in [PLUGINS.md](PLUGINS.md).
 ## For developers
 
 The following sections are only needed if you want to build Flowcode from source or contribute.
+Before sending a change, read [CONTRIBUTING.md](CONTRIBUTING.md): how the project is organised and the rules
+every change follows.
 
 ### Stack
 
