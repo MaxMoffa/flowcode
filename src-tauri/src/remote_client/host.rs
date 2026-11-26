@@ -9,6 +9,7 @@ use super::link::{self, LinkError, Session};
 use super::store::Pairing;
 use super::{cache_put, HostStatus, MsgsEvent, RemoteClients, EVT_MSGS, OUT_QUEUE};
 use flowcode_remote_proto::{ClientMsg, FrameError, ServerMsg};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -26,6 +27,12 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const EMIT_BATCH: usize = 64;
 /// Queued outgoing messages are written together, up to about this many encoded bytes.
 const WRITE_BATCH_BYTES: usize = 64 * 1024;
+/// Retry period after a refusal or an unusable host: it may be a restarting or updated PC.
+const SLOW_RETRY: Duration = Duration::from_secs(60);
+/// Oldest host protocol this client can talk to.
+const MIN_HOST_PROTO: u32 = 2;
+/// Distinct undecodable message kinds logged per link, at most.
+const MAX_LOGGED_UNKNOWN: usize = 32;
 
 /// What the reader task hands to `serve`.
 enum Inbound {
@@ -35,6 +42,12 @@ enum Inbound {
     Skipped(String),
     /// I/O or framing error: the stream cannot be trusted any more.
     Failed(String),
+}
+
+/// Which kind of message an undecodable frame was: serde's error without the position and the list of known ones.
+fn unknown_kind(error: &str) -> String {
+    let end = [", expected", " at line"].iter().filter_map(|m| error.find(m)).min().unwrap_or(error.len());
+    error[..end].to_string()
 }
 
 fn classify_frame(frame: Result<ServerMsg, FrameError>) -> Inbound {
@@ -83,13 +96,18 @@ enum Exit {
 
 /// Backoff sleep that a `remote_host_connect` on a running host can end early.
 async fn wait(clients: &RemoteClients, app: &AppHandle, id: &str, retry: &Notify, log: &ConnLog, error: String, attempt: u32, delay: Duration) {
+    wait_as(clients, app, id, retry, log, HostStatus::Connecting, error, attempt, delay).await;
+}
+
+/// `wait` showing `status` meanwhile (offline for a host that refused us).
+async fn wait_as(clients: &RemoteClients, app: &AppHandle, id: &str, retry: &Notify, log: &ConnLog, status: HostStatus, error: String, attempt: u32, delay: Duration) {
     // Registered before the state is published: a retry the UI sends on
     // seeing the error can then never slip in between.
     let notified = retry.notified();
     tokio::pin!(notified);
     notified.as_mut().enable();
     log.push(format!("attempt failed ({error}); retry in {} s (failure {attempt})", delay.as_secs()));
-    clients.set_status(app, id, HostStatus::Connecting, Some(error));
+    clients.set_status(app, id, status, Some(error));
     tokio::select! {
         _ = tokio::time::sleep(delay) => {}
         _ = &mut notified => {}
@@ -144,10 +162,11 @@ pub(super) async fn host_loop(app: &AppHandle, clients: &Arc<RemoteClients>, id:
             None => match connect_once(app, clients, id, &log, &pairing, failures).await {
                 Ok(s) => s,
                 Err(LinkError::Fatal(message)) => {
-                    // The pairing stays saved: the user can forget it or pair again.
-                    log.push(format!("refused for good: {message}"));
-                    clients.set_status(app, id, HostStatus::Offline, Some(message));
-                    return;
+                    // The pairing stays saved. An old host also answers this way while it shuts down,
+                    // so keep trying, slowly; forgetting the PC ends the loop (checked at the top).
+                    log.push(format!("refused: {message}"));
+                    wait_as(clients, app, id, &retry, &log, HostStatus::Offline, message, failures, SLOW_RETRY).await;
+                    continue;
                 }
                 Err(LinkError::Transient(message)) => {
                     failures += 1;
@@ -156,6 +175,12 @@ pub(super) async fn host_loop(app: &AppHandle, clients: &Arc<RemoteClients>, id:
                 }
             },
         };
+        if session.proto.is_some_and(|p| p < MIN_HOST_PROTO) {
+            let message = flowcode_shared::i18n::tr("Flowcode sul computer e troppo vecchio, aggiornalo", "Host Flowcode too old, update it").to_string();
+            log.push(format!("host protocol {:?} is older than {MIN_HOST_PROTO}", session.proto));
+            wait_as(clients, app, id, &retry, &log, HostStatus::Offline, message, failures, SLOW_RETRY).await;
+            continue;
+        }
         let host_name = clean_peer_name(&session.host_name, &pairing.host_name);
         let device_name = clean_peer_name(&session.device_name, &pairing.device_name);
         if host_name != pairing.host_name {
@@ -170,21 +195,20 @@ pub(super) async fn host_loop(app: &AppHandle, clients: &Arc<RemoteClients>, id:
             }
             let _ = app.emit(super::EVT_LIST, ());
         }
-        clients.update_info(app, id, |info| {
-            info.status = HostStatus::Online;
-            info.error = None;
-            info.host_name = host_name.clone();
-            info.device_name = device_name;
-            info.caps = session.caps.clone();
-            info.app_version = session.app_version.clone();
-        });
         log.push(format!("online with {host_name}"));
         let online_since = Instant::now();
-        match serve(app, clients, id, &log, session).await {
+        let exit = serve(app, clients, id, &log, session, host_name, device_name).await;
+        // Forgotten while the link was up: nothing to redial.
+        if matches!(clients.pairing_of(id), Ok(None)) {
+            log.push("pairing is gone");
+            clients.set_status(app, id, HostStatus::Offline, None);
+            return;
+        }
+        match exit {
             Exit::Fatal(message) => {
+                // An old host says this too when it merely shuts down: slow retry, not the end.
                 log.push(format!("peer sent a fatal error: {message}"));
-                clients.set_status(app, id, HostStatus::Offline, Some(message));
-                return;
+                wait_as(clients, app, id, &retry, &log, HostStatus::Offline, message, failures, SLOW_RETRY).await;
             }
             Exit::Lost(message) => {
                 let lived = online_since.elapsed();
@@ -198,13 +222,32 @@ pub(super) async fn host_loop(app: &AppHandle, clients: &Arc<RemoteClients>, id:
     }
 }
 
-async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog, mut session: Session) -> Exit {
+async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog, mut session: Session, host_name: String, device_name: String) -> Exit {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
-    if let Some(conn) = clients.lock().get_mut(id) {
-        conn.out = Some(out_tx.clone());
-        conn.quic = Some(session.conn.clone());
-        // The server forgot every stream of the previous link.
-        conn.clear_streams();
+    // The link is installed before `online` is published: a view that reacts to
+    // it finds `out` and `quic` ready. One lock for both, so the info a window
+    // reads is never ahead of the link.
+    let published = {
+        let mut conns = clients.lock();
+        conns.get_mut(id).map(|conn| {
+            conn.out = Some(out_tx.clone());
+            conn.quic = Some(session.conn.clone());
+            // The server forgot every stream of the previous link.
+            conn.clear_streams();
+            conn.info.status = HostStatus::Online;
+            conn.info.error = None;
+            conn.info.host_name = host_name;
+            conn.info.device_name = device_name;
+            conn.info.caps = session.caps.clone();
+            conn.info.app_version = session.app_version.clone();
+            conn.info.link += 1;
+            conn.info.clone()
+        })
+    };
+    // Listeners of a replaced link (a re-pair swaps it without `serve` ending first).
+    clients.close_tunnels(id);
+    if let Some(info) = published {
+        let _ = app.emit(super::EVT_STATE, info);
     }
 
     // read_frame is not cancel-safe, so it lives in its own task and the
@@ -229,15 +272,16 @@ async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog
         let mut last_rx = Instant::now();
         // Large frames from a peer that can deflate them come smaller; it
         // switches when it reads this, ahead of anything else we ask for.
-        if session.caps.iter().any(|c| c == "compress") {
-            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Hello { caps: vec!["compress".into()] }).await {
+        let caps: Vec<String> = ["compress", "resized"].into_iter().filter(|c| session.caps.iter().any(|h| h == c)).map(String::from).collect();
+        if !caps.is_empty() {
+            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Hello { caps }).await {
                 return Exit::Lost(e);
             }
         }
         if let Err(e) = send_frame(&mut session.send, &ClientMsg::List).await {
             return Exit::Lost(e);
         }
-        let mut warned_unknown = false;
+        let mut warned_unknown: HashSet<String> = HashSet::new();
         loop {
             tokio::select! {
                 incoming = in_rx.recv() => {
@@ -260,8 +304,8 @@ async fn serve(app: &AppHandle, clients: &RemoteClients, id: &str, log: &ConnLog
                             Some(Inbound::Skipped(e)) => {
                                 // Still proof that the link is alive.
                                 last_rx = Instant::now();
-                                if !warned_unknown {
-                                    warned_unknown = true;
+                                let tag = unknown_kind(&e);
+                                if warned_unknown.len() < MAX_LOGGED_UNKNOWN && warned_unknown.insert(tag) {
                                     log.push(format!("skipped a message this version does not understand: {e}"));
                                 }
                             }
@@ -375,6 +419,14 @@ mod tests {
         assert_eq!(clean_peer_name("", "old"), "old");
         assert_eq!(clean_peer_name(&"\u{e8}".repeat(300), "old").chars().count(), PEER_NAME_MAX);
         assert_eq!(clean_peer_name(&format!("{} x", "a".repeat(127)), "old"), "a".repeat(127));
+    }
+
+    #[test]
+    fn unknown_kinds_are_told_apart() {
+        let a = serde_json::from_str::<ServerMsg>(r#"{"t":"from-the-future"}"#).unwrap_err().to_string();
+        let b = serde_json::from_str::<ServerMsg>(r#"{"t":"another-one"}"#).unwrap_err().to_string();
+        assert_ne!(unknown_kind(&a), unknown_kind(&b));
+        assert_eq!(unknown_kind(&a), unknown_kind(&a));
     }
 
     #[test]

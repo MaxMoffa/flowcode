@@ -51,6 +51,9 @@ const EVT_LIST: &str = "remote-host://list";
 /// server's node key.
 struct Dpapi;
 
+/// Start of every DPAPI blob (version 1 + the provider GUID prefix).
+const DPAPI_HEADER: [u8; 8] = [0x01, 0x00, 0x00, 0x00, 0xD0, 0x8C, 0x9D, 0xDF];
+
 impl Codec for Dpapi {
     fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
         if cfg!(windows) {
@@ -61,7 +64,13 @@ impl Codec for Dpapi {
     }
     fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, OpenError> {
         if cfg!(windows) {
-            keystore::unseal(sealed).ok_or_else(|| OpenError::Lost("cannot unprotect the secret".into()))
+            // A blob without the DPAPI header can never be opened (Lost). A
+            // well-formed one that fails may be a profile not loaded yet, a
+            // locked store...: Transient, so the file is left alone.
+            if !sealed.starts_with(&DPAPI_HEADER) {
+                return Err(OpenError::Lost("the sealed secret is malformed".into()));
+            }
+            keystore::unseal(sealed).ok_or_else(|| OpenError::Transient("cannot unprotect the secret (will retry)".into()))
         } else {
             Ok(sealed.to_vec())
         }
@@ -95,6 +104,8 @@ pub struct HostInfo {
     pub caps: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_version: Option<String>,
+    /// Counts the links that became usable: a new value means streams must be re-opened.
+    pub link: u64,
 }
 
 impl HostInfo {
@@ -107,6 +118,7 @@ impl HostInfo {
             error: None,
             caps: Vec::new(),
             app_version: None,
+            link: 0,
         }
     }
 }
@@ -336,6 +348,8 @@ pub struct RemoteClients {
     conns: Mutex<HashMap<String, Conn>>,
     /// Loopback listeners tunnelling to a port of a host (`remote_host_tunnel`).
     tunnels: Mutex<HashMap<(String, String), tunnel::Tunnel>>,
+    /// Last local port of each (host, target) tunnel, kept after its listener closes so the same URL works again.
+    tunnel_ports: Mutex<HashMap<(String, String), u16>>,
     /// A `pair` is running; a second one is refused.
     pairing: AtomicBool,
     /// Wakes a running `pair` to abandon the wait for the other PC's confirmation.
@@ -362,6 +376,7 @@ impl RemoteClients {
             endpoint: tokio::sync::Mutex::new(None),
             conns: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
+            tunnel_ports: Mutex::new(HashMap::new()),
             pairing: AtomicBool::new(false),
             pair_cancel: Notify::new(),
             hosts_lock: Mutex::new(()),
@@ -422,6 +437,15 @@ impl RemoteClients {
     fn modify_hosts<R>(&self, f: impl FnOnce(&mut Vec<Pairing>) -> R) -> Result<R, String> {
         let _guard = self.hosts_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut list = store::load_others(&self.hosts_path(), &self.codec)?;
+        // An unreadable (lost) file loads as empty but stays on disk: writing
+        // now would replace it with a list missing every saved computer, so
+        // it is set aside first. (A readable empty list, after the last PC was
+        // forgotten, lands here too: moving it aside loses nothing.)
+        if list.is_empty() && std::fs::metadata(self.hosts_path()).is_ok_and(|m| m.len() > 0) {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let aside = self.hosts_path().with_extension(format!("json.unreadable-{stamp}"));
+            std::fs::rename(self.hosts_path(), &aside).map_err(|e| format!("hosts.json cannot be set aside: {e}"))?;
+        }
         let result = f(&mut list);
         store::save_others(&self.hosts_path(), &list, &self.codec)?;
         Ok(result)
@@ -446,10 +470,11 @@ impl RemoteClients {
 
     /// Throws the endpoint away; the next `endpoint()` binds a fresh one.
     async fn reset_endpoint(&self) {
-        let old = self.endpoint.lock().await.take();
-        if let Some(old) = old {
-            // Closed before the next bind: two endpoints with one key alive at
-            // once would fight over the relay's single slot for this node id.
+        // The lock is held across the close: `endpoint()` cannot bind the new
+        // one while the old still lives (two endpoints with one key alive at
+        // once would fight over the relay's single slot for this node id).
+        let mut slot = self.endpoint.lock().await;
+        if let Some(old) = slot.take() {
             let _ = tokio::time::timeout(Duration::from_secs(2), old.close()).await;
         }
     }
@@ -532,7 +557,8 @@ impl RemoteClients {
 
     /// Whether some host other than `id` has a live link on the endpoint.
     fn other_online(&self, id: &str) -> bool {
-        self.lock().iter().any(|(k, c)| k != id && c.info.status == HostStatus::Online)
+        // A host that is dialling right now (Connecting, no error yet) counts too.
+        self.lock().iter().any(|(k, c)| k != id && (c.info.status == HostStatus::Online || (c.info.status == HostStatus::Connecting && c.info.error.is_none())))
     }
 }
 
@@ -545,13 +571,13 @@ fn is_self(remote: &RemoteState, node: &str) -> bool {
 /// Every paired PC with its live status (offline when no link was started).
 // `(async)`: reading hosts.json is a DPAPI call, off the main thread.
 #[tauri::command(async)]
-pub fn remote_hosts(clients: State<'_, Arc<RemoteClients>>) -> Vec<HostInfo> {
-    let Ok(hosts) = clients.load_hosts() else { return Vec::new() };
+pub fn remote_hosts(clients: State<'_, Arc<RemoteClients>>) -> Result<Vec<HostInfo>, String> {
+    let hosts = clients.load_hosts()?;
     let conns = clients.lock();
-    hosts
+    Ok(hosts
         .iter()
         .map(|p| conns.get(&link::computer_id(&p.node)).map_or_else(|| HostInfo::offline(p), |c| c.info.clone()))
-        .collect()
+        .collect())
 }
 
 /// What a pairing link points at, to ask "connect to <host>?" before pairing.
@@ -675,9 +701,12 @@ pub fn remote_host_disconnect(app: AppHandle, clients: State<'_, Arc<RemoteClien
 
 #[tauri::command(async)]
 pub fn remote_host_forget(app: AppHandle, clients: State<'_, Arc<RemoteClients>>, id: String) -> Result<(), String> {
+    // Pairing first: a loop that redials meanwhile finds it gone and stops.
+    let removed = clients.modify_hosts(|list| list.retain(|p| link::computer_id(&p.node) != id));
     clients.stop_host(&id);
     clients.lock().remove(&id);
-    clients.modify_hosts(|list| list.retain(|p| link::computer_id(&p.node) != id))?;
+    clients.forget_tunnel_ports(&id);
+    removed?;
     let _ = app.emit(EVT_LIST, ());
     Ok(())
 }
@@ -692,18 +721,44 @@ pub fn remote_host_send(window: Window, clients: State<'_, Arc<RemoteClients>>, 
     // Several windows may view the same stream: every open is forwarded (each
     // opener needs the snapshot), but the server only hears about the close
     // of the last one.
+    // Before taking the connections lock: no other lock is waited on while it is held.
+    if window.app_handle().get_window(window.label()).is_none() {
+        return Err("window closed".into());
+    }
     let pending = {
         let mut conns = clients.lock();
-        if window.app_handle().get_window(window.label()).is_none() {
-            return Err("window closed".into());
-        }
         let conn = conns.get_mut(&id).ok_or_else(|| "not connected".to_string())?;
-        send_owned(conn, window.label(), msg)?
+        let mut pending = None;
+        for part in split_input(msg) {
+            pending = send_owned(conn, window.label(), part)?;
+        }
+        pending
     };
     if let Some(close) = pending {
         clients.defer_close(id, close);
     }
     Ok(())
+}
+
+/// A big paste goes out as several `Input`s, none over what the other PC accepts, cut at character boundaries.
+fn split_input(msg: ClientMsg) -> Vec<ClientMsg> {
+    let ClientMsg::Input { pty_id, data } = msg else { return vec![msg] };
+    let max = flowcode_remote_proto::MAX_INPUT_BYTES;
+    if data.len() <= max {
+        return vec![ClientMsg::Input { pty_id, data }];
+    }
+    let mut parts = Vec::new();
+    let mut rest = data.as_str();
+    while !rest.is_empty() {
+        let mut end = rest.len().min(max);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        let (head, tail) = rest.split_at(end);
+        parts.push(ClientMsg::Input { pty_id: pty_id.clone(), data: head.to_string() });
+        rest = tail;
+    }
+    parts
 }
 
 /// The latest replayable messages of a host, for a window that mounts (or
@@ -758,7 +813,7 @@ mod tests {
         let (out, recv) = mpsc::channel(capacity);
         let mut conn = Conn::new(HostInfo {
             id: "host".into(), host_name: "PC".into(), device_name: "me".into(),
-            status: HostStatus::Online, error: None, caps: vec![], app_version: None,
+            status: HostStatus::Online, error: None, caps: vec![], app_version: None, link: 0,
         });
         conn.out = Some(out.clone());
         (conn, out, recv)
@@ -826,6 +881,27 @@ mod tests {
     }
 
     #[test]
+    fn big_input_is_split_within_the_limit_at_char_boundaries() {
+        let max = flowcode_remote_proto::MAX_INPUT_BYTES;
+        let small = ClientMsg::Input { pty_id: "p".into(), data: "ls\r".into() };
+        assert_eq!(split_input(small.clone()), vec![small]);
+        // 3-byte chars never divide the limit evenly.
+        let data = "\u{20ac}".repeat(max);
+        let parts = split_input(ClientMsg::Input { pty_id: "p".into(), data: data.clone() });
+        assert!(parts.len() >= 3);
+        let mut joined = String::new();
+        for part in parts {
+            let ClientMsg::Input { pty_id, data } = part else { panic!("not input") };
+            assert_eq!(pty_id, "p");
+            assert!(data.len() <= max && !data.is_empty());
+            joined.push_str(&data);
+        }
+        assert_eq!(joined, data);
+        let ping = ClientMsg::Ping;
+        assert_eq!(split_input(ping.clone()), vec![ping]);
+    }
+
+    #[test]
     fn host_info_serializes_camel_case_with_lowercase_status() {
         let info = HostInfo {
             id: "n".into(),
@@ -835,6 +911,7 @@ mod tests {
             error: None,
             caps: vec!["compress".into()],
             app_version: None,
+            link: 3,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["status"], "connecting");
@@ -842,6 +919,7 @@ mod tests {
         assert_eq!(json["deviceName"], "me");
         assert!(json.get("error").is_none());
         assert!(json.get("appVersion").is_none());
+        assert_eq!(json["link"], 3);
         let json = serde_json::to_value(HostInfo { error: Some("x".into()), app_version: Some("1".into()), status: HostStatus::Online, ..info }).unwrap();
         assert_eq!(json["status"], "online");
         assert_eq!(json["error"], "x");

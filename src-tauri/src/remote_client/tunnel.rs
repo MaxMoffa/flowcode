@@ -12,10 +12,13 @@ use std::time::Duration;
 use tauri::State;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
 
 /// A listener of this PC tunnelling to a port of a host; closed when dropped.
 pub(super) struct Tunnel {
     local_port: u16,
+    /// Restarts the idle clock (a repeated `remote_host_tunnel` is a keepalive).
+    touch: Arc<Notify>,
     task: tauri::async_runtime::JoinHandle<()>,
 }
 
@@ -44,21 +47,45 @@ impl RemoteClients {
     }
 }
 
+/// Binds `preferred` when given and free, else any free loopback port.
+async fn bind_preferring(preferred: Option<u16>) -> std::io::Result<TcpListener> {
+    if let Some(port) = preferred {
+        if let Ok(listener) = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await {
+            return Ok(listener);
+        }
+    }
+    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
+}
+
+impl RemoteClients {
+    /// Forgets the remembered local ports of a host (the PC was forgotten).
+    pub(super) fn forget_tunnel_ports(&self, id: &str) {
+        let mut ports = self.tunnel_ports.lock().unwrap_or_else(|e| e.into_inner());
+        ports.retain(|(host, _), _| host != id);
+    }
+}
+
 /// How long a tunnel's listener may go without a connection (and with none open) before it is closed.
 const TUNNEL_IDLE: Duration = Duration::from_secs(10 * 60);
 
 /// Accepts connections and runs `on_conn` for each, until `idle` passes with no connection open and none arriving (or accepting fails). Streams in flight die with it.
-async fn serve_until_idle<F, Fut>(listener: TcpListener, idle: Duration, mut on_conn: F)
+async fn serve_until_idle<F, Fut>(listener: TcpListener, idle: Duration, touch: Arc<Notify>, mut on_conn: F)
 where
     F: FnMut(tokio::net::TcpStream) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
     let mut streams = tokio::task::JoinSet::new();
-    loop {
+    'serve: loop {
         let accepted = if streams.is_empty() {
-            match tokio::time::timeout(idle, listener.accept()).await {
-                Ok(accepted) => accepted,
-                Err(_) => break,
+            let sleep = tokio::time::sleep(idle);
+            tokio::pin!(sleep);
+            loop {
+                tokio::select! {
+                    accepted = listener.accept() => break accepted,
+                    _ = &mut sleep => break 'serve,
+                    // Asked for again: the clock starts over.
+                    _ = touch.notified() => sleep.as_mut().reset(tokio::time::Instant::now() + idle),
+                }
             }
         } else {
             // Something is open: not idle. When it ends the clock starts over.
@@ -91,21 +118,27 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
     };
     let header = preview_header(&target);
     if let Some(t) = clients.tunnels.lock().unwrap_or_else(|e| e.into_inner()).get(&(id.clone(), header.clone())) {
+        t.touch.notify_one();
         return Ok(t.local_port);
     }
     if connection_of(&clients, &id).is_none() {
         return Err("not connected".into());
     }
-    // Any free port, never the same number: a dev server started here later must not find it taken.
-    let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.map_err(|e| e.to_string())?;
+    // The port this tunnel had last time when it is still free (pages that kept
+    // the old URL work again), any free one otherwise.
+    let preferred = clients.tunnel_ports.lock().unwrap_or_else(|e| e.into_inner()).get(&(id.clone(), header.clone())).copied();
+    let listener = bind_preferring(preferred).await.map_err(|e| e.to_string())?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    clients.tunnel_ports.lock().unwrap_or_else(|e| e.into_inner()).insert((id.clone(), header.clone()), local_port);
+    let touch = Arc::new(Notify::new());
+    let touch_for_task = Arc::clone(&touch);
     let clients_for_task = Arc::clone(&clients);
     let clients_for_exit = Arc::clone(&clients);
     let host = id.clone();
     let header_key = header.clone();
     let key = (id.clone(), header_key.clone());
     let task = tauri::async_runtime::spawn(async move {
-        serve_until_idle(listener, TUNNEL_IDLE, move |tcp| {
+        serve_until_idle(listener, TUNNEL_IDLE, touch_for_task, move |tcp| {
             let clients = Arc::clone(&clients_for_task);
             let host = host.clone();
             let header = header.clone();
@@ -132,7 +165,7 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
     });
     let mut tunnels = clients.tunnels.lock().unwrap_or_else(|e| e.into_inner());
     // Two first requests at once: the later listener (and its task) just drops.
-    let entry = tunnels.entry((id, header_key)).or_insert(Tunnel { local_port, task });
+    let entry = tunnels.entry((id, header_key)).or_insert(Tunnel { local_port, touch, task });
     Ok(entry.local_port)
 }
 
@@ -141,6 +174,11 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
 pub async fn remote_host_upload(clients: State<'_, Arc<RemoteClients>>, id: String, chat_id: String, upload: String, name: String, mime: String) -> Result<String, String> {
     let staged = crate::chat::uploaded_attachment(&upload, &name, &mime)?;
     let path = staged.path.ok_or("attachment not found")?;
+    // Before reading: a huge file is refused without loading it.
+    let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
+    if size > UPLOAD_MAX_BYTES {
+        return Err(format!("File exceeds {} MiB", UPLOAD_MAX_BYTES / (1024 * 1024)));
+    }
     let bytes = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
     if bytes.len() as u64 > UPLOAD_MAX_BYTES {
         return Err(format!("File exceeds {} MiB", UPLOAD_MAX_BYTES / (1024 * 1024)));
@@ -183,7 +221,9 @@ pub async fn remote_host_upload(clients: State<'_, Arc<RemoteClients>>, id: Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{drop_host, serve_until_idle};
+    use super::{bind_preferring, drop_host, serve_until_idle};
+    use std::sync::Arc;
+    use tokio::sync::Notify;
     use std::time::Duration;
     use tokio::net::{TcpListener, TcpStream};
     use std::collections::HashMap;
@@ -205,9 +245,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_closed_tunnel_port_is_reused_when_free_and_replaced_when_taken() {
+        let first = bind_preferring(None).await.unwrap();
+        let port = first.local_addr().unwrap().port();
+        drop(first);
+        let again = bind_preferring(Some(port)).await.unwrap();
+        assert_eq!(again.local_addr().unwrap().port(), port);
+        // Still held: a different one is chosen instead of failing.
+        let other = bind_preferring(Some(port)).await.unwrap();
+        assert_ne!(other.local_addr().unwrap().port(), port);
+    }
+
+    #[tokio::test]
+    async fn touching_a_listener_restarts_its_idle_clock() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let touch = Arc::new(Notify::new());
+        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(200), Arc::clone(&touch), |_tcp| async {}));
+        for _ in 0..3 {
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            touch.notify_one();
+        }
+        assert!(!serve.is_finished());
+        assert!(tokio::time::timeout(Duration::from_secs(5), serve).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn an_unused_listener_ends_after_the_idle_time() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let ended = tokio::time::timeout(Duration::from_secs(5), serve_until_idle(listener, Duration::from_millis(80), |_tcp| async {})).await;
+        let ended = tokio::time::timeout(Duration::from_secs(5), serve_until_idle(listener, Duration::from_millis(80), Arc::new(Notify::new()), |_tcp| async {})).await;
         assert!(ended.is_ok());
     }
 
@@ -215,7 +280,7 @@ mod tests {
     async fn an_open_connection_keeps_the_listener_and_the_clock_restarts_after_it() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(100), |_tcp| async {
+        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(100), Arc::new(Notify::new()), |_tcp| async {
             tokio::time::sleep(Duration::from_millis(400)).await;
         }));
         let _client = TcpStream::connect(addr).await.unwrap();
