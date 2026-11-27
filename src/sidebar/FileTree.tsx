@@ -1,26 +1,21 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { addFavorite, isFavorite, removeFavorite } from "../favorites/favoritesStore";
 import { FileTypeIcon } from "./fileIcons";
 import { FileInfoDialog } from "./FileInfoDialog";
 import type { ExplorerLinkMode } from "../settings/modes";
-import { isRootPath, normalizeDir, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
+import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
 import type { GitDecor } from "../git/gitDecor";
 import { isPreviewableFile, openFileInPreview } from "../browser/browserStore";
+import { useFsBackend, type FsEntry } from "./fsBackend";
 
-interface FsEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
+/** A rejection as text: a Tauri command rejects with a string, a remote request with an Error. */
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const Icons = {
   open: iconSvg(<><rect x="4" y="6" width="16" height="13" rx="1.6" /><path d="M4 9h16" /></>),
@@ -231,12 +226,18 @@ interface FileTreeProps {
   /** Jumps to the terminal's default start folder (home). */
   onGoHome: () => void;
   onOpenFile: (path: string) => void;
-  onOpenTerminal: (path: string) => void;
+  /** Absent (another PC's explorer): no "open in terminal" item. */
+  onOpenTerminal?: (path: string) => void;
+  /** Folder favorites (menu items); this PC only. */
+  favorites?: boolean;
   /** Shell id of the active terminal, stored with a favorite added here. */
   shell?: string;
-  linkMode: ExplorerLinkMode;
-  onSetLinkMode: (mode: ExplorerLinkMode) => void;
-  terminalBusy: boolean;
+  /** Both absent (another PC's explorer): no link-mode menu item. */
+  linkMode?: ExplorerLinkMode;
+  onSetLinkMode?: (mode: ExplorerLinkMode) => void;
+  /** "Open in preview" for previewable files; this PC only. */
+  openInPreview?: boolean;
+  terminalBusy?: boolean;
   /** False while the explorer tab is hidden behind another sidebar tab: the
    * fallback poll then pauses, and one reload runs when it comes back. */
   visible?: boolean;
@@ -254,14 +255,17 @@ export function FileTree({
   onGoHome,
   onOpenFile,
   onOpenTerminal,
+  favorites = false,
   shell,
   linkMode,
   onSetLinkMode,
-  terminalBusy,
+  openInPreview = false,
+  terminalBusy = false,
   visible = true,
   gitDecor,
 }: FileTreeProps) {
   const { t } = useI18n();
+  const fs = useFsBackend();
   const { explorerDoubleClick } = useTerminalSettings();
   const [entries, setEntries] = useState<FsEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -318,7 +322,7 @@ export function FileTree({
   // needs the dedicated backend walk instead of a client-side filter.
   useEffect(() => {
     const query = searchQuery.trim();
-    if (!searchOpen || !query || !cwd) {
+    if (!fs.search || !searchOpen || !query || !cwd) {
       setSearchResults(null);
       setSearching(false);
       return;
@@ -326,7 +330,7 @@ export function FileTree({
     setSearching(true);
     let cancelled = false;
     const timer = setTimeout(() => {
-      invoke<FsEntry[]>("search_dir", { path: cwd, query, showHidden, generation: ++searchGeneration })
+      fs.search?.(cwd, query, showHidden, ++searchGeneration)
         .then((result) => {
           if (!cancelled) setSearchResults(result);
         })
@@ -341,7 +345,7 @@ export function FileTree({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [searchOpen, searchQuery, cwd, showHidden]);
+  }, [fs, searchOpen, searchQuery, cwd, showHidden]);
 
   useEffect(
     () => () => {
@@ -368,7 +372,7 @@ export function FileTree({
   const reload = useCallback(() => {
     if (!cwd) return;
     const seq = ++reloadSeqRef.current;
-    invoke<FsEntry[]>("read_dir", { path: cwd, showHidden })
+    fs.readDir(cwd, showHidden)
       .then((result) => {
         if (seq !== reloadSeqRef.current) return;
         // Same listing (a watcher event that changed nothing visible, a poll):
@@ -377,9 +381,9 @@ export function FileTree({
         setError(null);
       })
       .catch((e) => {
-        if (seq === reloadSeqRef.current) setError(String(e));
+        if (seq === reloadSeqRef.current) setError(errText(e));
       });
-  }, [cwd, showHidden]);
+  }, [fs, cwd, showHidden]);
 
   function toggleShowHidden() {
     setShowHidden((prev) => !prev);
@@ -403,7 +407,7 @@ export function FileTree({
   // are created, removed or renamed (files deleted in another program, a
   // build writing output, ...). Bursts are folded into one reload. A folder
   // that can't be watched (a network/WSL share) is polled instead, while
-  // the window is in view.
+  // the window is in view; so is a backend without a watcher (another PC).
   useEffect(() => {
     if (!cwd) return;
     let disposed = false;
@@ -413,15 +417,15 @@ export function FileTree({
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(reload, 150);
     };
-    const unlisten = listen<string>("fs-changed", (event) => {
-      if (normalizeDir(event.payload) === normalizeDir(cwd)) scheduleReload();
-    });
-    invoke("watch_dir", { path: cwd }).catch(() => {
-      if (disposed) return;
+    const startPoll = (ms: number) => {
       poll = setInterval(() => {
         if (document.visibilityState === "visible" && visibleRef.current) reload();
-      }, 3000);
+      }, ms);
+    };
+    const unwatch = fs.watch?.(cwd, scheduleReload, () => {
+      if (!disposed) startPoll(3000);
     });
+    if (!fs.watch) startPoll(15_000);
     // Whatever changed while the window was hidden or asleep.
     const onVisible = () => {
       if (document.visibilityState === "visible") reload();
@@ -429,15 +433,12 @@ export function FileTree({
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       disposed = true;
-      // The window's one watcher - a new cwd's `watch_dir` replaces it, but
-      // a closed explorer would otherwise keep it running.
-      invoke("unwatch_dir").catch(() => {});
+      unwatch?.();
       if (debounce) clearTimeout(debounce);
       if (poll) clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
-      unlisten.then((fn) => fn());
     };
-  }, [cwd, reload]);
+  }, [fs, cwd, reload]);
 
   function goUp() {
     if (cwd) onNavigate(parentPath(cwd));
@@ -490,27 +491,27 @@ export function FileTree({
     });
     if (!ok) return;
     try {
-      await invoke("delete_entry", { path: entry.path, isDir: entry.is_dir });
+      await fs.remove(entry.path, entry.is_dir);
       reload();
     } catch (e) {
-      window.alert(t("files.error.delete", { error: String(e) }));
+      window.alert(t("files.error.delete", { error: errText(e) }));
     }
   }
 
   async function handleDuplicate(entry: FsEntry) {
     try {
-      await invoke("duplicate_entry", { path: entry.path });
+      await fs.duplicate?.(entry.path);
       reload();
     } catch (e) {
-      window.alert(t("files.error.duplicate", { error: String(e) }));
+      window.alert(t("files.error.duplicate", { error: errText(e) }));
     }
   }
 
   async function commitRename(entry: FsEntry, newName: string) {
     try {
-      await invoke("rename_entry", { path: entry.path, newName });
+      await fs.rename(entry.path, newName);
     } catch (e) {
-      window.alert(t("files.error.rename", { error: String(e) }));
+      window.alert(t("files.error.rename", { error: errText(e) }));
     } finally {
       setRenamingPath(null);
       reload();
@@ -519,9 +520,9 @@ export function FileTree({
 
   async function commitCreate(kind: "file" | "dir", name: string) {
     try {
-      await invoke(kind === "file" ? "create_file_entry" : "create_dir_entry", { dir: cwd, name });
+      await fs.create(cwd, name, kind);
     } catch (e) {
-      window.alert(t("files.error.create", { error: String(e) }));
+      window.alert(t("files.error.create", { error: errText(e) }));
     } finally {
       setCreating(null);
       reload();
@@ -532,10 +533,10 @@ export function FileTree({
     const items: ContextMenuItem[] = [];
     if (!entry.is_dir) {
       items.push({ label: t("files.open"), icon: Icons.open, onSelect: () => onOpenFile(entry.path) });
-      if (isPreviewableFile(entry.path)) {
+      if (openInPreview && isPreviewableFile(entry.path)) {
         items.push({ label: t("pathLink.openInPreview"), icon: MenuIcons.globe, onSelect: () => openFileInPreview(entry.path) });
       }
-    } else {
+    } else if (onOpenTerminal) {
       items.push({
         label: t("files.openInTerminal"),
         icon: Icons.terminal,
@@ -555,12 +556,9 @@ export function FileTree({
         },
       });
     }
-    items.push({
-      label: t("files.reveal"),
-      icon: Icons.reveal,
-      onSelect: () => revealItemInDir(entry.path).catch(() => {}),
-    });
-    if (entry.is_dir) {
+    const reveal = fs.reveal;
+    if (reveal) items.push({ label: t("files.reveal"), icon: Icons.reveal, onSelect: () => reveal(entry.path) });
+    if (favorites && entry.is_dir) {
       const fav = isFavorite(entry.path);
       items.push({
         label: fav ? t("favorites.remove") : t("favorites.add"),
@@ -570,11 +568,13 @@ export function FileTree({
     }
     items.push({ separator: true, label: "sep-1" });
     items.push({ label: t("tabs.rename"), icon: Icons.rename, onSelect: () => setRenamingPath(entry.path) });
-    items.push({ label: t("tabs.duplicate"), icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
+    if (fs.duplicate) items.push({ label: t("tabs.duplicate"), icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
     items.push({ label: t("files.copyPath"), icon: Icons.copy, onSelect: () => handleCopyPath(entry.path) });
     items.push({ separator: true, label: "sep-2" });
-    items.push({ label: t("files.info"), icon: Icons.info, onSelect: () => setInfoEntry(entry) });
-    items.push({ separator: true, label: "sep-3" });
+    if (fs.info) {
+      items.push({ label: t("files.info"), icon: Icons.info, onSelect: () => setInfoEntry(entry) });
+      items.push({ separator: true, label: "sep-3" });
+    }
     items.push({ label: t("common.delete"), icon: Icons.delete, danger: true, onSelect: () => handleDelete(entry) });
     return items;
   }
@@ -584,28 +584,29 @@ export function FileTree({
    * the always-on "disconnected" choice reads as a distinct, deliberate state
    * from "auto"'s automatic, temporary suspension while a full-screen
    * program owns the shell. */
-  function linkModeItem(): ContextMenuItem {
-    return {
+  function linkModeItem(): ContextMenuItem[] {
+    const setMode = onSetLinkMode;
+    if (!linkMode || !setMode) return [];
+    return [{
       label: t("files.link"),
       icon: Icons.link,
       submenu: [
-        { label: t("files.link.connected"), checked: linkMode === "auto", onSelect: () => onSetLinkMode("auto") },
-        { label: t("files.link.disconnected"), checked: linkMode === "disconnesso", onSelect: () => onSetLinkMode("disconnesso") },
+        { label: t("files.link.connected"), checked: linkMode === "auto", onSelect: () => setMode("auto") },
+        { label: t("files.link.disconnected"), checked: linkMode === "disconnesso", onSelect: () => setMode("disconnesso") },
       ],
-    };
+    }];
   }
 
   function backgroundMenuItems(): ContextMenuItem[] {
     return [
       { label: t("files.newFile"), icon: Icons.newFile, onSelect: () => setCreating("file") },
       { label: t("files.newFolder"), icon: Icons.newFolder, onSelect: () => setCreating("dir") },
-      { separator: true, label: "sep-bg1" },
-      linkModeItem(),
+      ...(linkMode ? [{ separator: true, label: "sep-bg1" }, ...linkModeItem()] : []),
     ];
   }
 
   function headerMenuItems(): ContextMenuItem[] {
-    const cwdFav = cwd ? isFavorite(cwd) : false;
+    const cwdFav = favorites && cwd ? isFavorite(cwd) : false;
     // Saving "the current folder" only makes sense while it actually
     // reflects the terminal's real cwd - once a full-screen program (Claude
     // Code, Codex, vim...) owns the shell, the explorer may be browsing
@@ -613,15 +614,18 @@ export function FileTree({
     const canFavoriteCurrent = !!cwd && !terminalBusy;
     return [
       { label: t("files.showHidden"), icon: Icons.eye, checked: showHidden, onSelect: toggleShowHidden },
-      { separator: true, label: "sep-h1" },
-      {
-        label: cwdFav ? t("favorites.removeCurrent") : t("favorites.addCurrent"),
-        icon: Icons.star,
-        disabled: !canFavoriteCurrent,
-        onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd, shell)),
-      },
-      { separator: true, label: "sep-h2" },
-      linkModeItem(),
+      ...(favorites
+        ? [
+            { separator: true, label: "sep-h1" },
+            {
+              label: cwdFav ? t("favorites.removeCurrent") : t("favorites.addCurrent"),
+              icon: Icons.star,
+              disabled: !canFavoriteCurrent,
+              onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd, shell)),
+            },
+          ]
+        : []),
+      ...(linkMode ? [{ separator: true, label: "sep-h2" }, ...linkModeItem()] : []),
       { separator: true, label: "sep-h2b" },
       { label: t("files.newFile"), icon: Icons.newFile, onSelect: () => setCreating("file") },
       { label: t("files.newFolder"), icon: Icons.newFolder, onSelect: () => setCreating("dir") },
@@ -715,15 +719,17 @@ export function FileTree({
             {truncatePath(cwd)}
           </button>
         )}
-        <button
-          type="button"
-          className={"file-tree-menu-btn" + (searchOpen ? " is-active" : "")}
-          aria-label={t("files.search")}
-          title={t("files.search")}
-          onClick={toggleSearch}
-        >
-          {Icons.search}
-        </button>
+        {fs.search && (
+          <button
+            type="button"
+            className={"file-tree-menu-btn" + (searchOpen ? " is-active" : "")}
+            aria-label={t("files.search")}
+            title={t("files.search")}
+            onClick={toggleSearch}
+          >
+            {Icons.search}
+          </button>
+        )}
         <button
           type="button"
           className="file-tree-menu-btn"

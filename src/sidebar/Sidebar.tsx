@@ -109,6 +109,8 @@ export function Sidebar({
             onGoHome={onGoHome}
             onOpenFile={onOpenFile}
             onOpenTerminal={onOpenTerminal}
+            favorites
+            openInPreview
             shell={shell}
             linkMode={linkMode}
             onSetLinkMode={onSetLinkMode}

@@ -1,6 +1,6 @@
 # One UI for local and remote PCs
 
-Status: phase 1 (History) in progress, 2026-11-27. Phases 2-4 are planned only.
+Status 2026-11-27: phase 1 (History) done f9e76f9; phase 2 explorer done (FsBackend). Viewers, phases 3-4 planned.
 
 ## Problem
 
