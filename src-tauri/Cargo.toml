@@ -100,8 +100,9 @@ gtk = "0.18"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-# proc_pidpath: spot processes that exec'd since sysinfo first read them (system.rs).
+[target.'cfg(unix)'.dependencies]
+# macOS proc_pidpath: spot processes that exec'd since sysinfo first read them (system.rs).
+# Unix: fatal-signal handler that records native crashes (crash.rs).
 libc = "0.2"
 
 

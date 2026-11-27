@@ -7,13 +7,15 @@
 //! Layout, all under `<app_data_dir>/crash/`:
 //! - `session-<pid>.json`  written at startup, removed on a clean exit
 //! - `panic-<pid>.json`    written by the panic hook just before the abort
+//! - `signal-<pid>.json`   Unix: written by the fatal-signal handler (SIGSEGV, SIGBUS, ...)
 //! - `pending-<id>.json`   a finished report waiting for the frontend to show
 //! - `diagnosis-<id>.json` what an agent concluded about that report (see `attach_diagnosis`)
 //! - `muted.json`          signatures the user asked never to be told about
 //!
-//! A marker with no evidence (no panic file, no Windows "Application Error"
-//! event) is dropped without a report: the user shutting down Windows or
-//! killing the process in Task Manager looks exactly like that, and must not
+//! Evidence of a crash, in order: a panic file, a Windows "Application Error"
+//! event, a signal file, a systemd-coredump entry (Linux, `coredumpctl`).
+//! A marker with none of these is dropped without a report: the user shutting
+//! down the OS or killing the process looks exactly like that, and must not
 //! pop a crash dialog.
 
 use serde::{Deserialize, Serialize};
@@ -57,6 +59,30 @@ struct PanicFile {
     location: String,
     thread: String,
     at: u64,
+}
+
+/// What the fatal-signal handler wrote (see `fatal`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct SignalFile {
+    signal: i32,
+    code: i32,
+    addr: String,
+    thread: String,
+    #[serde(default)]
+    at: u64,
+}
+
+/// A systemd-coredump entry of the dead process (Linux).
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+struct CoreInfo {
+    pid: Option<u32>,
+    time_ms: Option<u64>,
+    /// "SIGSEGV".
+    signal: String,
+    /// Library or binary of the top frame, e.g. "libwebkit2gtk-4.1.so.0".
+    module: String,
+    exe: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -134,6 +160,10 @@ fn panic_path(dir: &Path, pid: u32) -> PathBuf {
     dir.join(format!("panic-{pid}.json"))
 }
 
+fn signal_path(dir: &Path, pid: u32) -> PathBuf {
+    dir.join(format!("signal-{pid}.json"))
+}
+
 /// Writes through a temp file so a crash mid-write never leaves half a JSON.
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
@@ -179,6 +209,8 @@ pub fn init(app: &tauri::AppHandle) {
     let pid = std::process::id();
     let marker = Marker { pid, started_at: now_ms(), version: env!("CARGO_PKG_VERSION").to_string() };
     let _ = write_json(&marker_path(&dir, pid), &marker);
+    #[cfg(unix)]
+    fatal::install(&dir, pid);
     // remote/lifecycle.rs writes remote.log under app_config_dir, not app_data_dir.
     let log_dir = app.path().app_config_dir().unwrap_or(base);
     std::thread::spawn(move || detect(&dir, &log_dir, pid));
@@ -191,6 +223,8 @@ pub fn end_session() {
     let pid = std::process::id();
     let _ = std::fs::remove_file(marker_path(dir, pid));
     let _ = std::fs::remove_file(panic_path(dir, pid));
+    // A handled fault (a library recovering from its own SIGSEGV) may have left one.
+    let _ = std::fs::remove_file(signal_path(dir, pid));
 }
 
 /// Chains the previous hook (so the usual stderr message still appears) after
@@ -225,6 +259,357 @@ fn write_panic_file(message: &str, location: &str, thread: &str) {
         at: now_ms(),
     };
     let _ = write_json(&panic_path(dir, std::process::id()), &file);
+}
+
+// ---------------------------------------------------------------- fatal signals
+
+/// Fixed-size byte buffer for the signal handler: no allocation, no `format!`.
+#[cfg(any(unix, test))]
+struct Buf {
+    b: [u8; 256],
+    n: usize,
+}
+
+#[cfg(any(unix, test))]
+impl Buf {
+    const fn new() -> Self {
+        Buf { b: [0; 256], n: 0 }
+    }
+    fn push(&mut self, s: &[u8]) {
+        for &c in s {
+            if self.n < self.b.len() {
+                self.b[self.n] = c;
+                self.n += 1;
+            }
+        }
+    }
+    fn push_u(&mut self, mut v: u64) {
+        let mut t = [0u8; 20];
+        let mut i = t.len();
+        loop {
+            i -= 1;
+            t[i] = b'0' + (v % 10) as u8;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        self.push(&t[i..]);
+    }
+    fn push_i(&mut self, v: i64) {
+        if v < 0 {
+            self.push(b"-");
+        }
+        self.push_u(v.unsigned_abs());
+    }
+    fn push_hex(&mut self, mut v: u64) {
+        let mut t = [0u8; 16];
+        let mut i = t.len();
+        loop {
+            i -= 1;
+            t[i] = b"0123456789abcdef"[(v & 15) as usize];
+            v >>= 4;
+            if v == 0 {
+                break;
+            }
+        }
+        self.push(b"0x");
+        self.push(&t[i..]);
+    }
+    fn bytes(&self) -> &[u8] {
+        &self.b[..self.n]
+    }
+}
+
+/// "SIGSEGV" for a signal number (Linux numbering; SIGBUS differs on macOS).
+fn signal_name(n: i32) -> String {
+    match n {
+        4 => "SIGILL".to_string(),
+        6 => "SIGABRT".to_string(),
+        8 => "SIGFPE".to_string(),
+        11 => "SIGSEGV".to_string(),
+        7 if !cfg!(target_os = "macos") => "SIGBUS".to_string(),
+        10 if cfg!(target_os = "macos") => "SIGBUS".to_string(),
+        _ => format!("signal {n}"),
+    }
+}
+
+fn signal_description(name: &str) -> &'static str {
+    match name {
+        "SIGSEGV" => "Segmentation fault (invalid memory access)",
+        "SIGBUS" => "Bus error (invalid memory access)",
+        "SIGILL" => "Illegal instruction (CPU feature not supported)",
+        "SIGFPE" => "Arithmetic exception",
+        "SIGABRT" => "Abort (failed assertion, allocation failure or fatal error in a library)",
+        _ => "Fatal signal",
+    }
+}
+
+/// Records fatal signals (`signal-<pid>.json`): a native segfault is no Rust
+/// panic, so without this a crash on Linux/macOS leaves no evidence at all.
+#[cfg(unix)]
+mod fatal {
+    use super::Buf;
+    use std::os::raw::{c_int, c_void};
+    use std::path::Path;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::OnceLock;
+
+    const SIGNALS: [c_int; 5] = [libc::SIGSEGV, libc::SIGBUS, libc::SIGILL, libc::SIGFPE, libc::SIGABRT];
+    type Action = extern "C" fn(c_int, *mut libc::siginfo_t, *mut c_void);
+
+    /// NUL-terminated target path, built at install so the handler never allocates.
+    static PATH: OnceLock<Vec<u8>> = OnceLock::new();
+    /// Actions that were installed before ours, to chain to.
+    static PREV: OnceLock<[libc::sigaction; 5]> = OnceLock::new();
+    static MAIN_THREAD: AtomicUsize = AtomicUsize::new(0);
+    static BUSY: AtomicBool = AtomicBool::new(false);
+
+    pub fn install(dir: &Path, pid: u32) {
+        use std::os::unix::ffi::OsStrExt;
+        let mut path = super::signal_path(dir, pid).as_os_str().as_bytes().to_vec();
+        if path.contains(&0) {
+            return;
+        }
+        path.push(0);
+        if PATH.set(path).is_err() {
+            return; // already installed
+        }
+        // SAFETY: plain libc calls on locally owned data; the handler only
+        // uses async-signal-safe functions (see `on_fatal`).
+        unsafe {
+            MAIN_THREAD.store(libc::pthread_self() as usize, Ordering::Relaxed);
+            // So a stack overflow on this thread can still be recorded. Keep
+            // an existing alternate stack (Rust's std sets one on the main thread).
+            let mut cur: libc::stack_t = std::mem::zeroed();
+            if libc::sigaltstack(std::ptr::null(), &mut cur) == 0 && cur.ss_flags & libc::SS_DISABLE != 0 {
+                let size = 64 * 1024;
+                let stack = Box::leak(vec![0u8; size].into_boxed_slice());
+                let ss = libc::stack_t { ss_sp: stack.as_mut_ptr().cast(), ss_flags: 0, ss_size: size };
+                libc::sigaltstack(&ss, std::ptr::null_mut());
+            }
+            let mut prev: [libc::sigaction; 5] = std::mem::zeroed();
+            for (i, &sig) in SIGNALS.iter().enumerate() {
+                let mut act: libc::sigaction = std::mem::zeroed();
+                act.sa_sigaction = on_fatal as Action as usize;
+                act.sa_flags = libc::SA_SIGINFO | libc::SA_ONSTACK;
+                libc::sigemptyset(&mut act.sa_mask);
+                libc::sigaction(sig, &act, &mut prev[i]);
+            }
+            let _ = PREV.set(prev);
+        }
+    }
+
+    extern "C" fn on_fatal(sig: c_int, info: *mut libc::siginfo_t, ctx: *mut c_void) {
+        // Async-signal-safe only: atomics, OnceLock::get (an atomic load), raw libc calls.
+        if !BUSY.swap(true, Ordering::SeqCst) {
+            unsafe { record(sig, info) };
+        }
+        let prev = SIGNALS.iter().position(|&s| s == sig).and_then(|i| PREV.get().map(|p| p[i]));
+        unsafe {
+            if let Some(p) = prev {
+                let h = p.sa_sigaction;
+                if h != libc::SIG_DFL && h != libc::SIG_IGN {
+                    // A previous handler (WebKit's, Rust's stack-overflow one) may
+                    // return; let a later fault be recorded again.
+                    BUSY.store(false, Ordering::SeqCst);
+                    if p.sa_flags & libc::SA_SIGINFO != 0 {
+                        let f: Action = std::mem::transmute(h);
+                        f(sig, info, ctx);
+                    } else {
+                        let f: extern "C" fn(c_int) = std::mem::transmute(h);
+                        f(sig);
+                    }
+                    return;
+                }
+            }
+            // Default action (core dump / crash report) must still happen.
+            libc::signal(sig, libc::SIG_DFL);
+            libc::raise(sig);
+        }
+    }
+
+    /// Writes `signal-<pid>.json` with open/write/close only.
+    unsafe fn record(sig: c_int, info: *mut libc::siginfo_t) {
+        let Some(path) = PATH.get() else { return };
+        let (code, addr) = if info.is_null() {
+            (0, 0)
+        } else {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            let addr = (*info).si_addr() as usize;
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            let addr = (*info).si_addr as usize;
+            ((*info).si_code, addr)
+        };
+        let mut ts: libc::timespec = std::mem::zeroed();
+        libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts);
+        let at = (ts.tv_sec as i64).max(0) as u64 * 1000 + (ts.tv_nsec as u64) / 1_000_000;
+        let main = libc::pthread_self() as usize == MAIN_THREAD.load(Ordering::Relaxed);
+
+        let mut b = Buf::new();
+        b.push(b"{\"signal\":");
+        b.push_i(sig as i64);
+        b.push(b",\"code\":");
+        b.push_i(code as i64);
+        b.push(b",\"addr\":\"");
+        b.push_hex(addr as u64);
+        b.push(b"\",\"thread\":\"");
+        b.push(if main { b"main" } else { b"other" });
+        b.push(b"\",\"at\":");
+        b.push_u(at);
+        b.push(b"}");
+
+        let fd = libc::open(
+            path.as_ptr().cast(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC,
+            0o600 as libc::c_uint,
+        );
+        if fd >= 0 {
+            let bytes = b.bytes();
+            libc::write(fd, bytes.as_ptr().cast(), bytes.len());
+            libc::close(fd);
+        }
+    }
+}
+
+// ---------------------------------------------------------------- coredumpctl
+
+/// Runs a program with a deadline and capped stdout; `None` on failure, non-zero exit or timeout.
+#[cfg(target_os = "linux")]
+fn run_bounded(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.take(256 * 1024).read_to_end(&mut buf);
+        buf
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(40)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let out = reader.join().ok()?;
+    status.filter(|s| s.success())?;
+    Some(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Whether `coredumpctl` is on PATH (so evidence may still show up a few seconds late).
+#[cfg(target_os = "linux")]
+fn coredump_available() -> bool {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path).chain([PathBuf::from("/usr/bin")]).any(|d| d.join("coredumpctl").is_file())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn coredump_available() -> bool {
+    false
+}
+
+/// `coredumpctl --json=short list <pid>`: an array of `{time (us), pid, sig, exe, ...}`.
+#[cfg(any(target_os = "linux", test))]
+fn parse_coredump_json(text: &str) -> Vec<CoreInfo> {
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .map(|v| CoreInfo {
+            pid: v.get("pid").and_then(|x| x.as_u64()).and_then(|p| u32::try_from(p).ok()),
+            time_ms: v.get("time").and_then(|x| x.as_u64()).map(|us| us / 1000),
+            signal: v.get("sig").and_then(|x| x.as_i64()).map(|s| signal_name(s as i32)).unwrap_or_default(),
+            module: String::new(),
+            exe: v.get("exe").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
+        })
+        .collect()
+}
+
+/// Library or binary named by one stack frame line: `#0  0x... fn (libfoo.so.0 + 0x1a2b)`.
+#[cfg(any(target_os = "linux", test))]
+fn frame_module(line: &str) -> Option<String> {
+    let inner = line.rsplit_once('(')?.1.split(')').next()?;
+    let name = inner.split(" + ").next()?.trim();
+    if name.is_empty() || name == "n/a" {
+        return None;
+    }
+    Some(name.rsplit('/').next().unwrap_or(name).to_string())
+}
+
+/// `coredumpctl info <pid>`: the last entry's pid, signal, executable and top frame's module.
+#[cfg(any(target_os = "linux", test))]
+fn parse_coredump_info(text: &str) -> Option<CoreInfo> {
+    let mut cur: Option<CoreInfo> = None;
+    let mut done: Option<CoreInfo> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(v) = line.strip_prefix("PID:") {
+            if cur.is_some() {
+                done = cur.take();
+            }
+            cur = Some(CoreInfo { pid: v.split_whitespace().next().and_then(|p| p.parse().ok()), ..Default::default() });
+        } else if let Some(c) = cur.as_mut() {
+            if let Some(v) = line.strip_prefix("Signal:") {
+                c.signal = v.split_whitespace().next().and_then(|n| n.parse::<i32>().ok()).map(signal_name).unwrap_or_default();
+            } else if let Some(v) = line.strip_prefix("Executable:") {
+                c.exe = v.trim().to_string();
+            } else if c.module.is_empty() && line.starts_with("#0") {
+                c.module = frame_module(line).unwrap_or_default();
+            }
+        }
+    }
+    cur.or(done)
+}
+
+/// A systemd-coredump entry of this pid younger than the session (Linux).
+#[cfg(target_os = "linux")]
+fn query_coredump(pid: u32, started_at: u64) -> Option<CoreInfo> {
+    let timeout = std::time::Duration::from_secs(3);
+    let p = pid.to_string();
+    let is_ours = |c: &CoreInfo| c.exe.is_empty() || c.exe.to_ascii_lowercase().contains("flowcode");
+    let listed = run_bounded("coredumpctl", &["--no-pager", "--json=short", "list", &p], timeout).map(|t| parse_coredump_json(&t));
+    let info = run_bounded("coredumpctl", &["--no-pager", "info", &p], timeout).and_then(|t| parse_coredump_info(&t));
+    let info = info.filter(|i| i.pid == Some(pid));
+    let mut core = match listed {
+        // An entry older than the session belongs to an earlier process with the same pid.
+        Some(list) if !list.is_empty() => list
+            .into_iter()
+            .rfind(|c| c.pid == Some(pid) && c.time_ms.is_none_or(|t| t + 5000 >= started_at))?,
+        // Old systemd without --json: the info text alone (no timestamp check).
+        _ => info.clone()?,
+    };
+    if !is_ours(&core) {
+        return None;
+    }
+    if let Some(i) = info {
+        if core.signal.is_empty() {
+            core.signal = i.signal;
+        }
+        core.module = i.module;
+        if core.exe.is_empty() {
+            core.exe = i.exe;
+        }
+    }
+    Some(core)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn query_coredump(_pid: u32, _started_at: u64) -> Option<CoreInfo> {
+    None
 }
 
 // ---------------------------------------------------------------- detection
@@ -263,8 +648,9 @@ fn detect(dir: &Path, app_data: &Path, own_pid: u32) {
     let mut events: Option<Vec<AppErrorEvent>> = None;
 
     // Dead sessions with no evidence yet. Windows Error Reporting writes the
-    // Event Log entry a few seconds after the crash, so a relaunch right away
-    // can get here first: look once more before giving up on them.
+    // Event Log entry (and systemd-coredump its entry) a few seconds after the
+    // crash, so a relaunch right away can get here first: look once more
+    // before giving up on them.
     let mut undecided: Vec<(PathBuf, Marker)> = Vec::new();
 
     for path in markers {
@@ -290,7 +676,7 @@ fn detect(dir: &Path, app_data: &Path, own_pid: u32) {
         }
 
         let events = events.get_or_insert_with(query_app_error_events);
-        if !settle(dir, app_data, &marker, events, &muted) && cfg!(windows) {
+        if !settle(dir, app_data, &marker, events, &muted) && (cfg!(windows) || coredump_available()) {
             undecided.push((path, marker));
         } else {
             let _ = std::fs::remove_file(&path);
@@ -309,25 +695,31 @@ fn detect(dir: &Path, app_data: &Path, own_pid: u32) {
 }
 
 /// Writes a pending report for a dead session if there is evidence of a crash
-/// (a panic file or a matching Event Log entry). Returns whether there was.
-/// The marker itself is left to the caller.
+/// (a panic file, a matching Event Log entry, a signal file or a coredump
+/// entry). Returns whether there was. The marker itself is left to the caller.
 fn settle(dir: &Path, app_data: &Path, marker: &Marker, events: &[AppErrorEvent], muted: &[String]) -> bool {
     let panic_file = panic_path(dir, marker.pid);
     let panic = read_json::<PanicFile>(&panic_file);
+    let signal_file = signal_path(dir, marker.pid);
+    let signal = read_json::<SignalFile>(&signal_file);
     // An event older than the session belongs to an earlier process that
     // had the same pid.
     let native = events
         .iter()
         .find(|e| e.process_id == Some(marker.pid) && e.time_ms.is_none_or(|t| t + 5000 >= marker.started_at))
         .cloned();
-    if panic.is_none() && native.is_none() {
+    // Unix: a signal file or coredump entry stands in for the Event Log. The
+    // coredump also names the faulting library, which the handler cannot.
+    let core = if panic.is_none() && native.is_none() { query_coredump(marker.pid, marker.started_at) } else { None };
+    if panic.is_none() && native.is_none() && signal.is_none() && core.is_none() {
         return false;
     }
-    let report = build_report(marker, panic, native, &app_data.join("remote.log"));
+    let report = build_report(marker, panic, native, signal, core, &app_data.join("remote.log"));
     if !muted.contains(&report.signature) {
         let _ = write_json(&dir.join(format!("pending-{}.json", report.id)), &report);
     }
     let _ = std::fs::remove_file(&panic_file);
+    let _ = std::fs::remove_file(&signal_file);
     true
 }
 
@@ -542,6 +934,8 @@ fn build_report(
     marker: &Marker,
     panic: Option<PanicFile>,
     native: Option<AppErrorEvent>,
+    signal: Option<SignalFile>,
+    core: Option<CoreInfo>,
     log_path: &Path,
 ) -> CrashReport {
     let ctx = ScrubCtx::from_env();
@@ -557,29 +951,66 @@ fn build_report(
         location: scrub(&p.location, &ctx),
         thread: scrub(&p.thread, &ctx),
     });
-    let native_info = native.as_ref().map(|e| {
-        let code = normalize_code(&e.exception_code);
-        NativeInfo {
-            exception_name: exception_name(&code).to_string(),
-            exception_code: code,
-            module: e.module_name.clone(),
-            module_version: e.module_version.clone(),
-            offset: e.fault_offset.clone(),
-        }
-    });
-    let crashed_at = panic.as_ref().map(|p| p.at).or_else(|| native.as_ref().and_then(|e| e.time_ms));
+    // A panic outranks the signal its abort raises; a Windows event outranks both.
+    let unix_native = panic.is_none() && native.is_none() && (signal.is_some() || core.is_some());
+    let native_info = native
+        .as_ref()
+        .map(|e| {
+            let code = normalize_code(&e.exception_code);
+            NativeInfo {
+                exception_name: exception_name(&code).to_string(),
+                exception_code: code,
+                module: e.module_name.clone(),
+                module_version: e.module_version.clone(),
+                offset: e.fault_offset.clone(),
+            }
+        })
+        .or_else(|| {
+            if !unix_native {
+                return None;
+            }
+            let name = signal
+                .as_ref()
+                .map(|s| signal_name(s.signal))
+                .or_else(|| core.as_ref().map(|c| c.signal.clone()).filter(|s| !s.is_empty()))
+                .unwrap_or_else(|| "SIGNAL".to_string());
+            Some(NativeInfo {
+                exception_name: signal_description(&name).to_string(),
+                exception_code: name,
+                module: core.as_ref().map(|c| c.module.clone()).unwrap_or_default(),
+                module_version: String::new(),
+                offset: signal.as_ref().map(|s| s.addr.clone()).unwrap_or_default(),
+            })
+        });
+    let crashed_at = panic
+        .as_ref()
+        .map(|p| p.at)
+        .or_else(|| native.as_ref().and_then(|e| e.time_ms))
+        .or_else(|| signal.as_ref().map(|s| s.at).filter(|&t| t > 0))
+        .or_else(|| core.as_ref().and_then(|c| c.time_ms));
     let kind = if panic_info.is_some() { "panic" } else { "native" };
     let version = marker.version.clone();
 
     let (signature, title) = match (&panic_info, &native_info) {
+        // No "@" in signatures: `scrub` would take "a@b.c" for an email address and turn them all into one.
         (Some(p), _) => (
-            format!("panic@{}", p.location),
+            format!("panic at {}", p.location),
             format!("Crash: panic at {} (v{version})", p.location),
         ),
+        // The fault address and offset vary between runs: leave them out so muting works.
+        (None, Some(n)) if unix_native => {
+            let module = if n.module.is_empty() { "flowcode" } else { n.module.as_str() };
+            let signature = if n.module.is_empty() {
+                n.exception_code.clone()
+            } else {
+                format!("{} in {}", n.exception_code, n.module)
+            };
+            (signature.to_lowercase(), format!("Crash: {} in {module} (v{version})", n.exception_code))
+        }
         (None, Some(n)) => {
             let short = n.exception_name.split(" (").next().unwrap_or(&n.exception_name);
             (
-                format!("{}@{}+{}", n.exception_code, n.module, n.offset).to_lowercase(),
+                format!("{} in {}+{}", n.exception_code, n.module, n.offset).to_lowercase(),
                 format!("Crash: {short} in {} (v{version})", n.module),
             )
         }
@@ -595,18 +1026,27 @@ fn build_report(
             body.push_str(&format!("- Uptime: {}\n", format_uptime(t - marker.started_at)));
         }
     }
-    body.push_str("\n### Error\n");
+    body.push_str(if unix_native { "\n### Native crash\n" } else { "\n### Error\n" });
     if let Some(p) = &panic_info {
         body.push_str(&format!(
             "- Message: {}\n- Location: `{}`\n- Thread: {}\n",
             p.message, p.location, p.thread
         ));
     }
-    if let Some(n) = &native_info {
+    if let (Some(n), false) = (&native_info, unix_native) {
         body.push_str(&format!(
             "- Exception: `{}` ({})\n- Module: {} {}\n- Offset: `{}`\n",
             n.exception_code, n.exception_name, n.module, n.module_version, n.offset
         ));
+    }
+    if let (Some(n), true) = (&native_info, unix_native) {
+        body.push_str(&format!("- Signal: `{}` ({})\n", n.exception_code, n.exception_name));
+        if let Some(s) = &signal {
+            body.push_str(&format!("- Code: {}\n- Fault address: `{}`\n- Thread: {}\n", s.code, s.addr, s.thread));
+        }
+        if !n.module.is_empty() {
+            body.push_str(&format!("- Module: {}\n", n.module));
+        }
     }
     let yn = |v: Option<bool>| match v {
         Some(true) => "yes",
@@ -1178,6 +1618,104 @@ mod tests {
         assert_eq!(normalize_code("C000001D"), "0xc000001d");
         assert_eq!(exception_name("0xc000001d"), "Illegal instruction (CPU feature not supported)");
         assert_eq!(exception_name("0x12345678"), "Unknown exception");
+    }
+
+    #[test]
+    fn handler_buffer_formats_numbers() {
+        let mut b = Buf::new();
+        b.push_u(0);
+        b.push(b"|");
+        b.push_u(u64::MAX);
+        b.push(b"|");
+        b.push_i(-6);
+        b.push(b"|");
+        b.push_hex(0);
+        b.push(b"|");
+        b.push_hex(0x7f12_3456_abcd);
+        assert_eq!(std::str::from_utf8(b.bytes()).unwrap(), "0|18446744073709551615|-6|0x0|0x7f123456abcd");
+        let mut full = Buf::new();
+        for _ in 0..40 {
+            full.push_u(u64::MAX);
+        }
+        assert_eq!(full.bytes().len(), 256);
+    }
+
+    fn sig_file() -> SignalFile {
+        SignalFile { signal: 11, code: 1, addr: "0x0".into(), thread: "main".into(), at: 1_794_910_830_000 }
+    }
+
+    fn marker() -> Marker {
+        Marker { pid: 42, started_at: 1_794_910_000_000, version: "0.41.1".into() }
+    }
+
+    #[test]
+    fn signal_file_roundtrip_and_report() {
+        // Exactly what the handler writes.
+        let raw = r#"{"signal":11,"code":1,"addr":"0x0","thread":"main","at":1794910830000}"#;
+        assert_eq!(serde_json::from_str::<SignalFile>(raw).unwrap(), sig_file());
+        assert!(serde_json::from_str::<SignalFile>(r#"{"signal":6,"code":-6,"addr":"0x0","thread":"other"}"#).is_ok());
+
+        let r = build_report(&marker(), None, None, Some(sig_file()), None, Path::new("/nonexistent"));
+        assert_eq!(r.kind, "native");
+        assert_eq!(r.signature, "sigsegv");
+        assert_eq!(r.title, "Crash: SIGSEGV in flowcode (v0.41.1)");
+        assert_eq!(r.crashed_at, Some(1_794_910_830_000));
+        assert!(r.body.contains("### Native crash\n- Signal: `SIGSEGV` (Segmentation fault"));
+        assert!(r.body.contains("- Code: 1\n- Fault address: `0x0`\n- Thread: main\n"));
+        assert!(!r.body.contains("### Error"));
+
+        // The module comes from the coredump and joins the signature; the address never does.
+        let core = CoreInfo { module: "libwebkit2gtk-4.1.so.0".into(), ..Default::default() };
+        let mut s2 = sig_file();
+        s2.addr = "0x7ffd1234".into();
+        let a = build_report(&marker(), None, None, Some(sig_file()), Some(core.clone()), Path::new("/nonexistent"));
+        let b = build_report(&marker(), None, None, Some(s2), Some(core), Path::new("/nonexistent"));
+        assert_eq!(a.signature, "sigsegv in libwebkit2gtk-4.1.so.0");
+        assert_eq!(a.signature, b.signature);
+        assert_eq!(a.title, "Crash: SIGSEGV in libwebkit2gtk-4.1.so.0 (v0.41.1)");
+        assert!(a.body.contains("- Module: libwebkit2gtk-4.1.so.0\n"));
+
+        // A panic outranks the SIGABRT its abort raised.
+        let p = PanicFile { message: "m".into(), location: "src/a.rs:1:1".into(), thread: "t".into(), at: 5 };
+        let mut abrt = sig_file();
+        abrt.signal = 6;
+        let r = build_report(&marker(), Some(p), None, Some(abrt), None, Path::new("/nonexistent"));
+        assert_eq!(r.kind, "panic");
+    }
+
+    #[test]
+    fn signal_names() {
+        assert_eq!(signal_name(11), "SIGSEGV");
+        assert_eq!(signal_name(6), "SIGABRT");
+        assert_eq!(signal_name(99), "signal 99");
+    }
+
+    #[test]
+    fn parses_coredumpctl_json() {
+        let json = r#"[{"time":1794910830123456,"pid":42,"uid":1000,"gid":1000,"sig":11,"corefile":"present","exe":"/usr/bin/flowcode","size":123},
+            {"time":1794910900000000,"pid":43,"sig":6,"exe":"/usr/bin/other"}]"#;
+        let v = parse_coredump_json(json);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].pid, Some(42));
+        assert_eq!(v[0].time_ms, Some(1_794_910_830_123));
+        assert_eq!(v[0].signal, "SIGSEGV");
+        assert_eq!(v[0].exe, "/usr/bin/flowcode");
+        assert_eq!(v[1].signal, "SIGABRT");
+        assert!(parse_coredump_json("No coredumps found.").is_empty());
+    }
+
+    const INFO: &str = "           PID: 41 (flowcode)\n        Signal: 6 (ABRT)\n    Executable: /usr/bin/flowcode\n\n           PID: 42 (flowcode)\n           UID: 1000 (massi)\n        Signal: 11 (SEGV)\n     Timestamp: Fri 2026-11-27 10:00:30 CET (5min ago)\n  Command Line: /usr/bin/flowcode\n    Executable: /usr/bin/flowcode\n       Message: Process 42 (flowcode) of user 1000 dumped core.\n\n                Module libwebkit2gtk-4.1.so.0 with build-id abc\n                Stack trace of thread 42:\n                #0  0x00007f1 n/a (libwebkit2gtk-4.1.so.0 + 0x5a1b2c)\n                #1  0x00007f2 g_closure_invoke (libgobject-2.0.so.0 + 0x1)\n";
+
+    #[test]
+    fn parses_coredumpctl_info() {
+        let c = parse_coredump_info(INFO).unwrap();
+        assert_eq!(c.pid, Some(42));
+        assert_eq!(c.signal, "SIGSEGV");
+        assert_eq!(c.exe, "/usr/bin/flowcode");
+        assert_eq!(c.module, "libwebkit2gtk-4.1.so.0");
+        assert_eq!(frame_module("#0  0x1 foo (/usr/bin/flowcode + 0x20)").as_deref(), Some("flowcode"));
+        assert_eq!(frame_module("#0 0x1 n/a (n/a + n/a)"), None);
+        assert!(parse_coredump_info("No coredumps found.").is_none());
     }
 
     fn ctx() -> ScrubCtx {
