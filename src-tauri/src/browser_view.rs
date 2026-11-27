@@ -868,7 +868,8 @@ pub async fn browser_view_clear_data(
 
 /// PNG data URL of what the page currently shows, for the frontend's freeze
 /// frame while a DOM overlay must cover the (always on top) native view.
-/// Windows only; elsewhere `None` and the frontend shows a plain placeholder.
+/// Windows (WebView2) and Linux (WebKitGTK); elsewhere `None` and the frontend
+/// shows a plain placeholder.
 ///
 /// `CapturePreview` must start on the UI thread (`with_webview` runs there) and
 /// its completion handler fires on that same thread, so the command never
@@ -897,11 +898,41 @@ pub async fn browser_view_snapshot(
             _ => None,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use base64::Engine;
+        let (tx, rx) = tokio::sync::oneshot::channel::<Option<Vec<u8>>>();
+        if wv.with_webview(move |pw| capture_png_webkit(pw, tx)).is_err() {
+            return Ok(None);
+        }
+        Ok(match tokio::time::timeout(Duration::from_millis(900), rx).await {
+            Ok(Ok(Some(png))) => Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))),
+            _ => None,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = wv;
         Ok(None)
     }
+}
+
+/// WebKitGTK: `webkit_web_view_get_snapshot` of the visible region, encoded as
+/// PNG by cairo. Starts on the GTK main thread (`with_webview`); the callback
+/// runs there too and hands the bytes to the awaiting command.
+#[cfg(target_os = "linux")]
+fn capture_png_webkit(pw: tauri::webview::PlatformWebview, tx: tokio::sync::oneshot::Sender<Option<Vec<u8>>>) {
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+
+    pw.inner().snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gtk::gio::Cancellable>, move |res| {
+        let png = res.ok().and_then(|surface| {
+            let image = gtk::cairo::ImageSurface::try_from(surface).ok()?;
+            let mut buf = Vec::new();
+            image.write_to_png(&mut buf).ok()?;
+            (!buf.is_empty() && buf.len() <= 16 * 1024 * 1024).then_some(buf)
+        });
+        let _ = tx.send(png);
+    });
 }
 
 #[cfg(windows)]

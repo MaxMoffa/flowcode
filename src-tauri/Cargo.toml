@@ -96,6 +96,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 # Same gtk wry/tao use (Cargo.lock): floats child webviews over the main one (browser_view.rs).
 gtk = "0.18"
+# Same cairo gtk uses (Cargo.lock), with PNG output: freeze-frame snapshot (browser_view.rs).
+cairo-rs = { version = "0.18", features = ["png"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"

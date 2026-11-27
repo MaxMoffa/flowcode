@@ -1651,6 +1651,7 @@ version = "0.41.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "cairo-rs",
  "cpal",
  "ed25519-dalek 2.2.0",
  "flowcode-remote-proto",
