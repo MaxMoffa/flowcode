@@ -357,6 +357,56 @@ const COVERS = {
     for (const [x, y] of [[20, 40], [70, 34], [152, 52], [46, 44]]) firefly(c, x, y);
     return c;
   },
+
+  /** 0.42.0 "One look, any PC": two monitors on two pads show the very same file
+   * tree and editor, mirrored; a dotted link joins them over the water and a little
+   * dropdown floats over the right one; the frog sits between, watching both. */
+  "v0.42.0"() {
+    const c = nightPond(42);
+    wordmark(c, "0.42");
+    reeds(c, 4, 86, 14, 1); reeds(c, 151, 86, 12, -1);
+    lilyPad(c, 32, 84, 22, 5);
+    lilyPad(c, 128, 84, 22, 5);
+    lilyPad(c, 80, 86, 12, 3);
+    // a monitor (x0..x0+33, y0..y0+23) with a file tree on the left and an editor
+    const monitor = (x0, y0) => {
+      c.rect(x0 - 1, y0 - 1, 36, 26, C.shadow);
+      c.rect(x0, y0, 34, 24, C.screenEdge);
+      c.hline(x0, x0 + 33, y0 + 23, C.screenEdgeDark);
+      c.rect(x0 + 1, y0 + 1, 32, 21, C.screen);
+      // tree: folder rows with indents
+      const tree = [[0, C.amber], [2, C.inkDim], [2, C.inkDim], [0, C.amber], [2, C.moss]];
+      tree.forEach(([ind, col], k) => {
+        const y = y0 + 3 + k * 4;
+        c.rect(x0 + 3 + ind, y, 2, 2, col);
+        c.hline(x0 + 6 + ind, x0 + 11, y, C.screenEdgeDark);
+      });
+      c.line(x0 + 14, y0 + 2, x0 + 14, y0 + 20, C.screenEdgeDark);
+      // editor tab + code lines
+      c.rect(x0 + 16, y0 + 2, 8, 2, C.inkDim);
+      for (const [k, len, col] of [[0, 12, C.prompt], [1, 8, C.inkDim], [2, 14, C.inkDim], [3, 6, C.amber], [4, 10, C.inkDim]]) {
+        c.hline(x0 + 17, x0 + 17 + len - 1, y0 + 7 + k * 3, col);
+      }
+      // stand
+      c.rect(x0 + 15, y0 + 24, 4, 3, C.screenEdgeDark);
+      c.rect(x0 + 11, y0 + 27, 12, 1, C.screenEdge);
+    };
+    monitor(15, 52);
+    monitor(111, 52);
+    // the link between the two PCs: a dotted arc over the frog
+    c.dots(curve(50, 58, 80, 26, 110, 58), 2, C.moss);
+    c.rect(78, 40, 5, 4, C.shadow); c.rect(79, 41, 3, 2, C.amber);
+    // a dropdown floating over the right monitor, live page behind it
+    c.rect(131, 44, 18, 15, C.shadow);
+    c.rect(132, 45, 16, 13, C.ink);
+    c.hline(134, 144, 47, C.inkDim);
+    c.rect(133, 50, 14, 3, C.amber); c.hline(134, 142, 51, C.shadow);
+    c.hline(134, 141, 55, C.inkDim);
+    c.hline(16, 46, 88, C.ripple); c.hline(112, 144, 88, C.ripple); c.hline(70, 90, 89, C.rippleHi);
+    frog(c, 70, 68, { cols: 20, rows: 16 });
+    for (const [x, y] of [[24, 40], [60, 30], [100, 34], [150, 36]]) firefly(c, x, y);
+    return c;
+  },
 };
 
 const only = process.argv[2];
