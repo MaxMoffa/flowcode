@@ -215,6 +215,40 @@
   background: var(--sidebar-hover);
 }
 
+/* "Rename": the title becomes a field in place, the row stays lit while it is open. */
+.agent-history-row.is-editing {
+  background: var(--sidebar-hover);
+  cursor: default;
+}
+
+.agent-history-edit {
+  width: calc(100% + 7px);
+  margin: -3px 0 -1px -7px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+
+/* A short accent wash after the new name is saved. */
+.agent-history-row.is-renamed {
+  animation: agent-history-renamed 0.9s ease-out;
+}
+
+@keyframes agent-history-renamed {
+  from { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-history-row.is-renamed {
+    animation: none;
+  }
+}
+
 /* "Chat deleted · Undo": over the bottom of the list, its bar draining while the undo lasts. */
 .agent-history-toast {
   position: absolute;

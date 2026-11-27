@@ -14,6 +14,7 @@ import type { DelegateInfo } from "../chat/chatModel";
 import type { ClaudeSessionEntry } from "./entryTypes";
 import { getHiddenRows, hideRows, historyDeleteSessions, historySessionPath, unhideRows, useHiddenRows, type HistoryItem } from "./historyDelete";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { loadHistoryTitles, renameHistoryChat, useHistoryTitles } from "./historyTitles";
 import { HistoryView, type DeleteEntry, type HiddenRowsStore } from "./HistoryView";
 
 const POLL_MS = 5000;
@@ -92,6 +93,10 @@ export function AgentHistoryPanel({
   const delegateHistory = useDelegateHistory();
   const delegations = useAllTabDelegations();
   const store = useHistoryStore();
+  const customTitles = useHistoryTitles();
+  useEffect(() => {
+    if (visible) loadHistoryTitles();
+  }, [visible]);
   const capable = isWorktreeCapable(projectCwd, wslDistro);
   const [repo, setRepo] = useState<{ cwd: string; wsl: string | undefined; info: RepoInfo } | null>(() => {
     const info = cachedRepo(projectCwd, wslDistro);
@@ -186,9 +191,11 @@ ${projectCwd}`;
       open.push({ cli: session.cli, sessionId: session.session_id ?? "", title: session.session_name || tab.label, cwd, at: session.started_at, profile: session.profile, wslDistro: session.wsl_distro, tabId: tab.id, status });
     }
     // Delegated children are listed under their orchestrator, not as conversations of their own.
-    return buildHistoryRows({ entries: { claude, codex, vibe, opencode, cline }, roots, wslDistro, open, exclude: childKeys(delegateHistory) });
+    const built = buildHistoryRows({ entries: { claude, codex, vibe, opencode, cline }, roots, wslDistro, open, exclude: childKeys(delegateHistory) });
+    // A name set with "Rename" wins over the agent's own title (and a tab's label).
+    return built.map((row) => (customTitles[row.key] ? { ...row, title: customTitles[row.key] } : row));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claude, codex, vibe, opencode, cline, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
+  }, [claude, codex, vibe, opencode, cline, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro, customTitles]);
 
   /** The linked worktree a folder is in, if any. */
   const branchOf = (cwd: string) => worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined))?.branch ?? null;
@@ -236,6 +243,7 @@ ${projectCwd}`;
       deleteItems={deleteItems}
       onDeleted={onDeleted}
       reveal={revealItem}
+      rename={(row, title) => renameHistoryChat(row.cli, row.sessionId, title)}
       delegates={{ kidsOf: (row) => delegateHistory[row.sessionId]?.children ?? [], childLive, openChild }}
       branchOf={branchOf}
       newSession={{

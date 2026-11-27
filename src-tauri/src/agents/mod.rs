@@ -27,6 +27,8 @@ mod codex;
 pub use self::codex::*;
 mod history_delete;
 pub use self::history_delete::*;
+mod history_titles;
+pub use self::history_titles::*;
 pub(crate) use self::codex::find_codex_rollout;
 use self::codex::{host_live_threads, rollout_meta, rollout_turn_open, thread_names_in};
 mod tracker;

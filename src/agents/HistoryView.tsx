@@ -60,6 +60,8 @@ export interface HistoryViewProps {
   onDeleted?: (done: DeleteEntry[], failed: DeleteEntry[]) => void;
   /** Absent: no "Show in file manager". */
   reveal?: (item: HistoryItem) => Promise<unknown>;
+  /** Renames a chat (empty title = the agent's own); rejects when saving failed. Absent: no "Rename". */
+  rename?: (row: HistoryRow, title: string) => Promise<void>;
   /** Absent: no delegated chats under the rows. */
   delegates?: {
     kidsOf: (row: HistoryRow) => DelegateChild[];
@@ -112,6 +114,56 @@ function DelegateTwisty({ kids, open, onToggle }: { kids: DelegateChild[]; open:
   );
 }
 
+/** The row's title as a text field: Enter or leaving it saves, Escape cancels. */
+function TitleEdit({ initial, label, onDone }: { initial: string; label: string; onDone: (value: string | null) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  /** Enter/Escape already answered: the blur that follows the field going away must not answer again. */
+  const finished = useRef(false);
+  useEffect(() => {
+    const focus = () => {
+      ref.current?.focus();
+      ref.current?.select();
+    };
+    focus();
+    // The context menu closing right after the pick can take the focus back.
+    const timer = setTimeout(() => document.activeElement !== ref.current && focus(), 60);
+    return () => clearTimeout(timer);
+  }, []);
+  const finish = (value: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(value);
+  };
+  return (
+    <input
+      ref={ref}
+      type="text"
+      className="agent-history-edit"
+      defaultValue={initial}
+      aria-label={label}
+      maxLength={200}
+      spellCheck={false}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.stopPropagation()}
+      onKeyUp={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // The row is a button: Space and Enter must stay in the field.
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish(e.currentTarget.value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish(null);
+        }
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+    />
+  );
+}
+
 /** The History list of one project, local or on another PC: search, day groups, row menus, delete with undo, "New session". */
 export function HistoryView({
   rows,
@@ -127,6 +179,7 @@ export function HistoryView({
   deleteDisabled,
   onDeleted,
   reveal,
+  rename,
   delegates,
   branchOf,
   newSession,
@@ -230,10 +283,32 @@ export function HistoryView({
     return [own, ...kids.map((c) => entryOf(c.agent, c.childSessionId, c.agent === row.cli ? row.profile : null, row.wslDistro))];
   };
 
+  // ---- renaming ----
+  /** The row whose title is a text field. */
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  /** The row just renamed: flashes once. */
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flashKey) return;
+    const timer = setTimeout(() => setFlashKey(null), 1000);
+    return () => clearTimeout(timer);
+  }, [flashKey]);
+  const finishRename = (row: HistoryRow, value: string | null) => {
+    setEditingKey(null);
+    if (value === null || !rename) return;
+    const next = value.trim();
+    if (next === titleOf(row)) return;
+    rename(row, next).then(
+      () => setFlashKey(row.key),
+      () => showError(t("history.rename.failed")),
+    );
+  };
+
   const copyId = (id: string) => void navigator.clipboard.writeText(id).catch(() => {});
-  /** Menu of one saved chat: `open` is what a click on the row does. */
-  const chatMenu = (open: { label: string; run: () => void; disabled?: boolean }, entry: DeleteEntry, toDelete: DeleteEntry[] | null): ContextMenuItem[] => [
+  /** Menu of one saved chat: `open` is what a click on the row does; `onRename` (absent: no entry) turns its title into a field. */
+  const chatMenu = (open: { label: string; run: () => void; disabled?: boolean }, entry: DeleteEntry, toDelete: DeleteEntry[] | null, onRename?: () => void): ContextMenuItem[] => [
     { label: open.label, icon: MenuIcons.openExternal, disabled: open.disabled, onSelect: open.run },
+    ...(onRename ? [{ label: t("history.menu.rename"), icon: MenuIcons.rename, disabled: !entry.item.sessionId || open.disabled, onSelect: onRename }] : []),
     ...(reveal
       ? [{ label: t("history.menu.reveal"), icon: MenuIcons.folder, disabled: !entry.item.sessionId, onSelect: () => void reveal(entry.item).catch(() => showError(t("history.reveal.failed"))) }]
       : []),
@@ -246,7 +321,7 @@ export function HistoryView({
   const rowMenu = (row: HistoryRow) => {
     const entries = entriesOfRow(row);
     const canDelete = !row.tabId && !!row.sessionId;
-    return chatMenu({ label: t(row.tabId ? "history.menu.goToTab" : "history.menu.resume"), run: () => openRow(row), disabled: !rowEnabled(row) }, entries[0], canDelete ? entries : null);
+    return chatMenu({ label: t(row.tabId ? "history.menu.goToTab" : "history.menu.resume"), run: () => openRow(row), disabled: !rowEnabled(row) }, entries[0], canDelete ? entries : null, rename ? () => setEditingKey(row.key) : undefined);
   };
   const childMenu = (row: HistoryRow, child: DelegateChild) => {
     const entry = entryOf(child.agent, child.childSessionId, child.agent === row.cli ? row.profile : null, row.wslDistro);
@@ -359,7 +434,7 @@ export function HistoryView({
                 <Fragment key={row.key}>
                 <button
                   type="button"
-                  className={"agent-history-row" + (riseKeys.current.has(row.key) ? " is-rise" : "") + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "") + (menuKey === row.key ? " is-menu-open" : "")}
+                  className={"agent-history-row" + (riseKeys.current.has(row.key) ? " is-rise" : "") + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "") + (menuKey === row.key ? " is-menu-open" : "") + (editingKey === row.key ? " is-editing" : "") + (flashKey === row.key ? " is-renamed" : "")}
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
                   title={`${titleOf(row)}\n${row.cwd}`}
                   disabled={!rowEnabled(row)}
@@ -379,7 +454,11 @@ export function HistoryView({
                     )}
                   </span>
                   <span className="agent-history-body">
-                    <span className="agent-history-title">{titleOf(row)}</span>
+                    {editingKey === row.key ? (
+                      <TitleEdit initial={titleOf(row)} label={t("history.rename.label")} onDone={(value) => finishRename(row, value)} />
+                    ) : (
+                      <span className="agent-history-title">{titleOf(row)}</span>
+                    )}
                     <span className="agent-history-meta">
                       {time}
                       {branch && `${time ? " · " : ""}⎇ ${branch}`}
