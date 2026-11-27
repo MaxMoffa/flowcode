@@ -4,6 +4,8 @@
 // `elementFromPoint` finds something else on top of it, an overlay is there and
 // the native view has to give way (see BrowserPanel's freeze frame).
 import { useEffect, useState, type RefObject } from "react";
+import { decideHoles, holesKey } from "./holesDecision";
+import type { HoleRect } from "./nativeView";
 
 const INSET = 6;
 const RECHECK_MS = 250;
@@ -17,6 +19,11 @@ export interface ViewportState {
   visible: boolean;
   /** Something other than the viewport (or its own children) is on top of it. */
   covered: boolean;
+  /**
+   * Windows: the boxes of the small overlays over the viewport, to cut out of the native view
+   * (empty = none). Null = the freeze frame must be used (not Windows, or a big overlay / scrim).
+   */
+  holes: HoleRect[] | null;
 }
 
 /** An overlay smaller than this on either side is a handle, a glow or a stroke, not a menu. */
@@ -31,33 +38,93 @@ const MIN_OPACITY = 0.05;
  * out at opacity 0, invisible hit areas. Those used to freeze and re-show the
  * page for nothing, which read as a jump.
  */
-function isRealOverlay(top: Element): boolean {
+function overlayRoot(top: Element): Element | null {
   let root: Element | null = null;
   for (let n: Element | null = top; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
     const cs = getComputedStyle(n);
-    if (Number(cs.opacity) < MIN_OPACITY || cs.visibility === "hidden") return false;
+    if (Number(cs.opacity) < MIN_OPACITY || cs.visibility === "hidden") return null;
     // The outermost positioned box is the overlay itself (an icon inside a menu item may be positioned too).
     if (cs.position === "fixed" || cs.position === "absolute") root = n;
   }
-  const r = (root ?? top).getBoundingClientRect();
-  return r.width >= MIN_OVERLAY_PX && r.height >= MIN_OVERLAY_PX;
+  const el = root ?? top;
+  const r = el.getBoundingClientRect();
+  return r.width >= MIN_OVERLAY_PX && r.height >= MIN_OVERLAY_PX ? el : null;
 }
 
-function sample(el: HTMLElement): ViewportState {
-  if (!el.isConnected || el.closest(".is-hidden")) return { visible: false, covered: false };
+/** Windows cuts holes for small overlays (see BrowserPanel); the rest freezes the page. */
+const isWindows = () => document.documentElement.dataset.platform === "windows";
+const FINE_INSET = 2;
+
+/** The overlay roots over the viewport, found on a finer grid than `sample` uses. */
+function scanRoots(el: HTMLElement, r: DOMRect): Element[] {
+  const step = Math.max(28, Math.round(Math.min(r.width, r.height) / 14));
+  const axis = (from: number, size: number) => {
+    const list: number[] = [];
+    for (let v = FINE_INSET; v < size - FINE_INSET; v += step) list.push(from + v);
+    list.push(from + size - FINE_INSET);
+    return list;
+  };
+  const roots = new Set<Element>();
+  for (const y of axis(r.top, r.height)) {
+    for (const x of axis(r.left, r.width)) {
+      const top = document.elementFromPoint(x, y);
+      if (!top || el.contains(top) || top.closest("[data-cover-ignore]")) continue;
+      const root = overlayRoot(top);
+      if (root) roots.add(root);
+    }
+  }
+  return [...roots];
+}
+
+/** An overlay getting its first hole must not still be fading in over an empty hole. */
+function finishEntrance(root: Element) {
+  for (const a of root.getAnimations({ subtree: true })) {
+    try {
+      if (a.effect?.getComputedTiming().iterations === Infinity) continue;
+      a.finish();
+    } catch {
+      /* not finishable */
+    }
+  }
+}
+
+function sample(el: HTMLElement, seen: WeakSet<Element>): ViewportState {
+  if (!el.isConnected || el.closest(".is-hidden")) return { visible: false, covered: false, holes: null };
   const r = el.getBoundingClientRect();
-  if (r.width < 1 || r.height < 1) return { visible: false, covered: false };
+  if (r.width < 1 || r.height < 1) return { visible: false, covered: false, holes: null };
+  if (isWindows()) {
+    const roots = scanRoots(el, r);
+    const boxes = roots.map((n) => {
+      const b = n.getBoundingClientRect();
+      return { x: b.left, y: b.top, w: b.width, h: b.height, r: parseFloat(getComputedStyle(n).borderTopLeftRadius) || 0 };
+    });
+    const holes = decideHoles({ x: r.left, y: r.top, w: r.width, h: r.height }, boxes);
+    if (holes) {
+      for (const n of roots) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+        finishEntrance(n);
+      }
+    }
+    if (roots.length > 0) return { visible: true, covered: true, holes };
+    const old = sampleCovered(el, r);
+    return { visible: true, covered: old, holes: old ? null : [] };
+  }
+  return { visible: true, covered: sampleCovered(el, r), holes: null };
+}
+
+function sampleCovered(el: HTMLElement, r: DOMRect): boolean {
   const xs = r.width > INSET * 4 ? [r.left + INSET, r.left + r.width / 2, r.right - INSET] : [r.left + r.width / 2];
   const ys = r.height > INSET * 4 ? [r.top + INSET, r.top + r.height / 2, r.bottom - INSET] : [r.top + r.height / 2];
   for (const y of ys) {
     for (const x of xs) {
       const top = document.elementFromPoint(x, y);
       // Outside the window, or the viewport's own content (load bar, freeze frame, toast).
-      if (!top || el.contains(top) || top.closest("[data-cover-ignore]") || !isRealOverlay(top)) continue;
-      return { visible: true, covered: true };
+      if (!top || el.contains(top) || top.closest("[data-cover-ignore]") || !overlayRoot(top)) continue;
+      return true;
     }
   }
-  return { visible: true, covered: false };
+  return false;
 }
 
 /**
@@ -66,7 +133,7 @@ function sample(el: HTMLElement): ViewportState {
  * the last state is kept and nothing is sampled.
  */
 export function useViewportCovered(viewportRef: RefObject<HTMLElement | null>, enabled: boolean): ViewportState {
-  const [state, setState] = useState<ViewportState>({ visible: false, covered: false });
+  const [state, setState] = useState<ViewportState>({ visible: false, covered: false, holes: null });
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -75,12 +142,14 @@ export function useViewportCovered(viewportRef: RefObject<HTMLElement | null>, e
     let timer = 0;
     let cancelled = false;
     let covered = false;
+    const seen = new WeakSet<Element>();
 
     const run = () => {
       raf = 0;
       if (cancelled) return;
-      const next = sample(el);
-      setState((prev) => (prev.visible === next.visible && prev.covered === next.covered ? prev : next));
+      const next = sample(el, seen);
+      const key = holesKey(next.holes);
+      setState((prev) => (prev.visible === next.visible && prev.covered === next.covered && holesKey(prev.holes) === key ? prev : next));
       // Uncovering has no DOM event of its own for every overlay: poll while covered.
       if (next.covered && !covered) timer = window.setInterval(schedule, RECHECK_MS);
       else if (!next.covered && covered) window.clearInterval(timer);

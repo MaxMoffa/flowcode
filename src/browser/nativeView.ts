@@ -12,6 +12,15 @@ export interface NativeViewRect {
   height: number;
 }
 
+/** A DOM overlay's box in the app window's client CSS px; `r` is its corner radius. */
+export interface HoleRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  r: number;
+}
+
 // Show / bounds / hide run one after the other: Tauri runs async commands in
 // parallel, so a hide sent before a show could otherwise land after it and
 // leave the view hidden (or an old rect could land after a newer one).
@@ -39,6 +48,8 @@ export const nativeView = {
   theme: (color: string) => placed(() => invoke<void>("browser_view_theme", { color })),
   /** PNG data URL of what the view shows now (Windows only; null elsewhere or when the capture failed). */
   snapshot: (pageId: string) => invoke<string | null>("browser_view_snapshot", { pageId }),
+  /** Windows: cuts DOM overlay shapes (client CSS px) out of the view; an empty list clears them. */
+  setHoles: (pageId: string, holes: HoleRect[]) => invoke<void>("browser_view_set_holes", { pageId, holes }),
   /** `<origin>/favicon.ico` of a public site as a data URL, or null. */
   favicon: (url: string) => invoke<string | null>("browser_favicon", { url }),
   /** Whether something listens at a loopback address (TCP connect, 700 ms). Rejects for any other host. */

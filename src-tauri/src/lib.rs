@@ -215,6 +215,7 @@ pub fn run() {
             browser_view::browser_view_devtools,
             browser_view::browser_view_clear_data,
             browser_view::browser_view_snapshot,
+            browser_view::browser_view_set_holes,
             browser_view::browser_favicon,
             browser_view::browser_probe_local,
             browser_view::browser_view_theme,

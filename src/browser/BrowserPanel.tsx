@@ -42,6 +42,7 @@ import {
 } from "./browserStore";
 import { nativeView, onNativeError, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView, useNativeThemeBackground } from "./nativeView";
 import { useViewportCovered } from "./useViewportCovered";
+import { holesKey } from "./holesDecision";
 import type { PresenceState } from "../hooks/usePresence";
 import { useExitGhost } from "../hooks/useExitGhost";
 import { DUR_OUT } from "../lib/motion";
@@ -683,8 +684,16 @@ export function BrowserPanel({ dragging, motion = "open" }: { dragging: boolean;
 
   // The native view is above the DOM: while an overlay covers the viewport (a menu, a dialog, this
   // panel's own popovers) a snapshot stands in for the page and the view is hidden.
-  const { visible, covered } = useViewportCovered(viewportRef, !dragging);
-  const overlayNow = covered || tabsOpen || menuOpen || dlShown;
+  const { visible, covered, holes: scannedHoles } = useViewportCovered(viewportRef, !dragging);
+  // Windows: a small overlay is cut out of the native view (a hole) instead of freezing the page. The tabs
+  // drawer has a full-panel scrim and keeps the freeze frame; the ⋯ menu and downloads popover are small.
+  const holeCapable = document.documentElement.dataset.platform === "windows";
+  // A rejected holes call (no region support) turns the holes off for this panel's life.
+  const holesBroken = useRef(false);
+  const [, setHolesBrokenTick] = useState(0);
+  const holes = holesBroken.current ? null : scannedHoles;
+  const holeMode = holeCapable && holes !== null && holes.length > 0;
+  const overlayNow = (covered && !holeMode) || tabsOpen || (!holeCapable && (menuOpen || dlShown));
   // A resize drag also parks the view: resized live, WebView2 stretches its last frame while the page
   // lays out again (a laggy, rubbery page). A still snapshot at its own size stands in until the drop.
   // The panel sliding out: the snapshot leaves with the card (the native view can't follow a CSS transform).
@@ -755,6 +764,36 @@ export function BrowserPanel({ dragging, motion = "open" }: { dragging: boolean;
     };
     nativeView.snapshot(urlId).then(stand, () => stand(null));
   }, [coverNow, overlayNow, nativeLive, urlId, dragging, motion, insetBottom]);
+
+  // Windows holes: the shapes of the overlays are cut out of the native view. Cleared (an empty list)
+  // whenever the view is frozen, mid-drag or mid-slide, not live, or the page changes.
+  const holesWanted = holeMode && nativeLive && !suspended && !dragging && motion === "open" ? holes : null;
+  const holesSent = useRef<{ id: string; key: string } | null>(null);
+  useEffect(() => {
+    if (!holeCapable || !urlId) return;
+    const list = holesWanted ?? [];
+    const key = holesKey(list);
+    const prev = holesSent.current;
+    if (prev?.id === urlId && prev.key === key) return;
+    if (!prev && list.length === 0) return;
+    holesSent.current = { id: urlId, key };
+    nativeView.setHoles(urlId, list).catch(() => {
+      // No region support here: back to the freeze frame for good.
+      holesBroken.current = true;
+      holesSent.current = null;
+      setHolesBrokenTick((n) => n + 1);
+    });
+  }, [holesWanted, urlId, holeCapable]);
+  // Leaving the page (or the panel): its view must not keep stale holes.
+  useEffect(() => {
+    if (!holeCapable || !urlId) return;
+    return () => {
+      if (holesSent.current?.id === urlId && holesSent.current.key !== "") {
+        holesSent.current = null;
+        void nativeView.setHoles(urlId, []).catch(() => {});
+      }
+    };
+  }, [urlId, holeCapable]);
 
   // The view reports back (onShown) in the normal case; this covers a view that never shows again.
   useEffect(() => {

@@ -935,6 +935,94 @@ fn capture_png_webkit(pw: tauri::webview::PlatformWebview, tx: tokio::sync::ones
     });
 }
 
+/// A DOM overlay's shape in CSS px of the app window's page (clientX/clientY space).
+#[derive(serde::Deserialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct Hole {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    r: f64,
+}
+
+/// Cuts the holes out of the page's native view (Windows): a window region also
+/// decides hit-testing, so the DOM overlay under the hole shows and takes the
+/// clicks while the rest of the page stays live. An empty list clears the
+/// region. Other platforms keep the freeze frame and never call this. The region
+/// is not cleared here on park/hide (the frontend sends `[]` then).
+#[tauri::command]
+pub async fn browser_view_set_holes(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, BrowserViews>,
+    page_id: String,
+    holes: Vec<Hole>,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let Some(label) = find_label(&state, window.label(), &page_id) else { return Ok(()) };
+        let wv = webview_of(&app, &label)?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        wv.with_webview(move |pw| {
+            let _ = tx.send(unsafe { apply_holes(pw, &holes, scale) });
+        })
+        .map_err(|e| e.to_string())?;
+        rx.await.map_err(|_| "holes request dropped".to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, window, state, page_id, holes);
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+unsafe fn apply_holes(pw: tauri::webview::PlatformWebview, holes: &[Hole], scale: f64) -> Result<(), String> {
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, MapWindowPoints, SetWindowRgn, HGDIOBJ, RGN_DIFF,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetParent};
+
+    let mut container = HWND::default();
+    pw.controller().ParentWindow(&mut container).map_err(|e| e.to_string())?;
+    if container.0.is_null() {
+        return Err("no container window".into());
+    }
+    if holes.is_empty() {
+        let _ = SetWindowRgn(container, None, true);
+        return Ok(());
+    }
+    let parent = GetParent(container).map_err(|e| e.to_string())?;
+    let mut origin = [POINT { x: 0, y: 0 }];
+    MapWindowPoints(Some(container), Some(parent), &mut origin);
+    let mut client = RECT::default();
+    GetClientRect(container, &mut client).map_err(|e| e.to_string())?;
+    let full = CreateRectRgn(0, 0, client.right, client.bottom);
+    for h in holes {
+        let px = (h.x * scale).round() as i32 - origin[0].x;
+        let py = (h.y * scale).round() as i32 - origin[0].y;
+        let pw_ = (h.w * scale).round() as i32;
+        let ph = (h.h * scale).round() as i32;
+        let radius = (h.r * scale).round() as i32;
+        let hole = if radius > 0 {
+            CreateRoundRectRgn(px, py, px + pw_ + 1, py + ph + 1, 2 * radius, 2 * radius)
+        } else {
+            CreateRectRgn(px, py, px + pw_, py + ph)
+        };
+        CombineRgn(Some(full), Some(full), Some(hole), RGN_DIFF);
+        let _ = DeleteObject(HGDIOBJ(hole.0));
+    }
+    // On success the system owns the region; on failure it is ours to free.
+    if SetWindowRgn(container, Some(full), true) == 0 {
+        let _ = DeleteObject(HGDIOBJ(full.0));
+        return Err("SetWindowRgn failed".into());
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 unsafe fn capture_jpeg(pw: tauri::webview::PlatformWebview, tx: tokio::sync::oneshot::Sender<Option<Vec<u8>>>) {
     use webview2_com::CapturePreviewCompletedHandler;

@@ -87,7 +87,7 @@ cpal = "0.18"
 tauri-winrt-notification = "0.8.1"
 # Same versions tauri/wry already resolve to: freeze-frame capture and hard reload (browser_view.rs).
 webview2-com = "0.38.2"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 whisper-rs = { version = "0.16", features = ["vulkan", "raw-api"] }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Credentials", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_Debug", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
