@@ -57,6 +57,20 @@ takes a `transport` and serves desktop, PC-to-PC and phone.
    reuse local pieces already, so they get merged only where they have
    diverged.
 
+## Findings after phase 2 (2026-11-27)
+
+- The agent panel (`ContextPane`, `InsightTabs`, ...) and the tab strip
+  (`BusySweep`, `TabScrollArrows`, `useRowOverflow`) already reuse the local
+  pieces. Their remote files are mostly wiring: low value.
+- The remaining real copies differ in **UX**, not just in data:
+  - Files: locally, files open in the browser panel (code, PDF, preview).
+    Remotely they open in a modal (`RemoteFileViewer`). Unifying means picking
+    one experience.
+  - New tab: locally it is the new-tab page (recent folders, agents, frog).
+    Remotely it is a small dialog (`RemoteNewTabDialog`) with a folder picker
+    on the other PC's disk.
+  These need a product choice before any refactor.
+
 ## Rule for new features
 
 From now on, a panel feature is built in the shared component, with a source
