@@ -63,7 +63,7 @@ takes a `transport` and serves desktop, PC-to-PC and phone.
   (`BusySweep`, `TabScrollArrows`, `useRowOverflow`) already reuse the local
   pieces. Their remote files are mostly wiring: low value.
 - The remaining real copies differ in **UX**, not just in data:
-  - Files: locally, files open in the browser panel (code, PDF, preview).
+  - Files: locally, text files open in editor tabs (others in the OS app).
     Remotely they open in a modal (`RemoteFileViewer`). Unifying means picking
     one experience.
   - New tab: locally it is the new-tab page (recent folders, agents, frog).
