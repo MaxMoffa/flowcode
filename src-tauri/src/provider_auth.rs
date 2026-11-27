@@ -564,7 +564,13 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
             } else if request.cli != "vibe" {
                 let exited = *lock(&session.exit);
                 let stamp = credential_stamp(app, &request.cli, request.profile.as_deref());
-                if exited == Some(false) { mark_error(&session, "auth_failed"); }
+                if exited == Some(false) {
+                    // The output is cleared on failure; keep its last line in the log so a CLI that
+                    // dies at startup (ConPTY, missing runtime) can be told from a refused sign-in.
+                    let last = lock(&session.state).output.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(200).collect::<String>();
+                    eprintln!("[provider_auth] {} login exited with an error; last output: {last:?}", request.cli);
+                    mark_error(&session, "auth_failed");
+                }
                 else if browser_ready_to_probe(&request.cli, exited, &session.stamp, &stamp) {
                     let env = browser_env(app, request.profile.as_deref());
                     let authenticated = match cline_wsl(&request.cli, request.profile.as_deref(), request.shell.as_deref()) {
@@ -587,9 +593,27 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
     }
 }
 
+/// One whole key or terminal reply as the embedded xterm sends it: arrows in both
+/// cursor modes (`ESC [ A`, `ESC O A`) and the answers to a TUI's startup queries
+/// (`ESC [ ? 1 ; 2 c`, `ESC [ 5 ; 1 R`). OpenCode's and Cline's login menus wait
+/// for those answers, so dropping them froze the menu. Nothing may follow the
+/// final byte, and bracketed-paste markers stay refused.
+fn is_terminal_sequence(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    match bytes {
+        [0x1b, b'O', last] => last.is_ascii_alphabetic(),
+        [0x1b, b'[', rest @ .., last] => {
+            (0x40..=0x7e).contains(last)
+                && rest.iter().all(|b| b.is_ascii_digit() || matches!(b, b';' | b'?' | b'>' | b'='))
+                && !(*last == b'~' && matches!(rest, b"200" | b"201"))
+        }
+        _ => false,
+    }
+}
+
 fn normalize_input(cli: &str, input: &str) -> Result<String, String> {
     // Native login menus need these keys; pasted commands never need controls.
-    if matches!(input, "\r" | "\u{8}" | "\u{7f}" | "\u{1b}" | "\u{1b}[A" | "\u{1b}[B" | "\u{1b}[C" | "\u{1b}[D") { return Ok(input.into()); }
+    if matches!(input, "\r" | "\t" | "\u{8}" | "\u{7f}" | "\u{1b}") || is_terminal_sequence(input) { return Ok(input.into()); }
     let line = input.strip_suffix('\r').unwrap_or(input);
     if line.chars().any(char::is_control) { return Err("invalid_input".into()); }
     let trimmed = line.trim();
@@ -700,8 +724,11 @@ mod tests {
             assert!(normalize_input("gemini", input).is_err(), "{input:?}");
         }
         assert_eq!(normalize_input("gemini", "code-value\r").unwrap(), "code-value\r");
-        for input in ["\r", "\u{7f}", "\u{1b}[A", "\u{1b}[B"] {
-            assert_eq!(normalize_input("gemini", input).unwrap(), input);
+        for input in ["\r", "\t", "\u{7f}", "\u{1b}[A", "\u{1b}[B", "\u{1b}OA", "\u{1b}[?1;2c", "\u{1b}[5;1R", "\u{1b}[I"] {
+            assert_eq!(normalize_input("opencode", input).unwrap(), input);
+        }
+        for input in ["\u{1b}[200~", "\u{1b}[201~", "\u{1b}[Ax", "\u{1b}[A\r", "\u{1b}O", "\u{1b}[1;2"] {
+            assert!(normalize_input("opencode", input).is_err(), "{input:?}");
         }
     }
     #[test]

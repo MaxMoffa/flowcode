@@ -176,7 +176,12 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
     const sessionId = currentSession.current;
     if (!sessionId || !waiting) return;
     const revision = generation.current;
-    void latest.current.transport({ ...base, op: "input", sessionId, input }).then(next => accept(next, revision)).catch(error => { if (active.current && revision === generation.current) setFailure(String(error)); });
+    void latest.current.transport({ ...base, op: "input", sessionId, input }).then(next => accept(next, revision)).catch(error => {
+      // A refused key (or a terminal reply the host does not forward) is not a failed sign-in:
+      // the login is still running, so keep the terminal instead of the red card.
+      if (/invalid_input|unsupported_input/.test(String(error))) return;
+      if (active.current && revision === generation.current) setFailure(String(error));
+    });
   };
   useEffect(() => {
     if (!details || !waiting || !terminalRef.current) return;
