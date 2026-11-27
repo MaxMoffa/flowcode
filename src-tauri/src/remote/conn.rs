@@ -289,6 +289,9 @@ impl Conn {
     pub(super) fn shutdown(&mut self) {
         self.auth_alive.store(false, Ordering::Release);
         dictation::cancel_all(self.id);
+        for label in explorer::search_labels(self.id) {
+            crate::fs::forget_search_label(&label);
+        }
         crate::provider_auth::cancel_owner(&self.auth_owner());
         for (_, task) in self.subs.drain() {
             task.abort();

@@ -2,8 +2,9 @@
 //! browser keeps its original sandbox in fsbrowse.rs.
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use flowcode_remote_proto::{FsRequest, FsResponse, FsRoot, LsEntry, MAX_FRAME};
+use flowcode_remote_proto::{FsHit, FsRequest, FsResponse, FsRoot, LsEntry, MAX_FRAME};
 use flowcode_shared::i18n::tr;
 use sha2::{Digest, Sha256};
 
@@ -109,8 +110,64 @@ fn read(path: &Path) -> Result<FsResponse, String> {
     }
 }
 
+const SEARCH_QUERY_MAX: usize = 256;
+const SEARCH_DEPTH_MAX: u32 = 32;
+/// Hands out the generations of the host's searches: one per request, in arrival order.
+static SEARCH_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// The counter one connection's searches are cancelled by: a newer search of the same kind (folders only / all names)
+/// from the same connection stops an older one, so the explorer's and the new tab's searches don't cancel each other.
+fn search_label(conn: u64, dirs_only: bool) -> String {
+    format!("remote-{conn}|{}", if dirs_only { "dirs" } else { "all" })
+}
+
+/// Every counter a connection may have made (for its cleanup).
+pub(super) fn search_labels(conn: u64) -> [String; 2] {
+    [search_label(conn, true), search_label(conn, false)]
+}
+
+/// Claims the next generation of `conn`'s search of that kind; call it in the order requests arrive, before the walk runs on the pool.
+pub(super) fn begin_search(conn: u64, dirs_only: bool) -> (String, u64) {
+    let label = search_label(conn, dirs_only);
+    let generation = SEARCH_SEQ.fetch_add(1, Ordering::Relaxed);
+    crate::fs::note_search_generation(&label, generation);
+    (label, generation)
+}
+
+fn search(path: &str, query: &str, dirs_only: bool, max_depth: Option<u32>, show_hidden: bool, slot: (String, u64)) -> Result<FsResponse, String> {
+    if query.len() > SEARCH_QUERY_MAX {
+        return Err(tr("Ricerca troppo lunga", "Search too long").into());
+    }
+    let root = resolve(path)?;
+    let (label, generation) = slot;
+    let depth = max_depth.map(|d| d.clamp(1, SEARCH_DEPTH_MAX));
+    let entries = crate::fs::search_entries(&shown(&root), query, show_hidden, dirs_only, depth, label, generation)
+        .into_iter()
+        .map(|e| FsHit { name: e.name, path: shown(Path::new(&e.path)), dir: e.is_dir })
+        .collect();
+    Ok(FsResponse::Search { entries })
+}
+
 pub(super) fn run(request: FsRequest, config: Option<&Path>) -> Result<FsResponse, String> {
+    run_for(request, config, None)
+}
+
+/// `run`, with the claimed generation for a `Search` (`begin_search`); without one the search gets a counter of its own.
+pub(super) fn run_for(request: FsRequest, config: Option<&Path>, slot: Option<(String, u64)>) -> Result<FsResponse, String> {
     match request {
+        FsRequest::Search { path, query, dirs_only, max_depth, show_hidden } => {
+            let slot = slot.unwrap_or_else(|| begin_search(0, dirs_only));
+            search(&path, &query, dirs_only, max_depth, show_hidden, slot)
+        }
+        FsRequest::Duplicate { path } => {
+            let source = mutable(&path, config)?;
+            let copy = crate::fs::duplicate_blocking(&shown(&source))?;
+            Ok(FsResponse::Done { path: shown(Path::new(&copy.path)) })
+        }
+        FsRequest::Info { path } => {
+            let info = crate::fs::get_file_info(shown(&resolve(&path)?))?;
+            Ok(FsResponse::Info { info: serde_json::to_value(info).map_err(|e| e.to_string())? })
+        }
         FsRequest::Roots => Ok(roots()),
         FsRequest::List { path } => {
             let dir = resolve(&path)?;
@@ -200,6 +257,52 @@ mod tests {
         assert!(run(FsRequest::Move { path: shown(&root.join("nested")), destination: shown(&root.join("nested")) }, None).is_err());
         run(FsRequest::Delete { path: shown(&root.join("nested/renamed.txt")) }, None).unwrap();
         assert!(!root.join("nested/renamed.txt").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn search_duplicate_and_info_work_on_the_host() {
+        let root = scratch("explorer-extra");
+        std::fs::create_dir_all(root.join("app-dir/deep")).unwrap();
+        std::fs::write(root.join("app.txt"), "hello").unwrap();
+        let search = |query: &str, dirs_only: bool, max_depth: Option<u32>| {
+            let slot = begin_search(777, dirs_only);
+            let FsResponse::Search { entries } = run_for(FsRequest::Search { path: shown(&root), query: query.into(), dirs_only, max_depth, show_hidden: false }, None, Some(slot)).unwrap() else { panic!() };
+            entries
+        };
+        let all: Vec<_> = search("app", false, None).into_iter().map(|h| (h.name, h.dir)).collect();
+        assert_eq!(all, [("app-dir".to_string(), true), ("app.txt".to_string(), false)]);
+        let dirs = search("DEEP", true, Some(1));
+        assert!(dirs.is_empty(), "depth 1 reads only the root's children");
+        assert_eq!(search("deep", true, Some(2)).len(), 1);
+        assert!(search("deep", true, None)[0].path.ends_with("app-dir/deep"));
+        assert!(run(FsRequest::Search { path: shown(&root), query: "x".repeat(SEARCH_QUERY_MAX + 1), dirs_only: false, max_depth: None, show_hidden: false }, None).is_err());
+        assert!(run(FsRequest::Search { path: "relative".into(), query: "a".into(), dirs_only: false, max_depth: None, show_hidden: false }, None).is_err());
+
+        // A newer search of the same connection and kind stops an older walk; another kind is left alone.
+        let older = begin_search(778, false);
+        let _newer = begin_search(778, false);
+        let FsResponse::Search { entries } = run_for(FsRequest::Search { path: shown(&root), query: "app".into(), dirs_only: false, max_depth: None, show_hidden: false }, None, Some(older)).unwrap() else { panic!() };
+        assert!(entries.is_empty());
+        let other_kind = begin_search(778, true);
+        let FsResponse::Search { entries } = run_for(FsRequest::Search { path: shown(&root), query: "app".into(), dirs_only: true, max_depth: None, show_hidden: false }, None, Some(other_kind)).unwrap() else { panic!() };
+        assert_eq!(entries.len(), 1);
+
+        let FsResponse::Done { path } = run(FsRequest::Duplicate { path: shown(&root.join("app.txt")) }, None).unwrap() else { panic!() };
+        assert!(path.ends_with("app copy.txt"), "{path}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
+        let FsResponse::Done { path } = run(FsRequest::Duplicate { path: shown(&root.join("app-dir")) }, None).unwrap() else { panic!() };
+        assert!(Path::new(&path).join("deep").is_dir());
+        assert!(run(FsRequest::Duplicate { path: shown(&root) }, Some(&root)).is_err(), "the config folder is protected");
+
+        let FsResponse::Info { info } = run(FsRequest::Info { path: shown(&root.join("app.txt")) }, None).unwrap() else { panic!() };
+        assert_eq!(info["name"], "app.txt");
+        assert_eq!(info["size"], 5);
+        assert_eq!(info["is_dir"], false);
+        assert!(run(FsRequest::Info { path: shown(&root.join("missing")) }, None).is_err());
+        for label in search_labels(777).into_iter().chain(search_labels(778)) {
+            crate::fs::forget_search_label(&label);
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 

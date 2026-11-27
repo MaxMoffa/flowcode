@@ -52,6 +52,8 @@ pub(super) fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
                 ServerMsg::Git { request_id, .. } => ServerMsg::Git { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::History { request_id, .. } => ServerMsg::History { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::HistoryDelete { request_id, .. } => ServerMsg::HistoryDelete { request_id: request_id.clone(), result: None, error: Some(message) },
+                ServerMsg::Shells { request_id, .. } => ServerMsg::Shells { request_id: request_id.clone(), result: None, error: Some(message) },
+                ServerMsg::HostInfo { request_id, .. } => ServerMsg::HostInfo { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::Stats { request_id, .. } => ServerMsg::Stats { request_id: request_id.clone(), result: None, error: Some(message) },
                 _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), chat_id: None, fatal: false },
             };

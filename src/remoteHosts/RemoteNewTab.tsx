@@ -19,7 +19,8 @@ export function RemoteNewTab({ hostId, frontCwd, onClose }: { hostId: string; fr
   const [profile, setProfile] = useState<string | null | undefined>(undefined);
   const caps = host?.caps ?? [];
   const hostName = host?.hostName ?? "";
-  const source = useMemo(() => createRemoteNewTabSource(hostId, hostName, frontCwd), [hostId, hostName, frontCwd]);
+  const hostCaps = host?.caps;
+  const source = useMemo(() => createRemoteNewTabSource(hostId, hostName, frontCwd, hostCaps), [hostId, hostName, frontCwd, hostCaps]);
   const layoutId = resolveNewTabLayout(layout).dialog ? layout : DIALOG_LAYOUT;
 
   return (
@@ -32,12 +33,12 @@ export function RemoteNewTab({ hostId, frontCwd, onClose }: { hostId: string; fr
         defaultShell="system"
         startDir={frontCwd ?? ""}
         termFontSize={fontSize}
-        onLaunch={({ cwd }) => {
-          startOnHost(hostId, caps, { cwd, profile });
+        onLaunch={({ cwd, shell, command, typeOnly }) => {
+          startOnHost(hostId, caps, { cwd, profile, shell, command, typeOnly });
           onClose();
         }}
-        onLaunchAgent={(agent, cwd) => {
-          startOnHost(hostId, caps, { cwd: cwd ?? (frontCwd || undefined), agent, profile });
+        onLaunchAgent={(agent, cwd, shell) => {
+          startOnHost(hostId, caps, { cwd: cwd ?? (frontCwd || undefined), agent, profile, shell });
           onClose();
         }}
         onShellChange={() => {}}

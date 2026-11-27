@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from "react";
 import type { LsEntry } from "../../shared/remote-types";
 import type { PathTarget } from "../lib/fileLinks";
+import { basename } from "../lib/path";
+import type { ClosingEditor } from "../editor/closeEditors";
+import type { EditorHandle } from "../editor/EditorView";
 import { hostRequest } from "./hostRequest";
 
 /** Joins `name` onto `dir` with the separator `dir` uses (the other PC may be a Windows one). */
@@ -199,3 +202,31 @@ export function useRemoteEditors(hostId: string): RemoteEditors {
 export function resetRemoteEditors() {
   state.clear();
 }
+
+// ---- unsaved editors at window close ---------------------------------------
+
+const handles = new Map<string, EditorHandle>();
+const handleKey = (hostId: string, path: string) => `${hostId}\0${path}`;
+
+/** A mounted editor registers its handle (and drops it, with `null`) so the close guard can save it. */
+export function setRemoteEditorHandle(hostId: string, path: string, handle: EditorHandle | null) {
+  if (handle) handles.set(handleKey(hostId, path), handle);
+  else handles.delete(handleKey(hostId, path));
+}
+
+/** The dirty editors of every PC: mounted ones through their handle, left ones through their stashed draft (which can't be saved from here: its save fails, so closing stops). */
+export function dirtyRemoteEditors(hostName: (hostId: string) => string = (id) => id): ClosingEditor[] {
+  const found: ClosingEditor[] = [];
+  for (const [hostId, { tabs }] of state) {
+    for (const tab of tabs) {
+      const handle = handles.get(handleKey(hostId, tab.path));
+      const draft = tab.draft;
+      const usable = handle ?? (tab.dirty && draft !== undefined ? { isDirty: () => true, getContent: () => draft, save: async () => false } : undefined);
+      if (usable) found.push({ id: `remote:${hostId}:${tab.path}`, label: `${basename(tab.path) || tab.path} (${hostName(hostId)})`, handle: usable });
+    }
+  }
+  return found;
+}
+
+/** Whether any PC has an editor with unsaved text. */
+export const hasDirtyRemoteEditors = (): boolean => dirtyRemoteEditors().some((e) => e.handle.isDirty());

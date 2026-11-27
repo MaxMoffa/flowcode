@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
-import { addFavorite, isFavorite, removeFavorite } from "../favorites/favoritesStore";
+import { useFavorites } from "../favorites/favoritesContext";
 import { FileTypeIcon } from "./fileIcons";
 import { FileInfoDialog } from "./FileInfoDialog";
 import type { ExplorerLinkMode } from "../settings/modes";
@@ -228,7 +228,7 @@ interface FileTreeProps {
   onOpenFile: (path: string) => void;
   /** Absent (another PC's explorer): no "open in terminal" item. */
   onOpenTerminal?: (path: string) => void;
-  /** Folder favorites (menu items); this PC only. */
+  /** Folder favorites (menu items), from the favorites context. */
   favorites?: boolean;
   /** Shell id of the active terminal, stored with a favorite added here. */
   shell?: string;
@@ -266,6 +266,7 @@ export function FileTree({
 }: FileTreeProps) {
   const { t } = useI18n();
   const fs = useFsBackend();
+  const { isFavorite, add: addFavorite, remove: removeFavorite } = useFavorites();
   const { explorerDoubleClick } = useTerminalSettings();
   const [entries, setEntries] = useState<FsEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -806,8 +807,9 @@ export function FileTree({
           {toast}
         </div>
       )}
-      {infoEntry && (
+      {infoEntry && fs.info && (
         <FileInfoDialog
+          load={fs.info}
           path={infoEntry.path}
           name={infoEntry.name}
           isDir={infoEntry.is_dir}

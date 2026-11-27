@@ -23,7 +23,7 @@ vi.mock("./remoteHosts", () => ({
   useHostState: () => ({}),
 }));
 
-import { agentsForCaps, mergeRemoteRecents, recordRemoteRecent, startOnHost } from "./remoteNewTabSource";
+import { agentsForCaps, agentsForLogin, mergeRemoteRecents, recordRemoteRecent, startOnHost } from "./remoteNewTabSource";
 
 const recent = (cwd: string, at: number) => ({ cwd, name: cwd, command: "", at });
 
@@ -78,5 +78,33 @@ describe("remote launch mapping", () => {
     startOnHost("h", ["newTabProfile"], { profile: null });
     startOnHost("h", [], { profile: "p1" });
     expect(sent).toEqual([{ t: "newtab", profile: "" }, { t: "newtab" }]);
+  });
+
+  it("a shell and a command go only to hosts with newTabShell, and not with an agent", () => {
+    startOnHost("h", ["newTabShell"], { cwd: "/w", shell: "bash", command: "make", typeOnly: true });
+    startOnHost("h", ["newTabShell"], { shell: "zsh", command: "ls" });
+    startOnHost("h", [], { shell: "bash", command: "make" });
+    startOnHost("h", ["newTabShell"], { agent: "claude", shell: "bash", command: "make" });
+    expect(sent).toEqual([
+      { t: "newtab", cwd: "/w", shell: "bash", command: "make", typeOnly: true },
+      { t: "newtab", shell: "zsh", command: "ls" },
+      { t: "newtab" },
+      { t: "newtab", cli: "claude", shell: "bash" },
+    ]);
+  });
+});
+
+describe("remote agents by sign-in", () => {
+  const all = agentsForCaps(["gemini", "opencode", "cline"]);
+  it("drops agents the account is signed out of", () => {
+    const out = agentsForLogin(all, { claude: true, codex: false, gemini: false });
+    expect(out).not.toContain("codex");
+    expect(out).not.toContain("gemini");
+    expect(out).toContain("claude");
+    expect(out).toContain("opencode");
+  });
+  it("keeps the caps-only list without login info", () => {
+    expect(agentsForLogin(all, null)).toEqual(all);
+    expect(agentsForLogin(all, undefined)).toEqual(all);
   });
 });

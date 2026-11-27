@@ -22,8 +22,21 @@ export interface FsBackend {
   search?: (path: string, query: string, showHidden: boolean, generation: number) => Promise<FsEntry[]>;
   duplicate?: (path: string) => Promise<void>;
   reveal?: (path: string) => void;
-  /** The Info dialog (reads this PC's `get_file_info`). */
-  info?: boolean;
+  /** What the Info dialog shows for `path`. Absent: no Info item. */
+  info?: (path: string) => Promise<FileInfo>;
+}
+
+/** A file or folder's details (this PC's `get_file_info`, or another PC's through the `info` fs op). */
+export interface FileInfo {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  entry_count: number | null;
+  modified: number | null;
+  created: number | null;
+  permissions_mode: string | null;
+  readonly: boolean;
 }
 
 const localFs: FsBackend = {
@@ -46,7 +59,7 @@ const localFs: FsBackend = {
   search: (path, query, showHidden, generation) => invoke<FsEntry[]>("search_dir", { path, query, showHidden, generation }),
   duplicate: (path) => invoke("duplicate_entry", { path }),
   reveal: (path) => void revealItemInDir(path).catch(() => {}),
-  info: true,
+  info: (path) => invoke<FileInfo>("get_file_info", { path }),
 };
 
 export const FsBackendContext = createContext<FsBackend>(localFs);

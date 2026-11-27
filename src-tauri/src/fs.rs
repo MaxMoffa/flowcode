@@ -7,9 +7,9 @@ use crate::blocking;
 
 #[derive(Serialize)]
 pub struct FsEntry {
-    name: String,
-    path: String,
-    is_dir: bool,
+    pub(crate) name: String,
+    pub(crate) path: String,
+    pub(crate) is_dir: bool,
 }
 
 impl FsEntry {
@@ -193,31 +193,35 @@ pub async fn search_dir(
     window: tauri::Window,
 ) -> Result<Vec<FsEntry>, String> {
     let label = format!("{}|{}", window.label(), channel.unwrap_or_default());
-    {
-        let mut map = SEARCH_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        let latest = map.get_or_insert_with(Default::default).entry(label.clone()).or_insert(0);
-        *latest = (*latest).max(generation);
+    note_search_generation(&label, generation);
+    blocking(move || Ok(search_entries(&path, &query, show_hidden.unwrap_or(false), dirs_only.unwrap_or(false), max_depth, label, generation))).await
+}
+
+/// Records `generation` as the newest search of `label` (older walks of it stop).
+pub(crate) fn note_search_generation(label: &str, generation: u64) {
+    let mut map = SEARCH_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let latest = map.get_or_insert_with(Default::default).entry(label.to_string()).or_insert(0);
+    *latest = (*latest).max(generation);
+}
+
+/// Drops the counter of a caller that is gone (a closed connection).
+pub(crate) fn forget_search_label(label: &str) {
+    if let Some(map) = SEARCH_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        map.remove(label);
     }
-    blocking(move || {
-        let query = query.trim().to_lowercase();
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut results = Vec::new();
-        let walk = SearchWalk {
-            query: &query,
-            show_hidden: show_hidden.unwrap_or(false),
-            dirs_only: dirs_only.unwrap_or(false),
-            max_depth,
-            label,
-            generation,
-            deadline: std::time::Instant::now() + SEARCH_DEADLINE,
-        };
-        search_dir_recursive(Path::new(&path), &walk, 0, &mut results);
-        sort_entries(&mut results);
-        Ok(results)
-    })
-    .await
+}
+
+/// The blocking walk behind `search_dir` (and the remote host's `fsSearch`): call `note_search_generation` first.
+pub(crate) fn search_entries(path: &str, query: &str, show_hidden: bool, dirs_only: bool, max_depth: Option<u32>, label: String, generation: u64) -> Vec<FsEntry> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let walk = SearchWalk { query: &query, show_hidden, dirs_only, max_depth, label, generation, deadline: std::time::Instant::now() + SEARCH_DEADLINE };
+    search_dir_recursive(Path::new(path), &walk, 0, &mut results);
+    sort_entries(&mut results);
+    results
 }
 
 #[tauri::command]
@@ -500,23 +504,25 @@ fn unique_copy_path(parent: &Path, stem: &str, ext: Option<&str>) -> PathBuf {
 
 #[tauri::command]
 pub async fn duplicate_entry(path: String) -> Result<FsEntry, String> {
-    blocking(move || {
-        let src = Path::new(&path);
-        let parent = src.parent().ok_or("cannot duplicate the root directory")?;
-        if src.is_dir() {
-            let stem = src.file_name().and_then(|n| n.to_str()).unwrap_or("folder");
-            let dest = unique_copy_path(parent, stem, None);
-            copy_dir_recursive(src, &dest).map_err(|e| e.to_string())?;
-            Ok(FsEntry::new(&dest, true))
-        } else {
-            let stem = src.file_stem().and_then(|n| n.to_str()).unwrap_or("file");
-            let ext = src.extension().and_then(|n| n.to_str());
-            let dest = unique_copy_path(parent, stem, ext);
-            copy_file_new(src, &dest).map_err(|e| e.to_string())?;
-            Ok(FsEntry::new(&dest, false))
-        }
-    })
-    .await
+    blocking(move || duplicate_blocking(&path)).await
+}
+
+/// The blocking copy behind `duplicate_entry` (and the remote host's `fsExtra` duplicate).
+pub(crate) fn duplicate_blocking(path: &str) -> Result<FsEntry, String> {
+    let src = Path::new(path);
+    let parent = src.parent().ok_or("cannot duplicate the root directory")?;
+    if src.is_dir() {
+        let stem = src.file_name().and_then(|n| n.to_str()).unwrap_or("folder");
+        let dest = unique_copy_path(parent, stem, None);
+        copy_dir_recursive(src, &dest).map_err(|e| e.to_string())?;
+        Ok(FsEntry::new(&dest, true))
+    } else {
+        let stem = src.file_stem().and_then(|n| n.to_str()).unwrap_or("file");
+        let ext = src.extension().and_then(|n| n.to_str());
+        let dest = unique_copy_path(parent, stem, ext);
+        copy_file_new(src, &dest).map_err(|e| e.to_string())?;
+        Ok(FsEntry::new(&dest, false))
+    }
 }
 
 /// Largest file the editor opens: it holds the whole text in memory (and

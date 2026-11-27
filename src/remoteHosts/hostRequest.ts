@@ -5,8 +5,8 @@ let sequence = 0;
 
 type Reply<K extends ServerMsg["t"]> = Extract<ServerMsg, { t: K }>;
 
-/** Sends a correlated request (`history`, `historydelete`, `fs`, `git`) to a PC and resolves with its reply; the host's error string rejects. */
-export function hostRequest<K extends "history" | "historydelete" | "fs" | "git">(hostId: string, kind: K, build: (requestId: string) => ClientMsg, timeoutMs = 30_000): Promise<Reply<K>> {
+/** Sends a correlated request (`history`, `historydelete`, `fs`, `git`, `shells`, `hostinfo`) to a PC and resolves with its reply; the host's error string rejects. */
+export function hostRequest<K extends "history" | "historydelete" | "fs" | "git" | "shells" | "hostinfo">(hostId: string, kind: K, build: (requestId: string) => ClientMsg, timeoutMs = 30_000): Promise<Reply<K>> {
   return new Promise((resolve, reject) => {
     const requestId = `${kind}-${Date.now()}-${++sequence}`;
     let done = false;

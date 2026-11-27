@@ -3,10 +3,12 @@ import { AGENT_CLIS, type AgentCli } from "../agents/cliInfo";
 import { useSidebarTab } from "../sidebar/Sidebar";
 import { SegmentedSwitch } from "../lib/SegmentedSwitch";
 import { useI18n } from "../i18n";
-import { remoteEntries, useHost, useHostState } from "./remoteHosts";
+import { expectNewTab, remoteEntries, sendToHost, terminalLike, useHost, useHostState } from "./remoteHosts";
 import { FileTree } from "../sidebar/FileTree";
 import { FsBackendContext } from "../sidebar/fsBackend";
 import { remoteFsBackend } from "./remoteFs";
+import { FavoritesContext } from "../favorites/favoritesContext";
+import { remoteFavorites } from "../favorites/favoritesStore";
 import { GitDock } from "../sidebar/GitDock";
 import { GitBackendContext, type GitStatus } from "../git/gitStatus";
 import { remoteGitBackend } from "./remoteGit";
@@ -54,7 +56,8 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
   const shown: "history" | "explorer" | "agent" = options.some((o) => o.id === tab) ? (tab as "history" | "explorer" | "agent") : (options[0]?.id ?? "explorer");
   // The other PC's repository, through its `git` messages; the drawer below the folders shows it.
   const git = useMemo(() => remoteGitBackend(hostId), [hostId]);
-  const fs = useMemo(() => remoteFsBackend(hostId), [hostId]);
+  const fs = useMemo(() => remoteFsBackend(hostId, host?.caps), [hostId, host?.caps]);
+  const favorites = useMemo(() => remoteFavorites(hostId), [hostId]);
   // The folder the explorer shows: the front tab's, until browsed elsewhere; it follows the tab when that moves.
   const [path, setPath] = useState(cwd);
   useEffect(() => setPath(cwd), [cwd, hostId]);
@@ -84,13 +87,20 @@ export function RemoteSidebar({ hostId }: { hostId: string }) {
             <div className="sidebar-explorer-tree">
               {host?.status === "online" ? (
                 <FsBackendContext.Provider value={fs}>
+                  <FavoritesContext.Provider value={favorites}>
                   <FileTree
+                    favorites
                     cwd={path}
                     onNavigate={setPath}
                     onGoHome={() => setPath(cwd)}
                     onOpenFile={(file) => openRemoteFile({ hostId, path: file })}
+                    onOpenTerminal={(dir) => {
+                      expectNewTab(hostId, terminalLike(dir));
+                      void sendToHost(hostId, { t: "newtab", cwd: dir });
+                    }}
                     visible={shown === "explorer"}
                   />
+                  </FavoritesContext.Provider>
                 </FsBackendContext.Provider>
               ) : (
                 <div className="file-tree-loading">{t("remoteHosts.offlineEmpty", { name: host?.hostName ?? "" })}</div>

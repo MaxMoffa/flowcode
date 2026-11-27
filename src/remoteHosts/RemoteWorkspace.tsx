@@ -4,7 +4,7 @@ import { rememberVisit, remoteEntries, useHost, useHostState } from "./remoteHos
 import { RemoteChatView } from "./RemoteChatView";
 import { RemoteTerminalView } from "./RemoteTerminalView";
 import { remoteTextBackend } from "./remoteTextFile";
-import { renameRemoteEditor, setRemoteEditorDirty, showRemoteEditor, stashRemoteDraft, useRemoteEditors } from "./remoteFiles";
+import { renameRemoteEditor, setRemoteEditorDirty, setRemoteEditorHandle, showRemoteEditor, stashRemoteDraft, useRemoteEditors } from "./remoteFiles";
 import { TextFileBackendContext } from "../editor/textFileBackend";
 import type { EditorHandle } from "../editor/EditorView";
 import { RemoteDiffViewer } from "./RemoteDiffViewer";
@@ -73,12 +73,16 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
               ref={(handle) => {
                 if (handle) {
                   handles.current.set(file.path, handle);
+                  setRemoteEditorHandle(hostId, file.path, handle);
                   // A new editor: carry the line it was opened with (kept until its text is loaded).
                   if (file.line !== undefined && scrolled.current.get(file.path) !== file.seq) {
                     scrolled.current.set(file.path, file.seq);
                     handle.scrollToLine(file.line);
                   }
-                } else handles.current.delete(file.path);
+                } else {
+                  handles.current.delete(file.path);
+                  setRemoteEditorHandle(hostId, file.path, null);
+                }
               }}
               path={file.path}
               initialContent={file.draft}

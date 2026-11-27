@@ -25,6 +25,21 @@ pub enum FsRequest {
     Move { path: String, destination: String },
     Delete { path: String },
     Write { path: String, text: String, version: String },
+    /// Recursive name search under `path`, needs `fsSearch`. `dirs_only` keeps folders; `max_depth` caps the levels read (1: just `path`'s children).
+    Search {
+        path: String,
+        query: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dirs_only: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        show_hidden: bool,
+    },
+    /// Copies the file or folder next to itself ("name copy.ext"), needs `fsExtra`. Answered with `Done` (the copy's path).
+    Duplicate { path: String },
+    /// What the explorer's Info dialog shows, needs `fsExtra`.
+    Info { path: String },
 }
 
 /// Git panel operations, available only with the `git` capability.
@@ -55,6 +70,17 @@ pub enum FsResponse {
     List { path: String, parent: Option<String>, entries: Vec<LsEntry>, truncated: bool },
     File { path: String, text: String, truncated: bool, version: Option<String> },
     Done { path: String },
+    Search { entries: Vec<FsHit> },
+    /// The desktop's `get_file_info` result as is (snake_case: name, path, is_dir, size, entry_count, modified, created, permissions_mode, readonly).
+    Info { info: serde_json::Value },
+}
+
+/// One match of an `FsRequest::Search`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct FsHit {
+    pub name: String,
+    pub path: String,
+    pub dir: bool,
 }
 
 /// The tab a `TabOp` acts on: `{ "ptyId": .. }` or `{ "chatId": .. }`.
@@ -239,7 +265,19 @@ pub enum ClientMsg {
         /// profile; absent = automatic (the folder's project default).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
+        /// Shell id (`system`, `cmd`, `powershell`, `pwsh`, `wsl`, `wsl:<distro>`, `bash`, `zsh`, `sh`; see `Shells`) to start instead of the default one. Needs `newTabShell`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell: Option<String>,
+        /// A command line (single line, no control characters) for the new terminal: run, or with `type_only` left typed on the prompt. Needs `newTabShell`; ignored with `cli`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        type_only: bool,
     },
+    /// The shells this desktop can start (`ServerMsg::Shells`), needs `newTabShell`.
+    Shells { request_id: String },
+    /// The desktop's machine facts for the new-tab banner (`ServerMsg::HostInfo`), needs `hostInfo`.
+    HostInfo { request_id: String },
     /// Follow a chat: the desktop answers with its events after `after_seq`
     /// (`ServerMsg::ChatEvents` with `replay`), then streams the new ones.
     ChatOpen {
@@ -482,6 +520,22 @@ pub enum ServerMsg {
     },
     /// Reply to `historyDelete`: `{deleted: [sessionId], failed: [{sessionId, error}]}` or an error.
     HistoryDelete {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `shells`: a JSON array of `{id, label}` (the desktop's `list_shell_options`) or an error.
+    Shells {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `hostinfo`: the desktop's `system_info` JSON (`os_name`, `os_version`, `arch`, `memory_total`, `memory_available`, `disk`) or an error.
+    HostInfo {
         request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result: Option<serde_json::Value>,
@@ -985,9 +1039,46 @@ mod tests {
     #[test]
     fn newtab_round_trips() {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"newtab","cwd":"C:\\x","cli":"claude","profile":"p1"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("C:\\x".into()), cli: Some("claude".into()), profile: Some("p1".into()) });
-        let json = serde_json::to_value(ClientMsg::NewTab { cwd: None, cli: None, profile: None }).unwrap();
+        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("C:\\x".into()), cli: Some("claude".into()), profile: Some("p1".into()), shell: None, command: None, type_only: false });
+        let json = serde_json::to_value(ClientMsg::NewTab { cwd: None, cli: None, profile: None, shell: None, command: None, type_only: false }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "newtab" }));
+        let json = serde_json::json!({ "t": "newtab", "cwd": "/p", "shell": "wsl:Ubuntu", "command": "make", "typeOnly": true });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("/p".into()), cli: None, profile: None, shell: Some("wsl:Ubuntu".into()), command: Some("make".into()), type_only: true });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+    }
+
+    #[test]
+    fn shells_hostinfo_and_extra_fs_ops_round_trip() {
+        let json = serde_json::json!({ "t": "shells", "requestId": "s1" });
+        assert_eq!(serde_json::to_value(serde_json::from_value::<ClientMsg>(json.clone()).unwrap()).unwrap(), json);
+        let json = serde_json::json!({ "t": "hostinfo", "requestId": "i1" });
+        assert_eq!(serde_json::to_value(serde_json::from_value::<ClientMsg>(json.clone()).unwrap()).unwrap(), json);
+        let reply = ServerMsg::Shells { request_id: "s1".into(), result: Some(serde_json::json!([{ "id": "system", "label": "" }])), error: None };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json["t"], "shells");
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+        let reply = ServerMsg::HostInfo { request_id: "i1".into(), result: None, error: Some("no".into()) };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "hostinfo", "requestId": "i1", "error": "no" }));
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+
+        let json = serde_json::json!({ "t": "fs", "requestId": "r", "request": { "op": "search", "path": "/p", "query": "a", "dirsOnly": true, "maxDepth": 3 } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::Fs { request_id: "r".into(), request: FsRequest::Search { path: "/p".into(), query: "a".into(), dirs_only: true, max_depth: Some(3), show_hidden: false } });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        for json in [serde_json::json!({ "op": "duplicate", "path": "/p/a" }), serde_json::json!({ "op": "info", "path": "/p/a" })] {
+            let req: FsRequest = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(serde_json::to_value(req).unwrap(), json);
+        }
+        for resp in [
+            FsResponse::Search { entries: vec![FsHit { name: "a".into(), path: "/p/a".into(), dir: true }] },
+            FsResponse::Info { info: serde_json::json!({ "name": "a", "is_dir": true }) },
+        ] {
+            let json = serde_json::to_value(&resp).unwrap();
+            assert_eq!(serde_json::from_value::<FsResponse>(json).unwrap(), resp);
+        }
+        assert_eq!(serde_json::to_value(FsResponse::Search { entries: vec![] }).unwrap()["kind"], "search");
     }
 
     #[test]

@@ -12,6 +12,9 @@ import { noteRemoteSubmit } from "../terminal/ptyClient";
 
 const appWindow = getCurrentWindow();
 
+/** The shell and command of a remote `newtab` (the host already checked them): `typeOnly` leaves the command typed on the prompt. */
+export interface RemoteNewTabLaunch { shell?: string; command?: string; typeOnly?: boolean }
+
 /** A phone's tab-strip action (the `tabop` message's `op`). */
 export type RemoteTabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "move"; index: number };
 
@@ -23,7 +26,7 @@ interface RemoteWindowEventRefs {
   termRefs: MutableRefObject<Map<string, TerminalHandle>>;
   remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
   remoteProfileLoginRef: MutableRefObject<(profileId: string | null, cli: string) => void>;
-  remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>;
+  remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined, launch?: RemoteNewTabLaunch) => void>;
   remoteRenameRef: MutableRefObject<(ptyId: string, label: string) => void>;
   remoteCloseRef: MutableRefObject<(ptyId: string) => void>;
   remoteChatTerminalRef: MutableRefObject<(tabId: string) => void>;
@@ -87,8 +90,9 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       if (e.payload.cli) remoteProfileLoginRef.current(e.payload.id || null, e.payload.cli);
     });
     // A phone asking for a new terminal tab here.
-    const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null; profile?: string | null }>("remote://new-tab", (e) => {
-      remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null, e.payload.profile ?? undefined);
+    const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null; profile?: string | null; shell?: string | null; command?: string | null; typeOnly?: boolean }>("remote://new-tab", (e) => {
+      const { shell, command, typeOnly } = e.payload;
+      remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null, e.payload.profile ?? undefined, { shell: shell ?? undefined, command: command ?? undefined, typeOnly: !!typeOnly });
     });
     // A phone renaming one of our terminal tabs.
     const unlistenRename = webview.listen<{ ptyId: string; label: string }>("remote://rename-tab", (e) =>

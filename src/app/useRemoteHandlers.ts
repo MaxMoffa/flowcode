@@ -3,7 +3,7 @@ import type { ChatTab } from "../tabs/types";
 import { wslDistroOfPath, wslShellId } from "../terminal/wslPath";
 import { isPhoneAction } from "../plugins/remotePublish";
 import { profileForPath } from "../profiles/profiles";
-import { useRemoteWindowEvents, type RemoteTabOp } from "./useRemoteWindowEvents";
+import { useRemoteWindowEvents, type RemoteNewTabLaunch, type RemoteTabOp } from "./useRemoteWindowEvents";
 import { listedTabs } from "../tabs/tabState";
 import { AGENT_CLIS, type AgentCli } from "../agents/cliInfo";
 import type { ShellCtx } from "./shellContext";
@@ -12,7 +12,7 @@ import type { ShellCtx } from "./shellContext";
 export function useRemoteHandlers(S: ShellCtx) {
   const {
     addTab, adoptTabRef, allPlugins, closeTab, duplicateTab, homeDir, latestRef, launchAgentInNewTab, loginProfile,
-    openChatTab, pendingRemoteRunRef, profiles, quickActionIds, renameTab, reorderTab, resumeAgentSession,
+    openChatTab, pendingCommandsRef, pendingRemoteRunRef, pendingTypedCommandsRef, profiles, quickActionIds, renameTab, reorderTab, resumeAgentSession,
     runPlugin, selectTabRef, switchChatToTerminal, switchTerminalToChat, termRefs, toggleTabNotifications,
   } = S;
   // The phone-triggered action runner and what it needs, kept current each
@@ -21,7 +21,7 @@ export function useRemoteHandlers(S: ShellCtx) {
   /** The phone asked to sign a CLI in under a profile (see loginProfile). */
   const remoteProfileLoginRef = useRef<(profileId: string | null, cli: string) => void>(() => {});
   /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
-  const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
+  const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined, launch?: RemoteNewTabLaunch) => void>(() => {});
   const remoteRenameRef = useRef<(ptyId: string, label: string) => void>(() => {});
   const remoteCloseRef = useRef<(ptyId: string) => void>(() => {});
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
@@ -62,16 +62,21 @@ export function useRemoteHandlers(S: ShellCtx) {
     return profile == null ? undefined : profiles.some((p) => p.id === profile) ? profile : null;
   }
 
-  remoteNewTabRef.current = (cwd, cli, profile) => {
+  remoteNewTabRef.current = (cwd, cli, profile, launch) => {
     const profileId = remoteProfileId(profile);
+    const shell = launch?.shell && launch.shell !== "system" ? launch.shell : undefined;
     if (cli && (AGENT_CLIS as readonly string[]).includes(cli)) {
       const dir = cwd ?? homeDir;
       // Automatic for an agent: the folder's project default, like a shell tab gets.
       const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
       // The phone picks terminal or chat itself (its own default view).
       const distro = wslDistroOfPath(dir);
-      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, distro ? wslShellId(distro) : undefined, id ?? undefined, true));
-    } else addTab(cwd ?? undefined, undefined, false, profileId);
+      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, shell ?? (distro ? wslShellId(distro) : undefined), id ?? undefined, true));
+    } else {
+      // As a local new-tab launch: the shell starts in `cwd` and runs the command (or leaves it typed).
+      const id = addTab(cwd ?? undefined, shell, false, profileId);
+      if (launch?.command) (launch.typeOnly ? pendingTypedCommandsRef : pendingCommandsRef).current.set(id, launch.command);
+    }
   };
 
   remoteResumeRef.current = (cwd, sessionId, cli, wslDistro, profile, view) => {

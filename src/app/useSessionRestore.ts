@@ -4,6 +4,8 @@ import type { AppTab } from "../tabs/types";
 import { loadSession, type SavedWindow } from "../session/session";
 import { useWindowSession } from "../session/useWindowSession";
 import { prepareEditorClose } from "../editor/closeEditors";
+import { hostNameOf } from "../remoteHosts/remoteHosts";
+import { dirtyRemoteEditors, hasDirtyRemoteEditors } from "../remoteHosts/remoteFiles";
 import { wslDistroOfShell } from "../terminal/wslPath";
 import { basename } from "../lib/path";
 import { cmdTitlePathCandidates, firstExistingDir, labelForCwd } from "../terminal/tabTitle";
@@ -142,21 +144,25 @@ export function useSessionRestore(S: ShellCtx) {
     state: () => ({
       ...latestRef.current,
       restoreContent: restoreContentRef.current,
-      dirtyEditors: latestRef.current.tabs.some((tab) => tab.kind === "editor" && (editorRefs.current.get(tab.id)?.isDirty() ?? pendingEditorContentRef.current.has(tab.id))),
+      dirtyEditors: latestRef.current.tabs.some((tab) => tab.kind === "editor" && (editorRefs.current.get(tab.id)?.isDirty() ?? pendingEditorContentRef.current.has(tab.id))) || hasDirtyRemoteEditors(),
       restoredTabIds: restoredTabIdsRef.current,
       terminals: termRefs.current,
       restoredContent: restoredContentRef.current,
       shellOf: tabShell,
     }),
     prepareClose: () => prepareEditorClose(
-      () => latestRef.current.tabs.flatMap((tab) => {
-        if (tab.kind !== "editor") return [];
-        const pending = pendingEditorContentRef.current.get(tab.id);
-        const handle = editorRefs.current.get(tab.id) ?? (pending !== undefined ? {
-          isDirty: () => true, getContent: () => pending, save: async () => false,
-        } : undefined);
-        return handle ? [{ id: tab.id, label: tab.label, handle }] : [];
-      }),
+      () => [
+        ...latestRef.current.tabs.flatMap((tab) => {
+          if (tab.kind !== "editor") return [];
+          const pending = pendingEditorContentRef.current.get(tab.id);
+          const handle = editorRefs.current.get(tab.id) ?? (pending !== undefined ? {
+            isDirty: () => true, getContent: () => pending, save: async () => false,
+          } : undefined);
+          return handle ? [{ id: tab.id, label: tab.label, handle }] : [];
+        }),
+        // Files of other PCs open in editor tabs of their own.
+        ...dirtyRemoteEditors(hostNameOf),
+      ],
       async (editor) => {
         const choice = await chooseClose({
           title: t("app.unsaved.title"),

@@ -33,6 +33,18 @@ pub(super) fn ensure_local_dir(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A shell id a client may start a tab with: the fixed ones (`ShellOption::id`) or a WSL distro (`wsl:<name>`).
+/// Anything else would be taken as a program name by `resolve_shell`.
+pub(super) fn shell_id_ok(id: &str) -> bool {
+    matches!(id, "system" | "cmd" | "powershell" | "pwsh" | "wsl" | "zsh" | "bash" | "sh")
+        || id.strip_prefix("wsl:").is_some_and(|d| !d.is_empty() && d.len() <= 128 && !d.chars().any(|c| c.is_control() || matches!(c, '/' | '\\')))
+}
+
+/// A command line for a new tab: one line (a tab is fine), at most 4 KiB, no other control character.
+pub(super) fn command_ok(command: &str) -> bool {
+    command.len() <= 4096 && !command.chars().any(|c| c.is_control() && c != '\t')
+}
+
 /// Runs one Git panel request through the same functions the desktop panel invokes.
 pub(super) async fn run_git(request: proto::GitRequest) -> Result<serde_json::Value, String> {
     use crate::git;
@@ -186,17 +198,42 @@ impl Conn {
                 let payload = serde_json::json!({ "ptyId": pty_id });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_CLOSE_TAB, payload);
             }
-            ClientMsg::NewTab { cwd, cli, profile } => {
+            ClientMsg::NewTab { cwd, cli, profile, shell, command, type_only } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
                 if !self.new_target_ok(&cwd, cli.as_deref(), &profile) {
+                    return;
+                }
+                // Like a local new-tab launch: `shell` is one of the known ids, `command` a single line.
+                let command = command.filter(|c| !c.trim().is_empty());
+                if shell.as_deref().is_some_and(|s| !shell_id_ok(s)) || command.as_deref().is_some_and(|c| !command_ok(c)) {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
                     return;
                 }
                 let Some(window) = self.shared.default_window() else {
                     self.error(tr("Nessuna finestra aperta", "No window is open"), None);
                     return;
                 };
-                let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile });
+                let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile, "shell": shell, "command": command, "typeOnly": type_only });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_TAB, payload);
+            }
+            ClientMsg::Shells { request_id } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Probes for WSL (spawns wsl.exe): off the connection loop.
+                    let result = crate::blocking(|| serde_json::to_value(crate::pty::list_shell_options()).map_err(|e| e.to_string())).await;
+                    let (result, error) = match result { Ok(v) => (Some(v), None), Err(e) => (None, Some(e)) };
+                    let _ = out.send(ServerMsg::Shells { request_id, result, error }).await;
+                });
+            }
+            ClientMsg::HostInfo { request_id } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let result = crate::blocking(|| serde_json::to_value(crate::system::system_info()).map_err(|e| e.to_string())).await;
+                    let (result, error) = match result { Ok(v) => (Some(v), None), Err(e) => (None, Some(e)) };
+                    let _ = out.send(ServerMsg::HostInfo { request_id, result, error }).await;
+                });
             }
             ClientMsg::NewChat { cli, cwd, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
@@ -537,8 +574,13 @@ impl Conn {
                 if request_id.len() > 128 { return; }
                 let config = self.shared.app.path().app_config_dir().ok();
                 let out = self.out_tx.clone();
+                // The generation is claimed here, in arrival order: a newer search of this connection stops an older walk.
+                let slot = match &request {
+                    proto::FsRequest::Search { dirs_only, .. } => Some(explorer::begin_search(self.id, *dirs_only)),
+                    _ => None,
+                };
                 tauri::async_runtime::spawn(async move {
-                    let result = crate::blocking(move || explorer::run(request, config.as_deref())).await;
+                    let result = crate::blocking(move || explorer::run_for(request, config.as_deref(), slot)).await;
                     let (response, error) = match result { Ok(r) => (Some(r), None), Err(e) => (None, Some(e)) };
                     let _ = out.send(ServerMsg::Fs { request_id, response, error }).await;
                 });
@@ -791,6 +833,20 @@ mod browser_op_tests {
         for ok in ["\\\\wsl.localhost\\Ubuntu\\home\\u", "\\\\WSL$\\Ubuntu\\home", "//wsl.localhost/Ubuntu/home", "C:\\p", "/home/u/p", "C:/a//b"] {
             assert!(!is_foreign_unc(ok), "{ok:?}");
         }
+    }
+
+    #[test]
+    fn new_tab_shell_and_command_are_checked() {
+        for ok in ["system", "cmd", "pwsh", "bash", "wsl", "wsl:Ubuntu-22.04"] {
+            assert!(shell_id_ok(ok), "{ok:?}");
+        }
+        for bad in ["", "C:\\Windows\\evil.exe", "/bin/sh", "bash -c x", "wsl:", "wsl:a/b", "wsl:a\nb", "SYSTEM"] {
+            assert!(!shell_id_ok(bad), "{bad:?}");
+        }
+        assert!(command_ok("npm run dev\t--port 3000"));
+        assert!(!command_ok("ls\r\nrm -rf x"));
+        assert!(!command_ok("a\u{1b}[31m"));
+        assert!(!command_ok(&"x".repeat(4097)));
     }
 
     #[test]

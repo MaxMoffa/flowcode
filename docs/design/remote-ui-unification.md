@@ -72,9 +72,12 @@ takes a `transport` and serves desktop, PC-to-PC and phone.
   The user chose the local experience for both (2026-11-27). Both are done:
   editor tabs via `TextFileBackend`, and the new tab page as a dialog via
   `NewTabSource`.
-  Remote gaps: no shell choice or typed command (the `newtab` message has
-  neither), no folder search, no favorites, no banner, agents not filtered
-  by sign-in, and no unsaved-changes prompt on app close for remote editors.
+  Remote gaps: no unsaved-changes prompt on app close for remote editors.
+  Closed with host work (caps, older hosts keep working): `newTabShell`
+  (`newtab` takes shell/command/typeOnly, `shells` lists the host's shells),
+  `fsSearch` (fs op `search`; the host cancels an older walk of the same
+  connection and kind), `hostInfo` (banner facts), `fsExtra` (fs ops
+  `duplicate` and `info`). Explorer "open in terminal" reuses `newtab`.
 
 ## Rule for new features
 

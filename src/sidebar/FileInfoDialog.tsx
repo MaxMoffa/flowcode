@@ -1,22 +1,10 @@
 import { useExitGhost } from "../hooks/useExitGhost";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
+import type { FileInfo } from "./fsBackend";
 import "../dialog/modal.css";
 import "./file-info-dialog.css";
-
-interface FileInfo {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  size: number;
-  entry_count: number | null;
-  modified: number | null;
-  created: number | null;
-  permissions_mode: string | null;
-  readonly: boolean;
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -50,20 +38,22 @@ interface FileInfoDialogProps {
   path: string;
   name: string;
   isDir: boolean;
+  /** Reads the details from the file system the explorer shows (`FsBackend.info`). */
+  load: (path: string) => Promise<FileInfo>;
   onClose: () => void;
 }
 
-export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogProps) {
+export function FileInfoDialog({ path, name, isDir, load, onClose }: FileInfoDialogProps) {
   const exitRef = useExitGhost<HTMLDivElement>();
   const { t, language } = useI18n();
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    invoke<FileInfo>("get_file_info", { path })
+    load(path)
       .then(setInfo)
       .catch((e) => setError(String(e)));
-  }, [path]);
+  }, [path, load]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

@@ -153,7 +153,37 @@ export type FsRequest =
   | { op: "create"; path: string; name: string; dir: boolean }
   | { op: "rename"; path: string; name: string }
   | { op: "move"; path: string; destination: string }
-  | { op: "write"; path: string; text: string; version: string };
+  | { op: "write"; path: string; text: string; version: string }
+  /** Needs the "fsSearch" cap. `maxDepth` 1 = just `path`'s children. */
+  | { op: "search"; path: string; query: string; dirsOnly?: boolean; maxDepth?: number; showHidden?: boolean }
+  /** Needs the "fsExtra" cap: copies next to the original, answered with `done` (the copy's path). */
+  | { op: "duplicate" | "info"; path: string };
+
+/** What the explorer's Info dialog shows: the host's `get_file_info` (snake_case, as the local command returns it). */
+export interface FsInfo {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  entry_count: number | null;
+  modified: number | null;
+  created: number | null;
+  permissions_mode: string | null;
+  readonly: boolean;
+}
+
+/** A shell the host can start (`list_shell_options`). */
+export interface HostShellOption { id: string; label: string }
+
+/** The host's machine facts for the new-tab banner (`system_info`, snake_case). */
+export interface HostSystemInfo {
+  os_name: string | null;
+  os_version: string | null;
+  arch: string;
+  memory_total: number;
+  memory_available: number;
+  disk: { total: number; available: number } | null;
+}
 
 /** Git panel operations on the paired desktop (`git` cap). Results are the desktop's `git_*` command values (src-tauri/src/git.rs); `null` for none. */
 export type GitRequest =
@@ -180,7 +210,9 @@ export type FsResponse =
   | { kind: "roots"; roots: FsRoot[] }
   | { kind: "list"; path: string; parent: string | null; entries: LsEntry[]; truncated: boolean }
   | { kind: "file"; path: string; text: string; truncated: boolean; version: string | null }
-  | { kind: "done"; path: string };
+  | { kind: "done"; path: string }
+  | { kind: "search"; entries: { name: string; path: string; dir: boolean }[] }
+  | { kind: "info"; info: FsInfo };
 
 export type ProfileCli = "claude" | "codex" | "vibe" | "gemini" | "opencode" | "cline";
 
@@ -293,6 +325,14 @@ export type RemoteCap =
   | "tabOps"
   | "history"
   | "historyDelete"
+  /** `newtab` takes `shell`, `command` and `typeOnly`; `shells` lists the host's shells. */
+  | "newTabShell"
+  /** The `search` fs op. */
+  | "fsSearch"
+  /** `hostinfo`: the machine facts for the new-tab banner. */
+  | "hostInfo"
+  /** The `duplicate` and `info` fs ops. */
+  | "fsExtra"
   | "stats"
   | "resume"
   | "chatAttach"
@@ -369,6 +409,8 @@ export type ServerMsg =
   | { t: "history"; requestId: string; result?: HistoryResult; error?: string }
   | { t: "historydelete"; requestId: string; result?: HistoryDeleteResult; error?: string }
   | { t: "stats"; requestId: string; result?: ActivityStats; error?: string }
+  | { t: "shells"; requestId: string; result?: HostShellOption[]; error?: string }
+  | { t: "hostinfo"; requestId: string; result?: HostSystemInfo; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   /** `chatId`: the refusal concerns that chat (a failed `chatopen`: too many open chats, not found...); absent on hosts older than that. */
@@ -449,7 +491,20 @@ export type ClientMsg =
   | { t: "set"; key: SettingKey; value: unknown }
   | ({ t: "profile" } & ProfileAction)
   /** Opens a new desktop terminal tab, in `cwd` (else the start folder), starting `cli` in it if given. */
-  | { t: "newtab"; cwd?: string; cli?: string; /** Account profile id; "" = the default one; absent = automatic. */ profile?: string }
+  | {
+      t: "newtab";
+      cwd?: string;
+      cli?: string;
+      /** Account profile id; "" = the default one; absent = automatic. */
+      profile?: string;
+      /** A shell id from `shells` (needs "newTabShell"); absent = the host's default. */
+      shell?: string;
+      /** A one-line command for the new terminal (needs "newTabShell"; not with `cli`): run, or with `typeOnly` left typed on the prompt. */
+      command?: string;
+      typeOnly?: boolean;
+    }
+  | { t: "shells"; requestId: string }
+  | { t: "hostinfo"; requestId: string }
   /** Follows a chat: the desktop answers with its events after `afterSeq`, then streams new ones. */
   | { t: "chatopen"; chatId: string; afterSeq: number; /** Needs "chatPaging": with `afterSeq` 0 only the newest page of the log is sent, older ones come with `chatolder`. */ paged?: boolean }
   /** Needs "chatPaging": the page of a followed chat's log before `beforeSeq`, answered with `chatolder`. */
