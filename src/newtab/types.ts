@@ -53,6 +53,11 @@ export interface NewTabHostProps {
   onDismiss?: () => void;
 }
 
+/** The host's own props: which layout to show regardless of the user's pick (a PC-to-PC dialog needs one that can be a dialog). */
+export interface NewTabHostOptions {
+  layoutId?: string;
+}
+
 /** What a layout gets: the host's props, and a way to open the customize panel. */
 export interface NewTabLayoutProps extends NewTabHostProps {
   onCustomize: () => void;

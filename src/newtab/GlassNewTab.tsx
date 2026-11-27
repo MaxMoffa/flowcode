@@ -1,22 +1,20 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { ChevronIcon, shellOptionIcon, useRowOverflow } from "../terminal/TabStrip";
 import { sameShell, wslDistroOfShell } from "../terminal/wslPath";
-import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favorites/favoritesStore";
-import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
+import type { FavoriteFolder } from "../favorites/favoritesStore";
+import type { RecentTerminal } from "./recentTerminals";
 import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
-import { useAvailableClis } from "../agents/useAvailableClis";
 import { agentCliIcon } from "../plugins/icons";
-import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useI18n } from "../i18n";
 import { CheckIcon, FolderIcon, HistoryIcon, PencilIcon, SearchIcon } from "./icons";
 import { fuzzyFilter } from "./fuzzy";
 import { useNewTabSettings } from "./newTabSettings";
 import { useNewTabBackgroundImage } from "./newTabBackground";
+import { useNewTabSource, type NewTabFsEntry } from "./newTabSource";
 import { shownPath } from "./promptText";
-import { isWindowsPlatform, trimTrailingSeparators } from "../lib/path";
+import { trimTrailingSeparators } from "../lib/path";
 import {
   KIND_ORDER,
   completePath,
@@ -47,15 +45,10 @@ const PATH_SHOWN = 50;
 const FOLDER_SEARCH_DELAY = 200;
 /** How many folder levels the search reads below each root. */
 const FOLDER_SEARCH_DEPTH = 5;
-/** The folder search's own generation counter, apart from the file tree's
- * (see `channel` in fs.rs's `search_dir`): a newer search stops the older walk. */
+/** The folder search's own generation counter: a newer search stops the older walk. */
 let folderSearchGeneration = 0;
 
-interface FsEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
+type FsEntry = NewTabFsEntry;
 
 /** One thing the page can start - a tile, a row, a chip or a search result. */
 interface Entry {
@@ -132,7 +125,8 @@ function AgentStrip({ count, children }: { count: number; children: ReactNode })
  * hand over, lets the tab turn into the terminal right away. */
 export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunchAgent, onShellChange, profileId, onProfileChange, onDone, dialog, onDismiss, onCustomize, customizing }: NewTabLayoutProps) {
   const { t } = useI18n();
-  const { profiles } = useProfiles();
+  const source = useNewTabSource();
+  const { favorites, recents: allRecents, profiles, defaultAccounts, agents: clis } = source.useLists(profileId);
   const [{ sections, background, grain, blur }] = useNewTabSettings();
   const image = useNewTabBackgroundImage();
   const relativeTime = useRelativeTime();
@@ -152,14 +146,11 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   /** The folder a typed path points into, as `read_dir` listed it (null: it couldn't). */
   const [listing, setListing] = useState<{ key: string; entries: FsEntry[] | null } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
-  const recents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals).slice(0, RECENTS_SHOWN);
-  // The agents this tab's account is signed in to - as the Agents panel's "+" menu offers them.
-  const clis = useAvailableClis(profiles.find((p) => p.id === profileId));
+  const recents = allRecents.slice(0, RECENTS_SHOWN);
 
   useEffect(() => {
     let cancelled = false;
-    void listShellOptions().then((opts) => {
+    void source.listShells().then((opts) => {
       if (cancelled) return;
       setOptions(opts);
       const match = opts.find((o) => sameShell(o.id, defaultShell));
@@ -168,7 +159,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     return () => {
       cancelled = true;
     };
-  }, [defaultShell]);
+  }, [defaultShell, source]);
 
   useEffect(() => {
     if (!hidden) inputRef.current?.focus({ preventScroll: true });
@@ -224,7 +215,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     id: `recent:${r.shell ?? ""}:${r.cwd}`,
     kind: "recent",
     label: r.name,
-    detail: r.command,
+    // A recent of another PC has no command: its folder says what it is.
+    detail: r.command || shownPath(r.cwd),
     path: r.cwd,
     texts: [r.name, r.command, r.cwd],
     icon: <HistoryIcon size={16} />,
@@ -260,7 +252,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     icon: <FolderIcon size={16} />,
     run: () => launch({ cwd: path }),
   });
-  const favoriteEntries = sections.favorites ? favorites.map(favoriteEntry) : [];
+  const showFavorites = sections.favorites && source.hasFavorites;
+  const favoriteEntries = showFavorites ? favorites.map(favoriteEntry) : [];
   const recentEntries = sections.recents ? recents.map(recentEntry) : [];
   const agentEntries = sections.agents ? clis.map(agentEntry) : [];
   const searching = query.trim() !== "";
@@ -268,7 +261,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   const kinds = kindsShown(filter);
 
   // A path typed: the folders in it, to complete or open.
-  const pathQuery = searching ? parsePathQuery(query, { home, base: startDir || null, windows: isWindowsPlatform() }) : null;
+  const pathQuery = searching ? parsePathQuery(query, { home, base: startDir || null, windows: source.isWindows(home ?? startDir) }) : null;
   const wantHidden = !!pathQuery?.segment.startsWith(".");
   const listingKey = pathQuery ? `${pathQuery.readPath}|${wantHidden}` : null;
   const listed = listing && listing.key === listingKey ? listing.entries : undefined;
@@ -285,7 +278,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   const roots = useMemo(() => searchRoots(favorites.map((f) => f.path), home), [favorites, home]);
   const rootsKey = roots.map((r) => r.path).join("\n");
   const folderSection = searching && !pathMode && kinds.has("folder");
-  const wantFolders = folderSection && roots.length > 0;
+  const wantFolders = folderSection && roots.length > 0 && !!source.searchDirs;
   const folderPending = wantFolders && folderHits?.query !== q;
   const localMatches =
     searching && !pathMode
@@ -311,7 +304,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
 
   useEffect(() => {
     let cancelled = false;
-    void invoke<string>("home_dir").then(
+    void source.homeDir().then(
       (dir) => !cancelled && setHome(dir),
       () => {},
     );
@@ -324,7 +317,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   useEffect(() => {
     if (!pathQuery || !listingKey) return;
     let cancelled = false;
-    void invoke<FsEntry[]>("read_dir", { path: pathQuery.readPath, showHidden: wantHidden }).then(
+    void source.readDir(pathQuery.readPath, wantHidden).then(
       (found) => !cancelled && setListing({ key: listingKey, entries: found }),
       () => !cancelled && setListing({ key: listingKey, entries: null }),
     );
@@ -342,7 +335,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       const generation = ++folderSearchGeneration;
       void Promise.all(
         roots.map((root) =>
-          invoke<FsEntry[]>("search_dir", { path: root.path, query: q, showHidden: false, generation, dirsOnly: true, maxDepth: FOLDER_SEARCH_DEPTH, channel: "newtab" }).catch(() => [] as FsEntry[]),
+          (source.searchDirs?.(root.path, q, FOLDER_SEARCH_DEPTH, generation) ?? Promise.resolve([] as FsEntry[])).catch(() => [] as FsEntry[]),
         ),
       ).then((lists) => !cancelled && setFolderHits({ query: q, lists }));
     }, FOLDER_SEARCH_DELAY);
@@ -399,20 +392,21 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       const command = query.trim();
       // Shift+Enter, or nothing found: what was typed is a command for the chosen shell.
       if (command && e.shiftKey) {
-        launch({ shell: chosenShell(), command });
+        if (source.canRunCommand) launch({ shell: chosenShell(), command });
         return;
       }
       // A path typed and no folder picked: the folder typed so far, if it exists, else the first one listed.
       if (pathMode && pathQuery && !active) {
         const typed = trimTrailingSeparators(typedFolder(pathQuery));
-        const fallback = () => (entries[0] ? entries[0].run() : launch({ shell: chosenShell(), command }));
-        void invoke<boolean>("is_directory", { path: typed }).then((isDir) => (isDir ? launch({ cwd: typed }) : fallback()), fallback);
+        const fallback = () => (entries[0] ? entries[0].run() : source.canRunCommand && launch({ shell: chosenShell(), command }));
+        void source.isDirectory(typed).then((isDir) => (isDir ? launch({ cwd: typed }) : fallback()), fallback);
         return;
       }
       // Folder search still running for this query: don't mistake the text for a shell command yet.
       if (command && !active && entries.length === 0 && folderPending) return;
       if (command && !active && entries.length === 0) {
-        launch({ shell: chosenShell(), command });
+        // Nothing found and no command to run on that PC: nothing to start.
+        if (source.canRunCommand) launch({ shell: chosenShell(), command });
         return;
       }
       const run = active ?? (searching ? entries[0] : undefined);
@@ -528,7 +522,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
                 aria-controls="glass-newtab-entries"
                 aria-activedescendant={active ? entryDomId(active) : undefined}
               />
-              <kbd className="glass-kbd">↵ {labelOf(chosenShell())}</kbd>
+              {options.length > 0 && <kbd className="glass-kbd">↵ {labelOf(chosenShell())}</kbd>}
               <button
                 type="button"
                 className="glass-customize"
@@ -637,7 +631,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
                       )}
                     </section>
                   )}
-                  {sections.favorites && (
+                  {showFavorites && (
                     <section className="glass-section">
                       <h2 className="glass-heading">{t("favorites.title")}</h2>
                       {favorites.length === 0 ? (
@@ -662,6 +656,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
               )}
             </div>
 
+            {(chips.length > 0 || (profiles.length > 0 && wslDistroOfShell(shell) === undefined)) && (
             <div className="glass-foot">
               <div className="glass-shells" role="group" aria-label={t("newTab.shellLabel")}>
                 {chips.map((opt) => (
@@ -680,6 +675,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
               {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
                 <div className="glass-foot-profile">
                   <ProfileSelect
+                    data={{ profiles, defaultAccounts }}
                     value={profileId ?? undefined}
                     onChange={(id) => {
                       onProfileChange(id ?? null);
@@ -689,6 +685,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
                 </div>
               )}
             </div>
+            )}
           </div>
           <p className="glass-keys">
             {startDir ? t("newTab.glass.startsIn", { path: shownPath(startDir) }) + " · " : ""}

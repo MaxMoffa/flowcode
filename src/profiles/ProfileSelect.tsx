@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
-import { accountText, useProfiles, type ProfileInfo } from "./profiles";
+import { accountText, useProfiles, type Accounts, type ProfileInfo } from "./profiles";
 import type { AgentCli } from "../../shared/agentRegistry";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 import "./profile-select.css";
@@ -19,6 +19,8 @@ interface CommonProps {
    * needs to hear the pointer move onto and off the list to stay open. */
   onMenuPointerEnter?: () => void;
   onMenuPointerLeave?: () => void;
+  /** The profiles to list instead of this PC's (another PC's, see the new tab page's source). */
+  data?: { profiles: ProfileInfo[]; defaultAccounts?: Accounts | null };
 }
 
 type ProfileSelectProps = CommonProps &
@@ -64,9 +66,11 @@ function placeMenu(button: HTMLElement): MenuPos {
  * ones. Renders nothing when there are no account profiles; when the filter
  * leaves only the default profile, shows the selection as a static label (no
  * list). */
-export function ProfileSelect({ value, onChange, allowAuto, cli, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave }: ProfileSelectProps) {
+export function ProfileSelect({ value, onChange, allowAuto, cli, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave, data }: ProfileSelectProps) {
   const { t } = useI18n();
-  const { profiles: all, default_accounts } = useProfiles();
+  const local = useProfiles();
+  const all = data ? data.profiles : local.profiles;
+  const default_accounts = data ? data.defaultAccounts : local.default_accounts;
   // A profile's accounts; a missing id is the default profile.
   const accountsOf = (id: string | null | undefined) => (id ? all.find((p) => p.id === id)?.accounts : default_accounts);
   const profiles = filter ? all.filter(filter) : all;

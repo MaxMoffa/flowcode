@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { t, useI18n } from "../i18n";
-import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
 import { ChatIcon } from "../app/icons";
 import { agentCliIcon } from "../plugins/icons";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { basename } from "../lib/path";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
-import { chatLike, closeRemoteEntry, connectHost, remoteCallTabId, expectNewTab, terminalLike, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
+import { closeRemoteEntry, connectHost, remoteCallTabId, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
 import { closeRemoteEditor, showRemoteEditor, useRemoteEditors } from "./remoteFiles";
-import { RemoteNewTabDialog } from "./RemoteNewTabDialog";
+import { RemoteNewTab } from "./RemoteNewTab";
 import "../terminal/tabstrip.css";
 import "./remote-hosts.css";
 
@@ -49,7 +47,6 @@ function entryIcon(entry: RemoteEntry, attention: Attention) {
 /** The tabs of another PC (its terminals and chats), in place of the local strip. */
 export function RemoteTabStrip({ hostId }: { hostId: string }) {
   useI18n();
-  const { show } = useContextMenu();
   const host = useHost(hostId);
   const { tabs, chats, activeKey } = useHostState(hostId);
   const editors = useRemoteEditors(hostId);
@@ -127,35 +124,6 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
     if (!label || label === entryLabel(entry)) return;
     if (entry.kind === "pty") void sendToHost(hostId, { t: "rename", ptyId: entry.tab.ptyId, label });
     else void sendToHost(hostId, { t: "chatrename", chatId: entry.chat.chatId, label });
-  }
-
-  function openNewMenu(e: React.MouseEvent<HTMLButtonElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const items: ContextMenuItem[] = [
-      {
-        label: t("menu.newTerminal"),
-        onSelect: () => {
-          expectNewTab(hostId, terminalLike());
-          void sendToHost(hostId, { t: "newtab" });
-        },
-      },
-    ];
-    // Any folder of that PC, not just its default one.
-    if (caps.includes("fileExplorer")) items.push({ label: t("remoteHosts.newOtherFolder"), onSelect: () => setNewDialog(true) });
-    if (caps.includes("chat")) {
-      items.push({ label: "remote-new-sep", separator: true });
-      for (const cli of AGENT_CLIS) {
-        items.push({
-          label: t("remoteHosts.newChatWith", { agent: CLI_INFO[cli].label }),
-          icon: agentCliIcon(cli),
-          onSelect: () => {
-            expectNewTab(hostId, chatLike(cli));
-            void sendToHost(hostId, { t: "newchat", cli });
-          },
-        });
-      }
-    }
-    show(rect.left, rect.bottom + 4, items);
   }
 
   const online = host?.status === "online";
@@ -257,13 +225,13 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
         </div>
         <TabScrollArrows canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} onScroll={scrollByPage} />
       </div>
-      <button type="button" className="term-tab-new" aria-label={t("remoteHosts.newTab")} title={t("remoteHosts.newTab")} disabled={!online} onClick={openNewMenu}>
+      <button type="button" className="term-tab-new" aria-label={t("remoteHosts.newTab")} title={t("remoteHosts.newTab")} disabled={!online} onClick={() => setNewDialog(true)}>
         <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
-      {newDialog && <RemoteNewTabDialog hostId={hostId} startAt={frontCwd} onClose={() => setNewDialog(false)} />}
+      {newDialog && <RemoteNewTab hostId={hostId} frontCwd={frontCwd} onClose={() => setNewDialog(false)} />}
       {host && !online && (
         <span className={"host-chip is-" + host.status} title={host.error ?? statusLabel(host)}>
           {host.status === "connecting" ? (host.error ? t("remoteHosts.status.retrying", { error: host.error }) : t("remoteHosts.status.connectingDots")) : host.error ? t("remoteHosts.status.refused", { error: host.error }) : t("remoteHosts.status.offlineDash")}

@@ -4,19 +4,19 @@ import { NewTabCustomize } from "./NewTabCustomize";
 import { PencilIcon } from "./icons";
 import { resolveNewTabLayout, useNewTabLayouts } from "./layouts";
 import { useNewTabSettings } from "./newTabSettings";
-import type { NewTabHostProps } from "./types";
+import type { NewTabHostOptions, NewTabHostProps } from "./types";
 import "./builtins";
 import "./newtab-customize.css";
 
 /** What a new tab shows: the layout the user picked (see layouts.ts), and over
  * it - on every layout, a plugin's included - the "Personalizza" button and its
  * panel. */
-export function NewTabHost(props: NewTabHostProps) {
+export function NewTabHost({ layoutId: forcedLayout, ...props }: NewTabHostProps & NewTabHostOptions) {
   const { t } = useI18n();
   const [{ layout: layoutId }] = useNewTabSettings();
   // Re-resolves when a plugin layout is installed or removed.
   useNewTabLayouts();
-  const { component: Layout, ownCustomizeButton } = resolveNewTabLayout(layoutId);
+  const { component: Layout, ownCustomizeButton } = resolveNewTabLayout(forcedLayout ?? layoutId);
   const [customizing, setCustomizing] = useState(false);
   /** The page is handing the tab over to a terminal: nothing of the host stays on it. */
   const [launched, setLaunched] = useState(false);

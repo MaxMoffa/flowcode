@@ -7,7 +7,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ChatInfo, ClientMsg, MirroredSettings, ServerMsg, Tab } from "../../shared/remote-types";
+import type { ChatInfo, ClientMsg, MirroredSettings, ProfileAccounts, ProfileInfo, ServerMsg, Tab } from "../../shared/remote-types";
 import { remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
 import { isAgentBusy, isAgentExited } from "../chat/chatModel";
 import { t } from "../i18n";
@@ -43,6 +43,9 @@ interface HostState {
   tabs: Tab[];
   chats: ChatInfo[];
   settings: MirroredSettings | null;
+  /** The host's account profiles and the default profile's accounts (what it last sent; needs the "profiles" cap). */
+  profiles: ProfileInfo[];
+  defaultAccounts: ProfileAccounts | null;
   /** `pty:<ptyId>` or `chat:<chatId>` of the tab in front. */
   activeKey: string | null;
   /** The `chats` list is from the current link (a new link waits for its first one, or a short while): a chat missing from a stale list must not be reopened. */
@@ -56,7 +59,7 @@ interface Snapshot {
   activeHost: ActiveHost;
 }
 
-const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, activeKey: null, chatsFresh: true };
+const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, profiles: [], defaultAccounts: null, activeKey: null, chatsFresh: true };
 
 /** How long after "new terminal"/"new chat" the first tab to appear is taken as the new one. */
 const NEW_TAB_WAIT_MS = 10_000;
@@ -192,6 +195,10 @@ function patchState(hostId: string, fn: (s: HostState) => HostState) {
 /** Folds the messages that describe a host (tabs, chats, settings) into the store. */
 function applyMessages(hostId: string, msgs: ServerMsg[], cached = false) {
   for (const m of msgs) {
+    if (m.t === "profiles") {
+      patchState(hostId, (s) => ({ ...s, profiles: m.profiles, defaultAccounts: m.defaultLoggedIn?.accounts ?? null }));
+      continue;
+    }
     if (m.t !== "tabs" && m.t !== "chats" && m.t !== "settings") continue;
     patchState(hostId, (s) => {
       const next = m.t === "tabs" ? { ...s, tabs: m.tabs } : m.t === "chats" ? { ...s, chats: m.chats, ...(cached ? {} : { chatsFresh: true }) } : { ...s, settings: m.settings };

@@ -1,6 +1,6 @@
 # One UI for local and remote PCs
 
-Status 2026-11-27: phase 1 (History) done f9e76f9; phase 2 explorer done (FsBackend). Viewers, phases 3-4 planned.
+Status 2026-11-27: History (f9e76f9), explorer (3a8a725, FsBackend), remote files in editor tabs (61891fc, TextFileBackend) and the remote new tab (NewTabSource) are done. Phase 4 is checked case by case.
 
 ## Problem
 
@@ -69,7 +69,12 @@ takes a `transport` and serves desktop, PC-to-PC and phone.
   - New tab: locally it is the new-tab page (recent folders, agents, frog).
     Remotely it is a small dialog (`RemoteNewTabDialog`) with a folder picker
     on the other PC's disk.
-  These need a product choice before any refactor.
+  The user chose the local experience for both (2026-11-27). Both are done:
+  editor tabs via `TextFileBackend`, and the new tab page as a dialog via
+  `NewTabSource`.
+  Remote gaps: no shell choice or typed command (the `newtab` message has
+  neither), no folder search, no favorites, no banner, agents not filtered
+  by sign-in, and no unsaved-changes prompt on app close for remote editors.
 
 ## Rule for new features
 

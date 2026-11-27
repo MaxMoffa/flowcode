@@ -1,15 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
-import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { shellOptionIcon } from "../terminal/TabStrip";
 import type { PromptAnchor } from "../terminal/Terminal";
 import { sameShell, wslDistroOfShell } from "../terminal/wslPath";
-import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favorites/favoritesStore";
-import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
+import type { FavoriteFolder } from "../favorites/favoritesStore";
+import type { RecentTerminal } from "./recentTerminals";
 import { flushSync } from "react-dom";
-import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
 import {
   FROG_BOX,
   FROG_HEIGHT,
@@ -34,6 +32,7 @@ import { isPowerShell, promptFor, shownPath } from "./promptText";
 import { shellChips } from "./shellChips";
 import { useRelativeTime } from "./useRelativeTime";
 import { useNewTabSettings } from "./newTabSettings";
+import { useNewTabSource } from "./newTabSource";
 import type { NewTabLaunch, NewTabLayoutProps } from "./types";
 import "./newtab.css";
 
@@ -64,7 +63,8 @@ const TERM_PADDING_LEFT = 14;
 /** The "terminal" layout: the page looks like the terminal it turns into. */
 export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, profileId, onProfileChange, onDone }: NewTabLayoutProps) {
   const { t } = useI18n();
-  const { profiles } = useProfiles();
+  const source = useNewTabSource();
+  const { favorites: allFavorites, recents: allRecents, profiles, defaultAccounts } = source.useLists(profileId);
   const { bannerEnabled } = useTerminalSettings();
   const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
   // The page is the terminal's first screen: in the terminal's own palette,
@@ -88,10 +88,9 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const draftRef = useRef("");
   const [width, setWidth] = useState(0);
   const [{ sections }] = useNewTabSettings();
-  const allFavorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
-  const allRecents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals);
   // A section the user hid is no list at all: its rows aren't numbered or walked either.
-  const favorites = sections.favorites ? allFavorites : [];
+  const showFavorites = sections.favorites && source.hasFavorites;
+  const favorites = showFavorites ? allFavorites : [];
   const recents = sections.recents ? allRecents.slice(0, RECENTS_SHOWN) : [];
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLLabelElement>(null);
@@ -114,7 +113,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
 
   useEffect(() => {
     let cancelled = false;
-    void listShellOptions().then((opts) => {
+    void source.listShells().then((opts) => {
       if (cancelled) return;
       setOptions(opts);
       const match = opts.find((o) => sameShell(o.id, defaultShell));
@@ -123,7 +122,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     return () => {
       cancelled = true;
     };
-  }, [defaultShell]);
+  }, [defaultShell, source]);
 
   useEffect(() => {
     void getVersion()
@@ -136,16 +135,16 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
 
   useEffect(() => {
     let cancelled = false;
-    void invoke<BannerSystemInfo>("system_info")
+    void source
+      .systemInfo?.()
       .then((info) => {
-        rememberBannerInfo({ info });
         if (!cancelled) setSystem(info);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   useEffect(() => () => timersRef.current.forEach(window.clearTimeout), []);
   useEffect(() => () => window.clearTimeout(sleepTimerRef.current), []);
@@ -493,7 +492,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         return;
       }
       const trimmed = command.trim();
-      launch({ shell: chosenShell(), command: trimmed || undefined });
+      launch({ shell: chosenShell(), command: source.canRunCommand ? trimmed || undefined : undefined });
     }
   }
 
@@ -633,7 +632,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
               )}
             </section>
           )}
-          {sections.favorites && (
+          {showFavorites && (
             <section className="newtab-section">
               <h2 className="newtab-heading">
                 <span>#</span> {t("favorites.title")}
@@ -672,6 +671,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
             {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
               <div className="newtab-foot-profile">
                 <ProfileSelect
+                  data={{ profiles, defaultAccounts }}
                   value={profileId ?? undefined}
                   onChange={(id) => {
                     onProfileChange(id ?? null);

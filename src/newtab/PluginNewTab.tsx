@@ -1,19 +1,16 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { useTheme } from "../themes/ThemeContext";
 import { CLI_INFO } from "../agents/cliInfo";
-import { useAvailableClis } from "../agents/useAvailableClis";
-import { listFavorites, subscribeFavorites } from "../favorites/favoritesStore";
-import { useProfiles } from "../profiles/profiles";
-import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
+import { shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { readTheme } from "../agentViews/readTheme";
 import { pluginFileUrl, type ViewTheme } from "../../shared/agentViewBridge";
 import { createNewTabBridgeHost, type NewTabData, type NewTabPluginManifest } from "../../shared/newTabBridge";
 import { DEFAULT_NEW_TAB_LAYOUT } from "./layouts";
 import { setNewTabSettings } from "./newTabSettings";
 import { buildNewTabData, resolveNewTabLaunch, type NewTabLists } from "./pluginData";
-import { listRecentTerminals, subscribeRecentTerminals } from "./recentTerminals";
+import { useNewTabSource } from "./newTabSource";
 import { shellChips } from "./shellChips";
 import type { NewTabLayoutProps } from "./types";
 import "./plugin-new-tab.css";
@@ -36,23 +33,21 @@ export function PluginNewTab(props: PluginNewTabProps) {
   const { manifest, rev, hidden, defaultShell, profileId, onLaunch, onLaunchAgent, onCustomize, onDone } = props;
   const { t, language } = useI18n();
   const { theme, paletteId, contrast, glassOpacity } = useTheme();
-  const { profiles } = useProfiles();
+  const source = useNewTabSource();
+  const { favorites, recents, profiles, agents: clis } = source.useLists(profileId);
   const name = manifest.labels?.[language] ?? manifest.label;
 
-  const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
-  const recents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals);
   const [options, setOptions] = useState<ShellOption[]>([]);
-  const clis = useAvailableClis(profiles.find((p) => p.id === profileId));
 
   useEffect(() => {
     let cancelled = false;
-    void listShellOptions().then((opts) => {
+    void source.listShells().then((opts) => {
       if (!cancelled) setOptions(opts);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   const lists = useMemo<NewTabLists>(() => {
     const profile = profiles.find((p) => p.id === profileId);
