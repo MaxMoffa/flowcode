@@ -47,12 +47,18 @@ export const CAP_LABELS = {
   browserTabs: "capBrowserTabs",
   chatPaging: "capChat",
   agentMessages: "capAgentMessages",
+  // PC-to-PC only: the phone never uses them.
+  historyDelete: "capHistory",
+  newTabShell: "capTabOps",
+  hostInfo: "capTabOps",
+  fsSearch: "files",
+  fsExtra: "files",
   // Only desktop clients follow the host size; a phone always sizes the pty itself.
   resized: "capChat",
 } as const satisfies Record<RemoteCap, string>;
 
 /** Features the UI simply hides when the desktop lacks them: not worth a compatibility notice. */
-const QUIET_CAPS: RemoteCap[] = ["resized", "agentMessages", "fileExplorer", "chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatResume", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight", "providerAuth", "opencode", "cline", "git", "tabOps", "history", "stats", "resume", "chatAttach", "browserTabs", "chatPaging"];
+const QUIET_CAPS: RemoteCap[] = ["historyDelete", "newTabShell", "hostInfo", "fsSearch", "fsExtra", "resized", "agentMessages", "fileExplorer", "chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatResume", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight", "providerAuth", "opencode", "cline", "git", "tabOps", "history", "stats", "resume", "chatAttach", "browserTabs", "chatPaging"];
 
 export interface HostInfo {
   appVersion?: string;
