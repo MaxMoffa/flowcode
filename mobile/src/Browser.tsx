@@ -5,7 +5,8 @@ import { chatLinkPages } from "./agentPreview";
 import { useChatInfo, useChatSession } from "./chats";
 import { useBrowserDrag, type Detent } from "./browserDrag";
 import { BrowserTabs, shownLabel, TabPlaceholder } from "./BrowserTabs";
-import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { invoke } from "@tauri-apps/api/core";
+import { pageLabel, pageSrc, parseTyped, sandboxFor, tunnelSrc, type Page } from "./browserUrl";
 import { openLink } from "./TermLink";
 import type { BrowserTabPage } from "../../shared/remote-types";
 import { reopenOp, useBrowserTabsSync, type Shown } from "./useBrowserTabsSync";
@@ -84,7 +85,10 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
   const page: Page | undefined = shown && shown.kind !== "external" && shown.kind !== "pdf" ? shown : undefined;
   const placeholder = shown?.kind === "external" || shown?.kind === "pdf" ? shown : undefined;
   const label = shown ? shownLabel(shown) : "";
-  const src = page ? pageSrc(page) : "";
+  // A dev-server page loads through the phone's loopback tunnel, a real origin (the tunnel's port is asked for below).
+  const [tunnelUrl, setTunnelUrl] = useState<string | null>(null);
+  const src = page ? (page.kind === "port" ? (tunnelUrl ?? "") : pageSrc(page)) : "";
+  const portKey = page?.kind === "port" ? pageSrc(page) : null;
   const urlTab = synced && !sync.isLocal && sync.activeTab?.kind === "url" ? sync.activeTab : undefined;
   const rootRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<HTMLDivElement>(null);
@@ -174,6 +178,21 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
     setEditing(false);
     setBad(false);
   }, [synced, initialPage, index, page]);
+
+  // (Re)opens the tunnel for a port page; a desktop that cannot reach the port is the failure page, like the scheme's error page.
+  useEffect(() => {
+    setTunnelUrl(null);
+    if (!page || page.kind !== "port") return;
+    let live = true;
+    setFailed(false);
+    invoke<number>("preview_tunnel", { port: page.port })
+      .then((local) => live && setTunnelUrl(tunnelSrc(page, local)))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portKey, reload]);
 
   // A new load (page or reload) shows the bar until `onLoad` or the timeout.
   useEffect(() => {
@@ -315,7 +334,7 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
       </div>
       <div className={"br-bar" + (loading ? " on" : "")} role="progressbar" aria-hidden={!loading} />
       <div className="br-body">
-        {page && <iframe ref={frameRef} key={`${synced ? "s" : index}:${reload}`} className="br-frame" title={label} src={src} sandbox={sandboxFor(page)} onLoad={() => setLoading(false)} />}
+        {page && src && <iframe ref={frameRef} key={`${synced ? "s" : index}:${reload}`} className="br-frame" title={label} src={src} sandbox={sandboxFor(page)} onLoad={() => setLoading(false)} />}
         {placeholder && <TabPlaceholder shown={placeholder} onOpenExternal={(url) => void openLink(url)} />}
         {page && failed && (
           <div className="br-fail">

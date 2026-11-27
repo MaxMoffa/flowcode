@@ -13,9 +13,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 data-encoding = "2"
 sha2 = "0.10"
-tokio = { version = "1", features = ["io-util"] }
+# net/sync/time/rt/macros: the loopback tunnel (tunnel.rs).
+tokio = { version = "1", features = ["io-util", "net", "sync", "time", "rt", "macros"] }
 # Deflate for large frames (already in the build through png).
 flate2 = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["io-util", "rt", "macros"] }
+tokio = { version = "1", features = ["io-util", "rt", "macros", "net", "time", "sync"] }

@@ -18,6 +18,7 @@ mod serve;
 mod remote_dictation;
 mod speech;
 mod state;
+mod tunnel;
 pub mod store;
 mod updater;
 mod view_cache;
@@ -72,6 +73,7 @@ pub fn run() {
                 dial_started: Mutex::new(None),
             });
             app.manage(Arc::clone(&remote));
+            app.manage(Arc::new(tunnel::Tunnels::default()));
             #[cfg(mobile)]
             deeplink::install(app, &remote);
             Ok(())
@@ -100,6 +102,7 @@ pub fn run() {
             commands::request_notification_permission,
             commands::take_pending_tab,
             commands::unpair,
+            tunnel::preview_tunnel,
             speech::speech_available,
             speech::speech_start,
             speech::speech_stop,

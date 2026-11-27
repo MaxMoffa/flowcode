@@ -5,6 +5,7 @@
 mod frame;
 mod msg;
 mod ticket;
+pub mod tunnel;
 
 pub use frame::{encode_frame, read_frame, write_frame, write_frame_with, FrameError, COMPRESS_MIN, MAX_FRAME};
 pub use msg::*;

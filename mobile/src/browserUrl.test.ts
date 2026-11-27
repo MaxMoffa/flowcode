@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deskPageToPage, localLinkPage, pageLabel, pageToOp, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { deskPageToPage, localLinkPage, pageLabel, pageToOp, pageSrc, tunnelSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 
 const port = (p: number, path = "/"): Page => ({ kind: "port", port: p, path });
 
@@ -30,6 +30,14 @@ describe("parseTyped", () => {
     expect(parseTyped("./a.html", "p1")).toEqual({ kind: "file", ptyId: "p1", path: "a.html" });
     expect(parseTyped("../a.html", "p1")).toBeNull();
     expect(parseTyped("5173", "p1")).toEqual(port(5173));
+  });
+});
+
+describe("tunnelSrc", () => {
+  it("is the phone's loopback tunnel with the same path encoding", () => {
+    expect(tunnelSrc({ kind: "port", port: 5173, path: "/a/b?x=1" }, 40000)).toBe("http://127.0.0.1:40000/a/b?x=1");
+    expect(tunnelSrc({ kind: "port", port: 5173, path: "/" }, 40000)).toBe("http://127.0.0.1:40000/");
+    expect(tunnelSrc({ kind: "port", port: 5173, path: "/my page.html#/x" }, 40001)).toBe("http://127.0.0.1:40001/my%20page.html#/x");
   });
 });
 

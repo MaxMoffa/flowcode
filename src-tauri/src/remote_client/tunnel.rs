@@ -5,13 +5,12 @@
 //! of this PC whose connections are tunnelled (`port N` stream) to that port.
 
 use super::RemoteClients;
+use flowcode_remote_proto::tunnel::{bind_preferring, pipe, serve_until_idle};
 use flowcode_remote_proto::{preview_header, PreviewTarget, UploadMeta, UploadReply, UPLOAD_MAX_BYTES};
-use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
 use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
 /// A listener of this PC tunnelling to a port of a host; closed when dropped.
@@ -47,16 +46,6 @@ impl RemoteClients {
     }
 }
 
-/// Binds `preferred` when given and free, else any free loopback port.
-async fn bind_preferring(preferred: Option<u16>) -> std::io::Result<TcpListener> {
-    if let Some(port) = preferred {
-        if let Ok(listener) = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await {
-            return Ok(listener);
-        }
-    }
-    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
-}
-
 impl RemoteClients {
     /// Forgets the remembered local ports of a host (the PC was forgotten).
     pub(super) fn forget_tunnel_ports(&self, id: &str) {
@@ -67,37 +56,6 @@ impl RemoteClients {
 
 /// How long a tunnel's listener may go without a connection (and with none open) before it is closed.
 const TUNNEL_IDLE: Duration = Duration::from_secs(10 * 60);
-
-/// Accepts connections and runs `on_conn` for each, until `idle` passes with no connection open and none arriving (or accepting fails). Streams in flight die with it.
-async fn serve_until_idle<F, Fut>(listener: TcpListener, idle: Duration, touch: Arc<Notify>, mut on_conn: F)
-where
-    F: FnMut(tokio::net::TcpStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send + 'static,
-{
-    let mut streams = tokio::task::JoinSet::new();
-    'serve: loop {
-        let accepted = if streams.is_empty() {
-            let sleep = tokio::time::sleep(idle);
-            tokio::pin!(sleep);
-            loop {
-                tokio::select! {
-                    accepted = listener.accept() => break accepted,
-                    _ = &mut sleep => break 'serve,
-                    // Asked for again: the clock starts over.
-                    _ = touch.notified() => sleep.as_mut().reset(tokio::time::Instant::now() + idle),
-                }
-            }
-        } else {
-            // Something is open: not idle. When it ends the clock starts over.
-            tokio::select! {
-                accepted = listener.accept() => accepted,
-                _ = streams.join_next() => continue,
-            }
-        };
-        let Ok((tcp, _)) = accepted else { break };
-        streams.spawn(on_conn(tcp));
-    }
-}
 
 /// The host's current QUIC connection, if its link is up.
 fn connection_of(clients: &RemoteClients, id: &str) -> Option<iroh::endpoint::Connection> {
@@ -146,13 +104,7 @@ pub async fn remote_host_tunnel(clients: State<'_, Arc<RemoteClients>>, id: Stri
                 // Read at each connection: a redialed link has a new one.
                 let Some(conn) = connection_of(&clients, &host) else { return };
                 let Ok((mut send, recv)) = conn.open_bi().await else { return };
-                if send.write_all(header.as_bytes()).await.is_err() {
-                    return;
-                }
-                let mut tcp = tcp;
-                let mut stream = tokio::io::join(recv, send);
-                let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
-                let (_, mut send) = stream.into_inner();
+                let mut send = pipe(tcp, &header, recv, send).await;
                 let _ = send.finish();
             }
         })
@@ -221,11 +173,7 @@ pub async fn remote_host_upload(clients: State<'_, Arc<RemoteClients>>, id: Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{bind_preferring, drop_host, serve_until_idle};
-    use std::sync::Arc;
-    use tokio::sync::Notify;
-    use std::time::Duration;
-    use tokio::net::{TcpListener, TcpStream};
+    use super::drop_host;
     use std::collections::HashMap;
 
     #[test]
@@ -242,52 +190,5 @@ mod tests {
         assert!(map.contains_key(&("b".to_string(), "port 1
 ".to_string())));
         assert_eq!(drop_host(&mut map, "a"), 0);
-    }
-
-    #[tokio::test]
-    async fn a_closed_tunnel_port_is_reused_when_free_and_replaced_when_taken() {
-        let first = bind_preferring(None).await.unwrap();
-        let port = first.local_addr().unwrap().port();
-        drop(first);
-        let again = bind_preferring(Some(port)).await.unwrap();
-        assert_eq!(again.local_addr().unwrap().port(), port);
-        // Still held: a different one is chosen instead of failing.
-        let other = bind_preferring(Some(port)).await.unwrap();
-        assert_ne!(other.local_addr().unwrap().port(), port);
-    }
-
-    #[tokio::test]
-    async fn touching_a_listener_restarts_its_idle_clock() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let touch = Arc::new(Notify::new());
-        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(200), Arc::clone(&touch), |_tcp| async {}));
-        for _ in 0..3 {
-            tokio::time::sleep(Duration::from_millis(120)).await;
-            touch.notify_one();
-        }
-        assert!(!serve.is_finished());
-        assert!(tokio::time::timeout(Duration::from_secs(5), serve).await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn an_unused_listener_ends_after_the_idle_time() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let ended = tokio::time::timeout(Duration::from_secs(5), serve_until_idle(listener, Duration::from_millis(80), Arc::new(Notify::new()), |_tcp| async {})).await;
-        assert!(ended.is_ok());
-    }
-
-    #[tokio::test]
-    async fn an_open_connection_keeps_the_listener_and_the_clock_restarts_after_it() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let serve = tokio::spawn(serve_until_idle(listener, Duration::from_millis(100), Arc::new(Notify::new()), |_tcp| async {
-            tokio::time::sleep(Duration::from_millis(400)).await;
-        }));
-        let _client = TcpStream::connect(addr).await.unwrap();
-        // Longer than the idle time, still serving: the connection is open.
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        assert!(!serve.is_finished());
-        // Handler done at ~400 ms, then 100 ms idle.
-        assert!(tokio::time::timeout(Duration::from_secs(5), serve).await.is_ok());
     }
 }

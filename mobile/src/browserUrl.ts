@@ -1,7 +1,8 @@
 // Addresses of the in-app browser: what the user types becomes a "page", and a
-// page becomes the URL of the iframe, served by the `flowcode-remote` scheme
-// (`/p/<port>/...` is a loopback port of the desktop, `/f/<ptyId>/...` a file
-// of that terminal's working folder, `/c/<chatId>/...` a file of a chat).
+// page becomes the URL of the iframe: a loopback port of the desktop goes through
+// the phone's tunnel (`tunnelSrc`), files through the `flowcode-remote` scheme
+// (`/f/<ptyId>/...` a file of that terminal's working folder, `/c/<chatId>/...`
+// a file of a chat, `/b/<pageId>/...` a file of a desktop browser page).
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pluginFileUrl } from "../../shared/agentViewBridge";
 import type { BrowserOp, BrowserTabPage } from "../../shared/remote-types";
@@ -81,20 +82,25 @@ function encodeTypedSegment(seg: string): string {
     .join("");
 }
 
-/** The iframe URL of a page. `base` builds the scheme URL of a path (injectable for tests). */
+/** `/path?query#hash` of a port page, percent-encoded: the path may already be encoded and a hash (e.g. `/#/settings` of a hash router) is a fragment, never part of the path. */
+function portPath(page: Extract<Page, { kind: "port" }>): string {
+  const hashAt = page.path.indexOf("#");
+  const hash = hashAt >= 0 ? page.path.slice(hashAt) : "";
+  const beforeHash = hashAt >= 0 ? page.path.slice(0, hashAt) : page.path;
+  const queryAt = beforeHash.indexOf("?");
+  const query = queryAt >= 0 ? beforeHash.slice(queryAt) : "";
+  const pathname = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+  return `/${pathname.replace(/^\/+/, "").split("/").map(encodeTypedSegment).join("/")}${query}${hash}`;
+}
+
+/** The iframe URL of a dev-server page: the phone's loopback tunnel to the desktop's port (`preview_tunnel`), a real origin of its own. */
+export function tunnelSrc(page: Extract<Page, { kind: "port" }>, localPort: number): string {
+  return `http://127.0.0.1:${localPort}${portPath(page)}`;
+}
+
+/** The iframe URL of a page, served by the `flowcode-remote` scheme. `base` builds the scheme URL of a path (injectable for tests). A port page normally loads through `tunnelSrc`; this `/p/` URL is its address for comparisons. */
 export function pageSrc(page: Page, base: (path: string) => string = (p) => convertFileSrc(p, "flowcode-remote")): string {
-  if (page.kind === "port") {
-    // A web address: `path?query#hash`, where the path may already be percent-encoded and a hash
-    // (e.g. `/#/settings` of a hash router) is a fragment, never part of the path.
-    const hashAt = page.path.indexOf("#");
-    const hash = hashAt >= 0 ? page.path.slice(hashAt) : "";
-    const beforeHash = hashAt >= 0 ? page.path.slice(0, hashAt) : page.path;
-    const queryAt = beforeHash.indexOf("?");
-    const query = queryAt >= 0 ? beforeHash.slice(queryAt) : "";
-    const pathname = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
-    const segments = pathname.replace(/^\/+/, "").split("/").map(encodeTypedSegment).join("/");
-    return `${base("p").replace(/\/+$/, "")}/${page.port}/${segments}${query}${hash}`;
-  }
+  if (page.kind === "port") return `${base("p").replace(/\/+$/, "")}/${page.port}${portPath(page)}`;
   // A file of the desktop: the path is a literal file name (`%` and `#` are part of it and get
   // encoded). Only a `?` starts a query, and everything after it, hash included, is kept as is.
   if (page.kind === "deskFile") return pluginFileUrl(base("b"), `${page.pageId}/${page.name}`);
