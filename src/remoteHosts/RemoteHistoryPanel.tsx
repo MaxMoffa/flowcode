@@ -120,13 +120,15 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
 
   return (
     <div className="agent-history">
-      <label className="agent-history-search">
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.2" />
-          <path d="M10.2 10.2l3.3 3.3" />
-        </svg>
-        <input type="text" value={query} placeholder={t("history.search")} aria-label={t("history.search")} onChange={(e) => setQuery(e.target.value)} />
-      </label>
+      <div className="agent-history-searchrow">
+        <label className="agent-history-search">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.2" />
+            <path d="M10.2 10.2l3.3 3.3" />
+          </svg>
+          <input type="text" value={query} placeholder={t("history.search")} aria-label={t("history.search")} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+      </div>
       <div className="agent-history-listwrap">
         {!mine && online && !failed && <div className="agent-history-topbar" role="progressbar" aria-busy="true" />}
         <div className="agent-history-list">
