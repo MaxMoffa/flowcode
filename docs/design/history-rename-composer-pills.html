@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — Rinomina chat nella History, composer senza ombra, switch Chat/Terminale</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --danger:#e07a6a; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.09);
+  --menu:#2a2119; --sel:rgba(232,184,128,.12); --term:#1b1510;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --danger:#b8483a; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.08);
+  --menu:#fbf6ec; --sel:rgba(140,88,32,.10); --term:#f4ecdd;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:15px;margin:34px 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1080px}
+.bar{display:flex;gap:8px;margin-bottom:8px}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(360px,460px));gap:40px;align-items:start}
+.col h3{font-size:13.5px;margin:0 0 2px}
+.col p.d{margin:0 0 12px;color:var(--fg-muted);min-height:40px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.hint{font-size:11.5px;color:var(--fg-muted);margin-top:8px}
+
+/* History */
+.hist{position:relative;width:320px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);padding:8px 6px}
+.hgroup{font-size:11px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 8px 4px}
+.hrow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:default;position:relative}
+.hrow:hover,.hrow.menu{background:var(--hover)}
+.hicon{width:22px;height:22px;border-radius:6px;background:var(--track);display:grid;place-items:center;font-size:11px;flex:none}
+.hbody{display:flex;flex-direction:column;min-width:0;flex:1}
+.htitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hmeta{font-size:11.5px;color:var(--fg-muted)}
+.hmore{opacity:0;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--fg-muted)}
+.hrow:hover .hmore,.hrow.menu .hmore{opacity:1}
+.hedit{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--accent);border-radius:6px;padding:2px 6px;margin:-3px 0 -1px -7px;outline:none;width:calc(100% + 7px)}
+.hrow.editing{background:var(--sel)}
+.renamed{animation:flash .9s ease-out}
+@keyframes flash{from{background:color-mix(in srgb,var(--accent) 25%,transparent)}to{background:transparent}}
+
+.context-menu{position:absolute;z-index:20;min-width:190px;padding:5px;background:var(--menu);border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.16);animation:cm .14s ease-out}
+@keyframes cm{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.mi{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;font-size:12.5px;cursor:pointer}
+.mi:hover{background:var(--hover)}
+.mi.danger{color:var(--danger)}
+.mi.new{position:relative}
+.mi.new::after{content:"nuova";position:absolute;right:8px;font-size:10px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);border-radius:999px;padding:0 6px}
+.sep{height:1px;margin:5px 6px;background:var(--border)}
+.ico{width:14px;height:14px;opacity:.8;flex:none}
+
+/* dialog variant */
+.dlg-scrim{position:absolute;inset:0;background:rgba(0,0,0,.35);border-radius:10px;display:flex;align-items:center;justify-content:center;z-index:30}
+.dlg{width:270px;background:var(--menu);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.dlg b{display:block;margin-bottom:8px}
+.dlg input{width:100%;font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--accent);border-radius:7px;padding:6px 8px;outline:none}
+.dlg .row{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.btn{border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:7px;padding:5px 12px;font:inherit;cursor:pointer}
+.btn.p{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+
+/* Composer */
+.chatbox{width:420px;height:230px;border:1px solid var(--border);border-radius:10px;background:var(--term);display:flex;flex-direction:column;justify-content:flex-end;padding:0 16px 20px;position:relative;overflow:hidden}
+.msg{align-self:flex-start;max-width:80%;color:var(--fg-muted);font-size:12.5px;margin-bottom:auto;margin-top:16px}
+.composer{padding:14px 12px 10px 18px;border-radius:24px;background:color-mix(in srgb,var(--fg) 7%,var(--surface));display:flex;flex-direction:column;gap:12px}
+.composer.old{box-shadow:0 0 0 1px color-mix(in srgb,var(--fg) 24%,transparent)}
+.composer.old:focus-within{box-shadow:0 0 0 1.5px var(--accent)}
+.composer.new{box-shadow:none}
+.composer.new:focus-within{box-shadow:0 0 0 1.5px var(--accent)}
+.composer input{background:transparent;border:none;outline:none;color:var(--fg);font:inherit}
+.ctools{display:flex;gap:8px;align-items:center;color:var(--fg-muted);font-size:12px}
+.chip{border:1px solid var(--border);border-radius:999px;padding:2px 9px}
+.send{margin-left:auto;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}
+
+/* Session menu pills */
+.smenu{width:300px;background:var(--menu);border:1px solid var(--border);border-radius:12px;padding:8px 6px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+.shead{padding:4px 8px 10px}
+.shead b{display:block}
+.shead small{display:block;color:var(--fg-muted);font-size:11.5px}
+.views{display:flex;gap:4px;margin:0 4px;padding:4px;border-radius:10px;background:rgb(127 127 127 / .12)}
+.views button{flex:1;height:32px;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:7px;background:transparent;color:var(--fg-muted);font:inherit;cursor:pointer}
+.views button:hover:not([aria-checked="true"]){color:var(--fg)}
+.views.old button[aria-checked="true"]{background:var(--menu);box-shadow:0 0 0 1px var(--border),0 1px 3px rgb(0 0 0 / .12);color:var(--fg)}
+.views.new button[aria-checked="true"]{background:var(--menu);color:var(--fg)}
+.views.new2 button[aria-checked="true"]{background:color-mix(in srgb,var(--fg) 12%,transparent);color:var(--fg)}
+.sitems{margin-top:8px}
+</style>
+</head>
+<body>
+<h1>Tre ritocchi: rinomina nella History, composer, switch Chat/Terminale</h1>
+<p class="sub">Tutto interattivo. Il tema chiaro serve a controllare il contrasto di composer e pillole.</p>
+<div class="bar"><button id="bLight">Tema chiaro</button></div>
+
+<h2>1 · Rinomina chat dalla History</h2>
+<p class="sub">Tasto destro (o ⋯) su una chat → <b>Rinomina</b>. Il nuovo nome vale ovunque compaia la chat (History, tab, menu della sessione).</p>
+<div class="grid">
+  <div class="col">
+    <h3>A · Modifica nella riga<span class="rec">consigliata</span></h3>
+    <p class="d">Il titolo diventa un campo nella riga stessa, testo selezionato. Invio salva, Esc annulla, clic fuori salva. Come la rinomina dei file in Esplora.</p>
+    <div class="hist" id="hA"></div>
+  </div>
+  <div class="col">
+    <h3>B · Piccolo dialogo</h3>
+    <p class="d">Un riquadro con il campo e i pulsanti Annulla / Rinomina sopra la History.</p>
+    <div class="hist" id="hB"></div>
+  </div>
+</div>
+<p class="hint">Campo vuoto = torna il titolo originale della chat.</p>
+
+<h2>2 · Box di input delle chat senza ombra</h2>
+<p class="sub">Nel codice il box non ha un'ombra vera e propria: ha un <b>contorno chiaro da 1px</b> tutto intorno, che sul fondo scuro si legge come un alone/ombra sotto. La proposta lo toglie a riposo; quando scrivi resta il contorno verde. Clicca nei box per vedere lo stato attivo.
+<b>Se l'ombra che vedi tu è un'altra cosa</b>, mandami uno screenshot e la cerco.</p>
+<div class="grid">
+  <div class="col"><h3>Oggi</h3><p class="d">Contorno chiaro sempre visibile.</p>
+    <div class="chatbox"><div class="msg">Ecco il riepilogo delle modifiche al pannello browser…</div>
+      <div class="composer old"><input placeholder="Scrivi un messaggio…"><div class="ctools"><span class="chip">Opus 5.5</span><span class="chip">Auto</span><span class="send">↑</span></div></div></div></div>
+  <div class="col"><h3>Proposta</h3><p class="d">Nessun contorno a riposo: il box si stacca dal fondo solo col suo colore. Contorno verde quando scrivi.</p>
+    <div class="chatbox"><div class="msg">Ecco il riepilogo delle modifiche al pannello browser…</div>
+      <div class="composer new"><input placeholder="Scrivi un messaggio…"><div class="ctools"><span class="chip">Opus 5.5</span><span class="chip">Auto</span><span class="send">↑</span></div></div></div></div>
+</div>
+
+<h2>3 · Switch Chat / Terminale nel menu della sessione</h2>
+<p class="sub">Menu che si apre dal nome del progetto in alto a sinistra. Il pulsante selezionato perde ombra e bordino; resta il fondo più chiaro. Clicca le pillole per cambiarle.</p>
+<div class="grid">
+  <div class="col"><h3>Oggi</h3><p class="d">Selezionato = fondo + bordino + ombra.</p><div id="p0"></div></div>
+  <div class="col"><h3>Proposta<span class="rec">consigliata</span></h3><p class="d">Selezionato = solo il fondo del menu, senza bordino né ombra.</p><div id="p1"></div></div>
+</div>
+
+<template id="ptpl">
+  <div class="smenu">
+    <div class="shead"><b>flowcode</b><small>Claude · Opus 5.5</small></div>
+    <div class="views" role="radiogroup">
+      <button role="radio" aria-checked="true"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg><span>Chat</span></button>
+      <button role="radio" aria-checked="false"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg><span>Terminale</span></button>
+    </div>
+    <div class="sitems"><div class="mi">Nuova chat</div><div class="mi">Cronologia</div></div>
+  </div>
+</template>
+
+<script>
+const ICON={open:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M10 14 21 3M21 14v7H3V3h7"/></svg>',
+edit:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+folder:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>',
+copy:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5h10"/></svg>',
+del:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>'};
+const CHATS=[["Oggi",[["C","Menu popup sopra il browser","Claude · 12 min fa"],["X","Fix crash macOS issue #4","Codex · 1 h fa"]]],["Ieri",[["C","Tunnel loopback per il telefono","Claude · ieri"],["O","Refactor HistoryView","OpenCode · ieri"]]]];
+function buildHist(root,mode){
+  root.innerHTML='';
+  for(const [g,rows] of CHATS){
+    root.insertAdjacentHTML('beforeend',`<div class="hgroup">${g}</div>`);
+    for(const [i,t,m] of rows){
+      const r=document.createElement('div');r.className='hrow';
+      r.innerHTML=`<span class="hicon">${i}</span><span class="hbody"><span class="htitle"></span><span class="hmeta">${m}</span></span><span class="hmore">⋯</span>`;
+      r.querySelector('.htitle').textContent=t;r.dataset.orig=t;
+      const open=(x,y)=>openMenu(root,r,x,y,mode);
+      r.addEventListener('contextmenu',e=>{e.preventDefault();open(e.clientX,e.clientY)});
+      r.querySelector('.hmore').addEventListener('click',e=>{e.stopPropagation();const b=e.target.getBoundingClientRect();open(b.left,b.bottom+2)});
+      root.appendChild(r);
+    }
+  }
+}
+let menu=null;
+function closeMenu(){if(menu){menu.remove();menu=null;document.querySelectorAll('.hrow.menu').forEach(x=>x.classList.remove('menu'))}}
+function openMenu(root,row,x,y,mode){
+  closeMenu();row.classList.add('menu');
+  const rr=root.getBoundingClientRect();
+  menu=document.createElement('div');menu.className='context-menu';
+  menu.style.left=(x-rr.left)+'px';menu.style.top=(y-rr.top)+'px';
+  menu.innerHTML=`<div class="mi">${ICON.open}Riprendi</div><div class="mi new" data-a="rename">${ICON.edit}Rinomina</div><div class="mi">${ICON.folder}Mostra nel file manager</div><div class="mi">${ICON.copy}Copia ID sessione</div><div class="sep"></div><div class="mi danger">${ICON.del}Elimina</div>`;
+  menu.addEventListener('mousedown',e=>e.stopPropagation());
+  menu.addEventListener('click',e=>{const it=e.target.closest('.mi');if(!it)return;const a=it.dataset.a;closeMenu();if(a==='rename')(mode==='A'?inlineRename:dialogRename)(root,row)});
+  root.appendChild(menu);
+}
+function commit(row,val){const t=row.querySelector('.htitle');t.textContent=val.trim()||row.dataset.orig;row.classList.remove('renamed');void row.offsetWidth;row.classList.add('renamed')}
+function inlineRename(root,row){
+  const t=row.querySelector('.htitle');const old=t.textContent;
+  const inp=document.createElement('input');inp.className='hedit';inp.value=old;
+  t.replaceWith(inp);row.classList.add('editing');inp.focus();inp.select();
+  let done=false;
+  const end=(save)=>{if(done)return;done=true;inp.replaceWith(t);row.classList.remove('editing');if(save)commit(row,inp.value)};
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')end(true);if(e.key==='Escape')end(false)});
+  inp.addEventListener('blur',()=>end(true));
+}
+function dialogRename(root,row){
+  const t=row.querySelector('.htitle');
+  const s=document.createElement('div');s.className='dlg-scrim';
+  s.innerHTML=`<div class="dlg"><b>Rinomina chat</b><input><div class="row"><button class="btn">Annulla</button><button class="btn p">Rinomina</button></div></div>`;
+  const inp=s.querySelector('input');inp.value=t.textContent;
+  const end=(save)=>{if(save)commit(row,inp.value);s.remove()};
+  s.querySelector('.btn').onclick=()=>end(false);s.querySelector('.btn.p').onclick=()=>end(true);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')end(true);if(e.key==='Escape')end(false)});
+  s.addEventListener('mousedown',e=>{if(e.target===s)end(false)});
+  root.appendChild(s);inp.focus();inp.select();
+}
+buildHist(document.getElementById('hA'),'A');buildHist(document.getElementById('hB'),'B');
+document.addEventListener('mousedown',closeMenu);
+
+['p0','p1'].forEach((id,i)=>{const c=document.getElementById(id);c.appendChild(document.getElementById('ptpl').content.cloneNode(true));
+  const v=c.querySelector('.views');v.classList.add(i?'new':'old');
+  v.querySelectorAll('button').forEach(b=>b.onclick=()=>v.querySelectorAll('button').forEach(x=>x.setAttribute('aria-checked',String(x===b))))});
+document.getElementById('bLight').onclick=e=>{document.body.classList.toggle('light');e.target.classList.toggle('on')};
+</script>
+</body>
+</html>

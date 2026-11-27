@@ -324,7 +324,6 @@
 
 .chat-menu-views button[aria-checked="true"] {
   background: var(--menu-surface);
-  box-shadow: 0 0 0 1px var(--border), 0 1px 3px rgb(0 0 0 / 0.12);
   color: var(--fg);
 }
 
@@ -2299,7 +2298,8 @@ summary.chat-step-row {
      (the surface's colour without its alpha) so messages scrolling behind it
      don't show through. */
   background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb)));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent);
+  /* No ring at rest: the raised colour sets it apart; focus and dictation add the accent ring. */
+  box-shadow: none;
 }
 
 .chat-composer:focus-within,
