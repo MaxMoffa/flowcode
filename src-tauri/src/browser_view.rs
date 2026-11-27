@@ -500,7 +500,7 @@ fn build_child(
             if lock(&HIDDEN).contains(&label) {
                 continue;
             }
-            if let Ok(u) = wv.url() {
+            if let Some(u) = current_url(&wv).await {
                 if u.scheme() == "http" || u.scheme() == "https" {
                     note_url(u.as_str());
                 }
@@ -508,6 +508,33 @@ fn build_child(
         }
     });
     Ok(())
+}
+
+/// The page's current URL, `None` when it has none.
+///
+/// macOS: not `Webview::url()`. wry unwraps WKWebView's `URL`, which is nil
+/// before a first load commits or after the web process died, and that panic
+/// on the main thread killed the app (issue #4). The URL is read here instead.
+async fn current_url(wv: &tauri::Webview) -> Option<tauri::Url> {
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+        wv.with_webview(move |pw| {
+            use objc2_web_kit::WKWebView;
+            // SAFETY: on macOS `inner()` is the live WKWebView, and this runs on the main thread.
+            let url = unsafe { (pw.inner() as *const WKWebView).as_ref() }
+                .and_then(|view| unsafe { view.URL() })
+                .and_then(|u| u.absoluteString())
+                .map(|s| s.to_string());
+            let _ = tx.send(url);
+        })
+        .ok()?;
+        rx.await.ok().flatten().and_then(|s| tauri::Url::parse(&s).ok())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        wv.url().ok()
+    }
 }
 
 /// Engine-level load failures -> `browser-view-error` (wry only reports

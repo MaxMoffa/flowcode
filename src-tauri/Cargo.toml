@@ -99,6 +99,12 @@ gtk = "0.18"
 # Same cairo gtk uses (Cargo.lock), with PNG output: freeze-frame snapshot (browser_view.rs).
 cairo-rs = { version = "0.18", features = ["png"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Same versions wry resolves to (Cargo.lock): the browser reads WKWebView's URL
+# itself, since wry's url() panics when it is nil (browser_view.rs).
+objc2-web-kit = { version = "0.3", features = ["WKWebView"] }
+objc2-foundation = { version = "0.3", features = ["NSURL", "NSString"] }
+
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"
 
