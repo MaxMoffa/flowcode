@@ -560,6 +560,36 @@ impl Conn {
                     let _ = out.send(ServerMsg::History { request_id, result, error }).await;
                 });
             }
+            ClientMsg::HistoryDelete { request_id, items } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let bad = |s: &str, max: usize| s.is_empty() || s.len() > max || s.chars().any(|c| c.is_control());
+                let bad_path = |s: &str, max: usize| bad(s, max) || s.contains(['/', '\\']);
+                let invalid = items.len() > 500
+                    || items.iter().any(|i| bad_path(&i.cli, 32) || bad_path(&i.session_id, 256) || i.profile.as_deref().is_some_and(|p| bad_path(p, 128)) || i.wsl_distro.as_deref().is_some_and(|d| bad_path(d, 128)));
+                if invalid {
+                    let _ = self.out_tx.send(ServerMsg::HistoryDelete { request_id, result: None, error: Some(tr("Richiesta non valida", "Invalid request").to_string()) }).await;
+                    return;
+                }
+                // Sessions open in a tab here (chat or terminal) are never deleted: the tab would lose its history.
+                let mut open: std::collections::HashSet<String> = self.shared.chat_infos().into_iter().filter_map(|c| c.session_id).collect();
+                open.extend(self.shared.app.state::<ChatState>().list().into_iter().filter_map(|c| c.session_id));
+                open.extend(self.shared.refresh_tabs(Duration::from_millis(250)).await.into_iter().filter_map(|t| t.session_id));
+                let (items, refused): (Vec<_>, Vec<_>) = items.into_iter().partition(|i| !open.contains(&i.session_id));
+                let app = self.shared.app.clone();
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let items = items.into_iter().map(|i| crate::agents::HistoryItem { cli: i.cli, session_id: i.session_id, profile: i.profile, wsl_distro: i.wsl_distro }).collect();
+                    let (result, error) = match crate::agents::history_delete_sessions(app, items).await {
+                        Ok(mut report) => {
+                            let why = tr("Aperta in una scheda", "Open in a tab");
+                            report.failed.extend(refused.into_iter().map(|i| crate::agents::DeleteFailure { session_id: i.session_id, error: why.to_string() }));
+                            (serde_json::to_value(serde_json::json!({ "deleted": report.deleted, "failed": report.failed })).ok(), None)
+                        }
+                        Err(e) => (None, Some(e)),
+                    };
+                    let _ = out.send(ServerMsg::HistoryDelete { request_id, result, error }).await;
+                });
+            }
             ClientMsg::Stats { request_id, today_start } => {
                 if request_id.len() > MAX_ID_BYTES { return; }
                 let app = self.shared.app.clone();

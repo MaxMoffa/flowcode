@@ -24,12 +24,10 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { HistoryToast, MORE_ICON, RowMore, useUndoDelete } from "./historyDeleteUi";
 import "./agent-history.css";
 
 const POLL_MS = 5000;
-/** A single delete can be undone for this long; another delete restarts the wait. */
-const UNDO_MS = 6000;
-const ERROR_TOAST_MS = 4000;
 /** How long the first Claude scan waits for the repo's worktrees before going ahead with the folder alone. */
 const ROOTS_WAIT_MS = 300;
 /** Nothing arrived for this long: ghost rows appear (a faster answer shows no flash). */
@@ -126,41 +124,6 @@ async function deleteEntries(entries: DeleteEntry[], roots: string[], onFailed: 
   GLOBAL_AGENTS.filter((a) => clis.has(a)).forEach(refreshGlobalAgent);
   if (clis.has("claude")) refreshClaude(roots);
   if (failed.length > 0) onFailed(failed.length);
-}
-
-const MORE_ICON = (
-  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
-    <circle cx="3.5" cy="8" r="1.4" />
-    <circle cx="8" cy="8" r="1.4" />
-    <circle cx="12.5" cy="8" r="1.4" />
-  </svg>
-);
-
-/** The "⋯" at a row's right edge: a span, since a button can't sit inside the row's button. */
-function RowMore({ label, onOpen }: { label: string; onOpen: (rect: DOMRect) => void }) {
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-haspopup="menu"
-      aria-label={label}
-      title={label}
-      className="agent-history-more"
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(e.currentTarget.getBoundingClientRect());
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onOpen(e.currentTarget.getBoundingClientRect());
-        }
-      }}
-    >
-      {MORE_ICON}
-    </span>
-  );
 }
 
 /** The sessions of the project the active agent tab works in - saved ones
@@ -375,57 +338,13 @@ ${projectCwd}`;
     };
   }, [menuKey]);
 
-  const [toast, setToast] = useState<{ id: number; kind: "undo" | "error"; text: string } | null>(null);
-  const toastId = useRef(0);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /** Chats deleted but not yet committed: Undo takes them back until the timer runs out. */
-  const batch = useRef<DeleteEntry[]>([]);
-  const batchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const rootsRef = useRef(roots);
   rootsRef.current = roots;
-  const tRef = useRef(t);
-  tRef.current = t;
-
-  const showError = (text: string) => {
-    if (batch.current.length > 0) return;
-    clearTimeout(toastTimer.current);
-    setToast({ id: ++toastId.current, kind: "error", text });
-    toastTimer.current = setTimeout(() => setToast(null), ERROR_TOAST_MS);
-  };
-  const reportFailed = (count: number) => showError(tRef.current("history.delete.failed", { count }));
-  /** Commits the pending single deletes now. */
-  const flushBatch = () => {
-    clearTimeout(batchTimer.current);
-    const entries = batch.current;
-    batch.current = [];
-    setToast((cur) => (cur?.kind === "undo" ? null : cur));
-    void deleteEntries(entries, rootsRef.current, reportFailed);
-  };
-  const flushRef = useRef(flushBatch);
-  flushRef.current = flushBatch;
-  // Leaving the panel commits what is still waiting.
-  useEffect(
-    () => () => {
-      clearTimeout(toastTimer.current);
-      if (batch.current.length > 0) flushRef.current();
-    },
-    [],
-  );
-  const queueDelete = (entries: DeleteEntry[]) => {
-    if (entries.length === 0) return;
-    hideRows(entries.map((e) => e.key));
-    batch.current = [...batch.current, ...entries];
-    clearTimeout(toastTimer.current);
-    setToast({ id: ++toastId.current, kind: "undo", text: "" });
-    clearTimeout(batchTimer.current);
-    batchTimer.current = setTimeout(flushBatch, UNDO_MS);
-  };
-  const undoDelete = () => {
-    clearTimeout(batchTimer.current);
-    unhideRows(batch.current.map((e) => e.key));
-    batch.current = [];
-    setToast(null);
-  };
+  const { toast, batch, showError, reportFailed, flush: flushBatch, queue: queueDelete, undo: undoDelete } = useUndoDelete<DeleteEntry>({
+    hide: hideRows,
+    unhide: unhideRows,
+    commit: (entries, onFailed) => deleteEntries(entries, rootsRef.current, onFailed),
+  });
 
   /** A delegated chat still live (open in a tab or running under its orchestrator) can't be deleted. */
   const childLive = (child: DelegateChild) =>
@@ -628,19 +547,7 @@ ${projectCwd}`;
           </section>
         ))}
       </div>
-      {toast && (
-        <div key={toast.id} className={"agent-history-toast" + (toast.kind === "error" ? " is-error" : "")} role="status" aria-live="polite">
-          <span className="agent-history-toast-text">
-            {toast.kind === "error" ? toast.text : batch.current.length === 1 ? t("history.delete.one") : t("history.delete.other", { count: batch.current.length })}
-          </span>
-          {toast.kind === "undo" && (
-            <button type="button" className="agent-history-toast-undo" onClick={undoDelete}>
-              {t("history.delete.undo")}
-            </button>
-          )}
-          <span className="agent-history-toast-bar" style={{ animationDuration: `${toast.kind === "undo" ? UNDO_MS : ERROR_TOAST_MS}ms` }} />
-        </div>
-      )}
+      {toast && <HistoryToast toast={toast} count={batch.current.length} onUndo={undoDelete} />}
       </div>
       <div className="agent-history-footer" ref={footerRef}>
         {menuOpen && (

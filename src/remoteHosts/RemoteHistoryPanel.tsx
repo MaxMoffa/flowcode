@@ -6,6 +6,11 @@ import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMen
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { buildHistoryRows, filterRows, groupByDay, type HistoryEntries, type HistoryRow, type OpenSession } from "../agents/historyRows";
 import { chatKey, ptyKey } from "../../shared/remoteEntries";
+import { MenuIcons } from "../context-menu/menuIcons";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { HistoryToast, MORE_ICON, RowMore, useUndoDelete } from "../agents/historyDeleteUi";
+import type { HistoryItem } from "../agents/historyDelete";
+import { getRemoteHiddenRows, hideRemoteRows, remoteHiddenKey, remoteHistoryDelete, unhideRemoteRows, useRemoteHiddenRows } from "./remoteHistoryDelete";
 import { hostRequest } from "./hostRequest";
 import { chatLike, expectNewTab, terminalLike, selectRemoteKey, sendToHost, useHost, useHostState } from "./remoteHosts";
 import "../agents/agent-history.css";
@@ -14,6 +19,27 @@ const POLL_MS = 15_000;
 const EMPTY: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [], cline: [] };
 const isAgentCli = (cli: string | undefined): cli is AgentCli => !!cli && (AGENT_CLIS as readonly string[]).includes(cli);
 const statusOf = (s: string | undefined): "busy" | "waiting" | "idle" | undefined => (s === "busy" || s === "waiting" ? s : s === "exited" ? undefined : "idle");
+
+/** A saved chat on its way out: what the host needs and its per-host hidden-row key. */
+interface DeleteEntry {
+  item: HistoryItem;
+  key: string;
+}
+
+/** Deletes on the PC for good; failures (also chats it has open) come back into the list. */
+async function deleteEntries(hostId: string, entries: DeleteEntry[], onFailed: (count: number) => void) {
+  if (entries.length === 0) return;
+  let failedIds: Set<string>;
+  try {
+    const res = await remoteHistoryDelete(hostId, entries.map((e) => e.item));
+    failedIds = new Set(res.failed.map((f) => f.sessionId));
+  } catch {
+    failedIds = new Set(entries.map((e) => e.item.sessionId));
+  }
+  const failed = entries.filter((e) => failedIds.has(e.item.sessionId));
+  unhideRemoteRows(failed.map((e) => e.key));
+  if (failed.length > 0) onFailed(failed.length);
+}
 
 /** What the History tab is shown for: the agent tab in front on the other PC. */
 export interface RemoteAgentTab {
@@ -29,10 +55,12 @@ export interface RemoteAgentTab {
 export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string; agent: RemoteAgentTab; visible: boolean }) {
   const { t, language } = useI18n();
   const { show } = useContextMenu();
+  const confirm = useConfirmDialog();
   const host = useHost(hostId);
   const { chats, tabs } = useHostState(hostId);
   const { cwd } = agent;
   const canResume = !!host?.caps.includes("resume");
+  const canDelete = !!host?.caps.includes("historyDelete");
   const online = host?.status === "online";
   const [query, setQuery] = useState("");
   const [data, setData] = useState<{ cwd: string; roots: string[]; entries: HistoryEntries } | null>(null);
@@ -80,6 +108,7 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
   // Another folder or PC: nothing of the previous list stays.
   const mine = data && data.cwd === cwd ? data : null;
 
+  const hidden = useRemoteHiddenRows();
   const rows = useMemo(() => {
     const open: OpenSession[] = [];
     for (const c of chats) {
@@ -90,8 +119,9 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
       if (!isAgentCli(x.cli)) continue;
       open.push({ cli: x.cli, sessionId: x.sessionId ?? "", title: x.label, cwd: x.cwd, wslDistro: null, profile: x.profile ?? null, tabId: ptyKey(x.ptyId), status: statusOf(x.status), at: null });
     }
-    return buildHistoryRows({ entries: mine?.entries ?? EMPTY, roots: mine?.roots ?? [cwd], open });
-  }, [mine, cwd, chats, tabs]);
+    const all = buildHistoryRows({ entries: mine?.entries ?? EMPTY, roots: mine?.roots ?? [cwd], open });
+    return all.filter((r) => !!r.tabId || !hidden.has(remoteHiddenKey(hostId, `${r.cli}:${r.sessionId}`)));
+  }, [mine, cwd, chats, tabs, hidden, hostId]);
 
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;
   const shown = filterRows(rows, query, titleOf);
@@ -107,6 +137,68 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
     expectNewTab(hostId, agent.view === "chat" ? chatLike(row.cli, row.cwd) : terminalLike(row.cwd, row.cli));
     void sendToHost(hostId, { t: "resume", cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, ...(row.wslDistro ? { wslDistro: row.wslDistro } : {}), ...(row.profile ? { profile: row.profile } : {}), view: agent.view });
   };
+
+  // ---- deleting (on the other PC; chats open in one of its tabs are never deleted) ----
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menuKey) return;
+    const close = () => setMenuKey(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("mousedown", close, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("mousedown", close, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", close);
+    };
+  }, [menuKey]);
+  const entryOf = (row: HistoryRow): DeleteEntry => ({ item: { cli: row.cli, sessionId: row.sessionId, profile: row.profile, wslDistro: row.wslDistro }, key: remoteHiddenKey(hostId, `${row.cli}:${row.sessionId}`) });
+  const hostRef = useRef(hostId);
+  hostRef.current = hostId;
+  const { toast, batch, reportFailed, flush, queue, undo } = useUndoDelete<DeleteEntry>({
+    hide: hideRemoteRows,
+    unhide: unhideRemoteRows,
+    commit: (entries, onFailed) => deleteEntries(hostRef.current, entries, onFailed),
+  });
+  const copyId = (id: string) => void navigator.clipboard.writeText(id).catch(() => {});
+  const rowMenu = (row: HistoryRow): ContextMenuItem[] => [
+    { label: t(row.tabId ? "history.menu.goToTab" : "history.menu.resume"), icon: MenuIcons.openExternal, disabled: !row.tabId && !canResume, onSelect: () => openRow(row) },
+    { label: t("history.menu.copyId"), icon: MenuIcons.duplicate, disabled: !row.sessionId, onSelect: () => copyId(row.sessionId) },
+    { label: "history-menu-separator", separator: true },
+    !row.tabId && row.sessionId
+      ? { label: t("history.menu.delete"), icon: MenuIcons.trash, danger: true, disabled: !online, onSelect: () => queue([entryOf(row)]) }
+      : { label: t("history.menu.deleteOpen"), icon: MenuIcons.trash, danger: true, disabled: true },
+  ];
+  const openAt = (key: string, items: ContextMenuItem[], at: { x: number; y: number } | DOMRect) => {
+    setMenuKey(key);
+    if (at instanceof DOMRect) show(at.right - 200, at.bottom + 4, items);
+    else show(at.x, at.y, items);
+  };
+  /** Every saved chat of the list (not the open ones). */
+  const clearEntries = shown.filter((row) => !row.tabId && row.sessionId).map(entryOf);
+  const clearProject = async () => {
+    const entries = clearEntries;
+    if (entries.length === 0) return;
+    const counts = new Map<string, number>();
+    for (const e of entries) counts.set(e.item.cli, (counts.get(e.item.cli) ?? 0) + 1);
+    const breakdown = [...counts].map(([cli, n]) => `${isAgentCli(cli) ? CLI_INFO[cli].label : cli} ${n}`).join(", ");
+    const project = cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || cwd;
+    const ok = await confirm({
+      title: t("history.clear.title", { project }),
+      message: t("history.clear.message", { count: entries.length, breakdown }),
+      confirmLabel: t("history.clear.confirm", { count: entries.length }),
+      danger: true,
+    });
+    if (!ok) return;
+    // The pending single deletes go first, then these - no undo.
+    if (batch.current.length > 0) flush();
+    const fresh = entries.filter((e) => !getRemoteHiddenRows().has(e.key));
+    hideRemoteRows(fresh.map((e) => e.key));
+    void deleteEntries(hostId, fresh, reportFailed);
+  };
+  const toolsMenu = (rect: DOMRect) =>
+    openAt("tools", [{ label: t("history.clear.menu"), icon: MenuIcons.trash, danger: true, disabled: !online || clearEntries.length === 0, onSelect: () => void clearProject() }], rect);
 
   const newSession = (cli: AgentCli) => {
     expectNewTab(hostId, chatLike(cli, cwd));
@@ -128,6 +220,18 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
           </svg>
           <input type="text" value={query} placeholder={t("history.search")} aria-label={t("history.search")} onChange={(e) => setQuery(e.target.value)} />
         </label>
+        {canDelete && (
+          <button
+            type="button"
+            className={"agent-history-tools" + (menuKey === "tools" ? " is-open" : "")}
+            aria-haspopup="menu"
+            aria-label={t("history.tools")}
+            title={t("history.tools")}
+            onClick={(e) => toolsMenu(e.currentTarget.getBoundingClientRect())}
+          >
+            {MORE_ICON}
+          </button>
+        )}
       </div>
       <div className="agent-history-listwrap">
         {!mine && online && !failed && <div className="agent-history-topbar" role="progressbar" aria-busy="true" />}
@@ -145,11 +249,20 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
                   <button
                     key={row.key}
                     type="button"
-                    className={"agent-history-row" + (current ? " is-current" : "")}
+                    className={"agent-history-row" + (current ? " is-current" : "") + (menuKey === row.key ? " is-menu-open" : "")}
                     aria-current={current ? "true" : undefined}
                     title={`${titleOf(row)}\n${row.cwd}`}
                     disabled={!row.tabId && !canResume}
                     onClick={() => openRow(row)}
+                    onContextMenu={
+                      canDelete
+                        ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openAt(row.key, rowMenu(row), { x: e.clientX, y: e.clientY });
+                          }
+                        : undefined
+                    }
                   >
                     <span className="agent-history-icon">{agentCliIcon(row.cli)}</span>
                     <span className="agent-history-body">
@@ -162,12 +275,14 @@ export function RemoteHistoryPanel({ hostId, agent, visible }: { hostId: string;
                       </span>
                     </span>
                     {row.tabId && <span className={`agent-history-dot agent-history-dot--${row.status ?? "idle"}`} aria-hidden="true" />}
+                    {canDelete && <RowMore label={t("history.menu.more")} onOpen={(rect) => openAt(row.key, rowMenu(row), rect)} />}
                   </button>
                 );
               })}
             </section>
           ))}
         </div>
+        {toast && <HistoryToast toast={toast} count={batch.current.length} onUndo={undo} />}
       </div>
       <div className="agent-history-footer">
         <div className="agent-history-split">

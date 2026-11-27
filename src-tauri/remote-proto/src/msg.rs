@@ -123,6 +123,18 @@ pub enum TabOp {
     Move { index: u32 },
 }
 
+/// One saved agent session to delete (see `ClientMsg::HistoryDelete`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItem {
+    pub cli: String,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_distro: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ClientMsg {
@@ -174,6 +186,8 @@ pub enum ClientMsg {
     Git { request_id: String, request: GitRequest },
     /// Agent session history for the project at `cwd`, available only with `history`.
     History { request_id: String, cwd: String },
+    /// Permanently delete saved agent sessions, available only with `historyDelete`. Sessions open in a tab are refused.
+    HistoryDelete { request_id: String, items: Vec<HistoryItem> },
     /// Activity stats for the phone's widgets (local midnight in ms), available only with `stats`.
     Stats { request_id: String, today_start: u64 },
     /// Resume an agent session in a new desktop tab, available only with `resume`.
@@ -460,6 +474,14 @@ pub enum ServerMsg {
     },
     /// Reply to `history`: `{roots, claude, codex, vibe, opencode}` or an error.
     History {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `historyDelete`: `{deleted: [sessionId], failed: [{sessionId, error}]}` or an error.
+    HistoryDelete {
         request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result: Option<serde_json::Value>,
@@ -842,6 +864,14 @@ mod tests {
         let reply = ServerMsg::History { request_id: "h1".into(), result: None, error: Some("no".into()) };
         let json = serde_json::to_value(&reply).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "history", "requestId": "h1", "error": "no" }));
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+        let json = serde_json::json!({ "t": "historydelete", "requestId": "d1", "items": [{ "cli": "claude", "sessionId": "s1", "profile": "w" }] });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::HistoryDelete { request_id: "d1".into(), items: vec![HistoryItem { cli: "claude".into(), session_id: "s1".into(), profile: Some("w".into()), wsl_distro: None }] });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let reply = ServerMsg::HistoryDelete { request_id: "d1".into(), result: Some(serde_json::json!({ "deleted": ["s1"], "failed": [] })), error: None };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "historydelete", "requestId": "d1", "result": { "deleted": ["s1"], "failed": [] } }));
         assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"resume","cwd":"C:/p","sessionId":"s1","cli":"claude"}"#).unwrap();
         assert_eq!(msg, ClientMsg::Resume { cwd: "C:/p".into(), session_id: "s1".into(), cli: "claude".into(), wsl_distro: None, profile: None, view: None });

@@ -165,6 +165,10 @@ export type GitRequest =
   | { op: "switch"; root: string; name: string; createFromRemote: boolean }
   | { op: "show"; root: string; path: string; rev: string };
 
+/** One saved chat to delete on the host (`historydelete`, needs the `historyDelete` cap). */
+export interface HistoryDeleteItem { cli: string; sessionId: string; profile?: string | null; wslDistro?: string | null }
+/** The host refuses chats open in one of its tabs: they come back under `failed`. */
+export interface HistoryDeleteResult { deleted: string[]; failed: { sessionId: string; error: string }[] }
 /** Reply to `history` (`history` cap): session entries as in src/agents/entryTypes.ts. */
 export interface HistoryResult { roots: string[]; claude: unknown[]; codex: unknown[]; vibe: unknown[]; opencode: unknown[]; /** Absent on hosts older than Cline history. */ cline?: unknown[] }
 /** Reply to `stats` (`stats` cap): activity for the phone's home-screen widgets; `days` oldest first, last = today. */
@@ -288,6 +292,7 @@ export type RemoteCap =
   | "git"
   | "tabOps"
   | "history"
+  | "historyDelete"
   | "stats"
   | "resume"
   | "chatAttach"
@@ -362,6 +367,7 @@ export type ServerMsg =
   | { t: "fs"; requestId: string; response?: FsResponse; error?: string }
   | { t: "git"; requestId: string; result?: unknown; error?: string }
   | { t: "history"; requestId: string; result?: HistoryResult; error?: string }
+  | { t: "historydelete"; requestId: string; result?: HistoryDeleteResult; error?: string }
   | { t: "stats"; requestId: string; result?: ActivityStats; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -425,6 +431,7 @@ export type ClientMsg =
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "git"; requestId: string; request: GitRequest }
   | { t: "history"; requestId: string; cwd: string }
+  | { t: "historydelete"; requestId: string; items: HistoryDeleteItem[] }
   | { t: "stats"; requestId: string; todayStart: number }
   | { t: "resume"; cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: "chat" | "terminal" }
   | { t: "list" }
