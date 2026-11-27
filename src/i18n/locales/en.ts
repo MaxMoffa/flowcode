@@ -269,6 +269,7 @@ export const en: Record<MessageKey, string> = {
   "editor.saved": "Saved",
   "editor.save": "Save",
   "editor.openFailed": "Couldn't open the file: {error}",
+  "editor.readOnlyNote": "Read-only: the file is too large or not plain text.",
   "editor.changedOnDisk.title": "File changed on disk",
   "editor.changedOnDisk.body": "The file was changed on disk after you opened it. Overwrite it with your version?",
   "editor.changedOnDisk.overwrite": "Overwrite",

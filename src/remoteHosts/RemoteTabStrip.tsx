@@ -4,9 +4,13 @@ import { t, useI18n } from "../i18n";
 import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
 import { ChatIcon } from "../app/icons";
 import { agentCliIcon } from "../plugins/icons";
+import { FileTypeIcon } from "../sidebar/fileIcons";
+import { basename } from "../lib/path";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
 import { chatLike, closeRemoteEntry, connectHost, remoteCallTabId, expectNewTab, terminalLike, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
+import { closeRemoteEditor, showRemoteEditor, useRemoteEditors } from "./remoteFiles";
 import { RemoteNewTabDialog } from "./RemoteNewTabDialog";
 import "../terminal/tabstrip.css";
 import "./remote-hosts.css";
@@ -48,6 +52,8 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   const { show } = useContextMenu();
   const host = useHost(hostId);
   const { tabs, chats, activeKey } = useHostState(hostId);
+  const editors = useRemoteEditors(hostId);
+  const confirm = useConfirmDialog();
   const entries = remoteEntries(tabs, chats);
   const caps = host?.caps ?? [];
   const [newDialog, setNewDialog] = useState(false);
@@ -55,7 +61,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, entries.map((e) => `${e.key}:${entryLabel(e)}`).join("|"));
+  const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, entries.map((e) => `${e.key}:${entryLabel(e)}`).join("|") + "|" + editors.tabs.map((e) => e.path).join("|"));
 
   useEffect(() => {
     if (editing) {
@@ -84,7 +90,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
     if (!el || !tabEl) return;
     if (tabEl.offsetLeft < el.scrollLeft) el.scrollTo({ left: tabEl.offsetLeft });
     else if (tabEl.offsetLeft + tabEl.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollTo({ left: tabEl.offsetLeft + tabEl.offsetWidth - el.clientWidth });
-  }, [activeKey, entries.length]);
+  }, [activeKey, entries.length, editors.front, editors.tabs.length]);
 
   /** One arrow click: a page of tabs, like the local strip. */
   function scrollByPage(direction: -1 | 1) {
@@ -93,6 +99,19 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
     const slot = (el.querySelector<HTMLElement>(".term-tab")?.offsetWidth ?? 160) + 2;
     const slots = Math.max(1, Math.floor(el.clientWidth / slot));
     el.scrollBy({ left: direction * slots * slot, behavior: "smooth" });
+  }
+
+  async function closeEditor(path: string, dirty: boolean) {
+    if (dirty) {
+      const ok = await confirm({
+        title: t("app.unsaved.title"),
+        message: t("app.unsaved.message", { name: basename(path) }),
+        confirmLabel: t("app.unsaved.confirm"),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    closeRemoteEditor(hostId, path);
   }
 
   function startEditing(entry: RemoteEntry) {
@@ -161,9 +180,12 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
               <div
                 key={entry.key}
                 data-tab-id={remoteCallTabId(hostId, entry.key)}
-                className={"term-tab" + (entry.key === activeKey ? " is-active" : "") + " attn-" + attention}
+                className={"term-tab" + (entry.key === activeKey && !editors.front ? " is-active" : "") + " attn-" + attention}
                 title={`${label}\n${win} · ${cwd}`}
-                onClick={() => selectRemoteKey(hostId, entry.key)}
+                onClick={() => {
+                  selectRemoteKey(hostId, entry.key);
+                  showRemoteEditor(hostId, null);
+                }}
                 onDoubleClick={(e) => {
                   if ((e.target as HTMLElement).closest(".term-tab-close, input")) return;
                   startEditing(entry);
@@ -206,6 +228,32 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
               </div>
             );
           })}
+          {editors.tabs.map((file) => (
+            <div
+              key={"file:" + file.path}
+              className={"term-tab" + (file.path === editors.front ? " is-active" : "")}
+              title={file.path}
+              onClick={() => showRemoteEditor(hostId, file.path)}
+            >
+              <FileTypeIcon name={basename(file.path)} />
+              <span className="term-tab-label">{basename(file.path)}</span>
+              {file.dirty && <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />}
+              <button
+                type="button"
+                className="term-tab-close"
+                aria-label={t("tabs.closeNamed", { name: basename(file.path) })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void closeEditor(file.path, file.dirty);
+                }}
+              >
+                <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
         </div>
         <TabScrollArrows canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} onScroll={scrollByPage} />
       </div>

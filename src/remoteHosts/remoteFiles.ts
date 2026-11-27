@@ -105,7 +105,7 @@ export async function readRemoteFile(hostId: string, path: string): Promise<Remo
   return { path: m.response.path, text: m.response.text, truncated: m.response.truncated };
 }
 
-// ---- the viewer on screen ---------------------------------------------------
+// ---- the editor tabs of a PC ------------------------------------------------
 
 export interface OpenRemoteFile {
   hostId: string;
@@ -113,21 +113,89 @@ export interface OpenRemoteFile {
   line?: number;
 }
 
-let current: OpenRemoteFile | null = null;
-const subs = new Set<() => void>();
-
-/** Shows a file of the other PC in the read-only viewer (one at a time, replacing the previous). */
-export function openRemoteFile(file: OpenRemoteFile | null) {
-  current = file;
-  subs.forEach((fn) => fn());
+export interface RemoteEditorTab {
+  path: string;
+  /** Line to scroll to; `seq` changes on every open so asking for the same line again scrolls again. */
+  line?: number;
+  seq: number;
+  dirty: boolean;
+  /** Unsaved text kept while the PC is left; handed back to the editor when it is mounted again. */
+  draft?: string;
 }
 
-export function useOpenRemoteFile(): OpenRemoteFile | null {
+export interface RemoteEditors {
+  tabs: readonly RemoteEditorTab[];
+  /** Path of the editor in front; null when a tab of the PC itself is. */
+  front: string | null;
+}
+
+const NONE: RemoteEditors = { tabs: [], front: null };
+const state = new Map<string, RemoteEditors>();
+const subs = new Set<() => void>();
+let seq = 0;
+
+function patch(hostId: string, fn: (s: RemoteEditors) => RemoteEditors) {
+  const prev = state.get(hostId) ?? NONE;
+  const next = fn(prev);
+  if (next === prev) return;
+  state.set(hostId, next);
+  subs.forEach((f) => f());
+}
+
+/** Opens a file of the other PC as an editor tab in front (an open one is focused; a new `line` scrolls). */
+export function openRemoteFile({ hostId, path, line }: OpenRemoteFile) {
+  patch(hostId, (s) => {
+    const has = s.tabs.some((t) => t.path === path);
+    const tabs = has ? s.tabs.map((t) => (t.path === path ? { ...t, line, seq: ++seq } : t)) : [...s.tabs, { path, line, seq: ++seq, dirty: false }];
+    return { tabs, front: path };
+  });
+}
+
+/** Puts the editor of `path` in front; null puts the PC's own tabs back in front. */
+export function showRemoteEditor(hostId: string, path: string | null) {
+  patch(hostId, (s) => (s.front === path || (path !== null && !s.tabs.some((t) => t.path === path)) ? s : { ...s, front: path }));
+}
+
+/** Closes an editor tab; the one before it (or the PC's tabs) comes to the front if it was in front. */
+export function closeRemoteEditor(hostId: string, path: string) {
+  patch(hostId, (s) => {
+    const at = s.tabs.findIndex((t) => t.path === path);
+    if (at < 0) return s;
+    const tabs = s.tabs.filter((t) => t.path !== path);
+    return { tabs, front: s.front === path ? (tabs[Math.min(at, tabs.length - 1)]?.path ?? null) : s.front };
+  });
+}
+
+/** A clean editor drops its draft. */
+export function setRemoteEditorDirty(hostId: string, path: string, dirty: boolean) {
+  patch(hostId, (s) => (s.tabs.some((t) => t.path === path && (t.dirty !== dirty || (!dirty && t.draft !== undefined))) ? { ...s, tabs: s.tabs.map((t) => (t.path === path ? { ...t, dirty, draft: dirty ? t.draft : undefined } : t)) } : s));
+}
+
+/** Keeps the unsaved text of a dirty editor whose workspace is going away. */
+export function stashRemoteDraft(hostId: string, path: string, draft: string) {
+  patch(hostId, (s) => ({ ...s, tabs: s.tabs.map((t) => (t.path === path && t.dirty ? { ...t, draft } : t)) }));
+}
+
+/** The file was renamed on the PC from its editor tab. */
+export function renameRemoteEditor(hostId: string, path: string, newPath: string) {
+  patch(hostId, (s) => (s.tabs.some((t) => t.path === path) ? { tabs: s.tabs.map((t) => (t.path === path ? { ...t, path: newPath } : t)), front: s.front === path ? newPath : s.front } : s));
+}
+
+export function getRemoteEditors(hostId: string): RemoteEditors {
+  return state.get(hostId) ?? NONE;
+}
+
+export function useRemoteEditors(hostId: string): RemoteEditors {
   return useSyncExternalStore(
     (fn) => {
       subs.add(fn);
       return () => void subs.delete(fn);
     },
-    () => current,
+    () => getRemoteEditors(hostId),
   );
+}
+
+/** Test hook: forgets every open editor. */
+export function resetRemoteEditors() {
+  state.clear();
 }

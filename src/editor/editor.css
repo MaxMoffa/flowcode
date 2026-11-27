@@ -80,6 +80,13 @@
   color: var(--fg-muted);
 }
 
+.editor-note {
+  flex: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
 /* Token colors: one fixed accent per syntax category, same palette family
    as the file-explorer's type icons, legible on both light and dark glass. */
 .cm-tok-keyword {

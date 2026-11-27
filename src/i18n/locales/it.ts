@@ -267,6 +267,7 @@ export const it = {
   "editor.saved": "Salvato",
   "editor.save": "Salva",
   "editor.openFailed": "Impossibile aprire il file: {error}",
+  "editor.readOnlyNote": "Sola lettura: il file è troppo grande o non è testo semplice.",
   "editor.changedOnDisk.title": "File modificato su disco",
   "editor.changedOnDisk.body": "Il file è stato modificato su disco dopo l'apertura. Sovrascriverlo con la tua versione?",
   "editor.changedOnDisk.overwrite": "Sovrascrivi",
