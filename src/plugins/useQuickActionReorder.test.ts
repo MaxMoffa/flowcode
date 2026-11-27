@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { moveShortcut, SHORTCUT_HOLD_MS, useQuickActionReorder } from "./useQuickActionReorder";
+import { followLeft, moveShortcut, SHORTCUT_HOLD_MS, useQuickActionReorder } from "./useQuickActionReorder";
 
 const mock = vi.hoisted(() => ({ effects: [] as (() => void | (() => void))[] }));
 vi.mock("react", () => ({
   useRef: <T,>(value: T) => ({ current: value }),
   useState: <T,>(value: T) => [value, vi.fn()],
   useEffect: (effect: () => void | (() => void)) => { mock.effects.push(effect); },
+  useLayoutEffect: () => {},
 }));
 
 let events: EventTarget;
@@ -74,6 +75,16 @@ describe("shortcut order", () => {
     expect(moveShortcut(ids, ids[0], ids[0])).toBe(ids);
     expect(moveShortcut(ids, "deleted", ids[0])).toBe(ids);
     expect(moveShortcut(ids, ids[0], "deleted")).toBe(ids);
+  });
+});
+
+describe("follow the pointer", () => {
+  it("keeps the grab point under the pointer", () => {
+    expect(followLeft(60, 10, 0, 200, 28)).toBe(50);
+  });
+  it("stays inside the bar", () => {
+    expect(followLeft(-40, 10, 0, 200, 28)).toBe(0);
+    expect(followLeft(500, 10, 0, 200, 28)).toBe(172);
   });
 });
 

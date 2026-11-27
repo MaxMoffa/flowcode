@@ -66,7 +66,7 @@ export function renderHeaderTools(S: ShellCtx): { sidebarToggle: ReactNode; head
               <div
                 key={id}
                 data-shortcut-id={id}
-                className={"quick-action" + (quickActionReorder.draggingId === id ? " is-dragging" : "")}
+                className={"quick-action" + (quickActionReorder.draggingId === id ? " is-dragging" : "") + (quickActionReorder.pressingId === id ? " is-pressing" : "")}
                 onPointerDown={(e) => quickActionReorder.onPointerDown(e, id)}
                 onContextMenu={(e) => {
                   if (quickActionReorder.draggingId) e.preventDefault();

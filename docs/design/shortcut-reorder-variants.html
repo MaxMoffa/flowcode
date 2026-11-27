@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — riordino degli shortcut in alto a destra: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --danger:#e07a6a; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.09);
+  --menu:#2a2119; --elev:#2c231a;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --danger:#b8483a; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.08);
+  --menu:#fbf6ec; --elev:#fffaf0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1000px}
+.bar{display:flex;gap:8px;margin-bottom:22px;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.var{margin-bottom:34px;max-width:1000px}
+.var h2{font-size:14px;margin:0 0 2px}
+.var p{margin:0 0 10px;color:var(--fg-muted)}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+/* finta barra del titolo */
+.titlebar{height:44px;border:1px solid var(--border);border-radius:10px;background:var(--surface);display:flex;align-items:center;padding:0 8px;gap:8px;position:relative;user-select:none}
+.tabs{display:flex;gap:4px;flex:1;min-width:0}
+.tab{height:28px;padding:0 12px;border-radius:7px;background:var(--track);display:flex;align-items:center;color:var(--fg-muted);font-size:12px}
+.tab.on{background:var(--hover);color:var(--fg)}
+.qa{position:relative;height:30px;border-left:1px solid var(--border);margin-left:4px;padding-left:6px;flex:none}
+.ib{position:absolute;top:1px;width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--fg-muted);cursor:pointer;transition:left .18s cubic-bezier(.2,.8,.3,1)}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tail{display:flex;gap:2px;flex:none}
+.tail .ib2{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--fg-muted)}
+.tail svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8}
+.toast{position:absolute;right:8px;top:50px;font-size:11.5px;color:var(--fg-muted);background:var(--menu);border:1px solid var(--border);border-radius:8px;padding:4px 10px;opacity:0;transition:opacity .15s;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1}
+
+/* anello di pressione */
+.ring{position:absolute;inset:-3px;border-radius:9px;pointer-events:none}
+.ring svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ring rect{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:fill var(--hold) linear forwards}
+@keyframes fill{to{stroke-dashoffset:0}}
+
+/* tremolio */
+@keyframes jiggle{0%{transform:rotate(-2.4deg)}50%{transform:rotate(2.4deg)}100%{transform:rotate(-2.4deg)}}
+@keyframes jiggle2{0%{transform:rotate(2deg) translateY(.3px)}50%{transform:rotate(-2.6deg)}100%{transform:rotate(2deg) translateY(.3px)}}
+.jig .ib:not(.drag){animation:jiggle .26s ease-in-out infinite;color:var(--fg)}
+.jig .ib:nth-child(even):not(.drag){animation:jiggle2 .3s ease-in-out infinite}
+.edit .ib{background:var(--track)}
+
+/* trascinato */
+.ib.drag{transition:none;z-index:5;background:var(--elev);color:var(--fg);transform:translateY(-2px) scale(1.18);box-shadow:0 6px 16px rgba(0,0,0,.35),0 0 0 1px color-mix(in srgb,var(--accent) 60%,transparent);cursor:grabbing}
+.ib.settle{animation:settle .22s ease-out}
+@keyframes settle{0%{transform:scale(1.12)}100%{transform:none}}
+.slot{position:absolute;top:1px;width:28px;height:28px;border-radius:7px;border:1.5px dashed color-mix(in srgb,var(--accent) 55%,transparent);transition:left .18s cubic-bezier(.2,.8,.3,1);pointer-events:none}
+
+/* badge × */
+.x{position:absolute;top:-6px;left:-6px;width:15px;height:15px;border-radius:50%;background:var(--fg-muted);color:var(--bg);display:none;place-items:center;font-size:11px;line-height:1;font-weight:700;cursor:pointer;z-index:2}
+.edit .x{display:grid}
+.done{display:none;height:24px;padding:0 10px;border-radius:999px;border:none;background:var(--accent);color:var(--accent-ink);font:600 11.5px inherit;font-family:inherit;cursor:pointer;flex:none}
+.edit ~ .done{display:block}
+.hint{font-size:11.5px;color:var(--fg-muted);margin-top:8px}
+.reset{margin-left:8px;background:transparent;border:1px solid var(--border);color:var(--fg-muted);border-radius:6px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>Riordino degli shortcut in alto a destra</h1>
+<p class="sub">Oggi: tieni premuto 350 ms su un'icona e trascini; durante la pressione non succede niente di visibile, poi l'icona ha solo un contorno verde.
+Qui sotto tre modi di renderlo più chiaro. In tutti: tieni premuto un'icona della barra (a destra delle schede) e trascinala; un clic veloce la "esegue" (appare un avviso).</p>
+<div class="bar"><button id="bLight">Tema chiaro</button></div>
+
+<div class="var" data-v="A">
+  <h2>A · Modalità modifica come iOS<span class="rec">consigliata</span></h2>
+  <p>Tenendo premuto, tutte le icone iniziano a tremare ed entrano in modalità modifica: ognuna ha una × per toglierla dalla barra, e si trascinano subito, senza ripetere la pressione. Si esce con <b>Fine</b>, Esc o un clic fuori dalla barra.</p>
+</div>
+<div class="var" data-v="B">
+  <h2>B · Tremolio solo durante il trascinamento</h2>
+  <p>Mentre tieni premuto, un anello verde si riempie attorno all'icona (capisci che sta per succedere qualcosa). Poi l'icona si solleva e segue il mouse, le altre tremano e si spostano per farle posto. Al rilascio tutto torna fermo.</p>
+</div>
+<div class="var" data-v="C">
+  <h2>C · Sobria, senza tremolio</h2>
+  <p>Anello di pressione, icona sollevata che segue il mouse e un segnaposto tratteggiato dove cadrà; le altre scorrono. Niente movimento continuo.</p>
+</div>
+
+<template id="tpl">
+  <div class="titlebar">
+    <div class="tabs"><div class="tab on">flowcode · Claude</div><div class="tab">server</div></div>
+    <div class="qa"></div>
+    <button class="done">Fine</button>
+    <div class="tail"><span class="ib2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></span></div>
+    <div class="toast"></div>
+  </div>
+  <div class="hint">Ordine: <span class="order"></span><button class="reset">Ripristina</button></div>
+</template>
+
+<script>
+const HOLD=350, STEP=30;
+const ICONS={
+  browser:['Browser','<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
+  git:['Git','<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 8v8M18 11c0 4-6 3-10 5"/>'],
+  agent:['Pannello agente','<rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01"/>'],
+  usage:['Utilizzo','<path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/>'],
+  sidebar:['Barra laterale','<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>'],
+  term:['Nuovo terminale','<path d="m4 17 6-6-6-6M12 19h8"/>'],
+};
+const START=Object.keys(ICONS);
+
+function setup(root){
+  const v=root.dataset.v;
+  root.appendChild(document.getElementById('tpl').content.cloneNode(true));
+  const tb=root.querySelector('.titlebar'), qa=root.querySelector('.qa'), toast=root.querySelector('.toast'), ord=root.querySelector('.order');
+  let order=[...START], els={}, editMode=false, drag=null, toastT=0;
+  const say=(t)=>{toast.textContent=t;toast.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('on'),1100)};
+  function build(){
+    qa.innerHTML='';els={};
+    for(const id of order){
+      const b=document.createElement('div');b.className='ib';b.title=ICONS[id][0];b.dataset.id=id;
+      b.innerHTML=`<svg viewBox="0 0 24 24">${ICONS[id][1]}</svg>`+(v==='A'?'<span class="x" title="Togli dalla barra">×</span>':'');
+      qa.appendChild(b);els[id]=b;
+      b.addEventListener('pointerdown',e=>down(e,id));
+      const x=b.querySelector('.x');
+      if(x)x.addEventListener('pointerdown',e=>{e.stopPropagation();order=order.filter(o=>o!==id);b.remove();delete els[id];layout();if(!order.length)exitEdit()});
+    }
+    layout();
+  }
+  function layout(skip){
+    qa.style.width=(order.length*STEP)+'px';
+    order.forEach((id,i)=>{if(id!==skip)els[id].style.left=(i*STEP)+'px'});
+    ord.textContent=order.map(id=>ICONS[id][0]).join(' · ');
+  }
+  function enterEdit(){if(v!=='A'||editMode)return;editMode=true;qa.classList.add('edit','jig')}
+  function exitEdit(){if(!editMode)return;editMode=false;qa.classList.remove('edit','jig')}
+  root.querySelector('.done').addEventListener('click',exitEdit);
+  root.querySelector('.reset').addEventListener('click',()=>{exitEdit();order=[...START];build()});
+  document.addEventListener('pointerdown',e=>{if(editMode&&!tb.contains(e.target))exitEdit()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(drag)cancel();exitEdit()}});
+
+  function down(e,id){
+    if(e.button!==0)return;e.preventDefault();
+    const el=els[id];
+    drag={id,el,x0:e.clientX,started:false,timer:0,ring:null,slot:null,pid:e.pointerId};
+    if(v==='A'&&editMode){start();return}
+    if(v!=='A'){ // anello di pressione
+      const r=document.createElement('div');r.className='ring';
+      const len=2*(34+34)-4*9*(1-Math.PI/4); // perimetro approssimato
+      r.style.setProperty('--len',len);r.style.setProperty('--hold',HOLD+'ms');
+      r.innerHTML='<svg><rect x="0" y="0" width="34" height="34" rx="9" pathLength="'+len+'"/></svg>';
+      el.appendChild(r);drag.ring=r;
+    }
+    drag.timer=setTimeout(start,HOLD);
+  }
+  function start(){
+    if(!drag)return;drag.started=true;
+    if(drag.ring){drag.ring.remove();drag.ring=null}
+    if(v==='A')enterEdit();
+    if(v==='B')qa.classList.add('jig');
+    if(v==='C'){const s=document.createElement('div');s.className='slot';qa.appendChild(s);drag.slot=s}
+    drag.el.classList.add('drag');
+    drag.base=parseFloat(drag.el.style.left);
+    moveTo(drag.lastX??drag.x0);
+  }
+  function moveTo(x){
+    const d=drag;const qr=qa.getBoundingClientRect();
+    let left=Math.max(-6,Math.min(qr.width-22,d.base+(x-d.x0)));
+    d.el.style.left=left+'px';
+    const idx=Math.max(0,Math.min(order.length-1,Math.round(left/STEP)));
+    const cur=order.indexOf(d.id);
+    if(idx!==cur){order.splice(cur,1);order.splice(idx,0,d.id)}
+    layout(d.id);
+    if(d.slot)d.slot.style.left=(order.indexOf(d.id)*STEP)+'px';
+  }
+  window.addEventListener('pointermove',e=>{
+    if(!drag||e.pointerId!==drag.pid)return;
+    drag.lastX=e.clientX;
+    if(!drag.started){if(Math.abs(e.clientX-drag.x0)>6&&!(v==='A'&&editMode))cancel();return}
+    moveTo(e.clientX);
+  });
+  window.addEventListener('pointerup',e=>{
+    if(!drag||e.pointerId!==drag.pid)return;
+    const d=drag;drag=null;clearTimeout(d.timer);if(d.ring)d.ring.remove();
+    if(!d.started){if(!editMode)say('Eseguito: '+ICONS[d.id][0]);return}
+    d.el.classList.remove('drag');if(d.slot)d.slot.remove();
+    d.el.classList.add('settle');setTimeout(()=>d.el.classList.remove('settle'),240);
+    if(v==='B')qa.classList.remove('jig');
+    layout();
+  });
+  function cancel(){const d=drag;if(!d)return;drag=null;clearTimeout(d.timer);if(d.ring)d.ring.remove();
+    if(d.started){d.el.classList.remove('drag');if(d.slot)d.slot.remove();if(v==='B')qa.classList.remove('jig');layout()}}
+  build();
+}
+document.querySelectorAll('.var').forEach(setup);
+document.getElementById('bLight').onclick=e=>{document.body.classList.toggle('light');e.target.classList.toggle('on')};
+</script>
+</body>
+</html>

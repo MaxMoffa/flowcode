@@ -198,6 +198,7 @@
 }
 
 .quick-action {
+  position: relative;
   flex: 0 0 auto;
   user-select: none;
   touch-action: none;
@@ -213,11 +214,57 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   pointer-events: none;
 }
 
+/* The hold ring is an angle-driven mask, so the angle must be animatable. */
+@property --qa-hold {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes qa-hold {
+  to { --qa-hold: 360deg; }
+}
+
+/* The ring starts after 120ms so quick clicks never show it, and closes exactly when the 350ms hold completes. */
+.quick-action.is-pressing::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--accent);
+  border-radius: calc(var(--radius-ctl) + 3px);
+  pointer-events: none;
+  -webkit-mask-image: conic-gradient(#000 var(--qa-hold), transparent var(--qa-hold));
+  mask-image: conic-gradient(#000 var(--qa-hold), transparent var(--qa-hold));
+  animation: qa-hold 230ms linear 120ms both;
+}
+
+/* The wrapper stays in the flow as a dashed slot; the button itself is lifted and follows the pointer. */
 .quick-action.is-dragging {
+  z-index: 5;
+}
+
+.quick-action.is-dragging::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
   border-radius: var(--radius-ctl);
-  outline: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg-elevated));
-  opacity: 0.8;
+  pointer-events: none;
+}
+
+.quick-action.is-dragging > :first-child {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-elevated);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  cursor: grabbing;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-action.is-pressing::after {
+    display: none;
+  }
 }
 
 .app-body {
@@ -493,6 +540,9 @@ html.is-resizing .resizable-panel > .panel-card {
   border-left: none;
   overflow-x: auto;
   scrollbar-width: none;
+  /* Scrolling clips both axes, so the ring and the lifted button get room, offset by negative margins to keep the layout. */
+  padding: 4px 3px;
+  margin: -4px -3px;
 }
 
 .narrow-toolbar .quick-actions::-webkit-scrollbar {
