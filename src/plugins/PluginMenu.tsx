@@ -124,7 +124,11 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+      if (!menuRef.current || menuRef.current.contains(e.target as Node)) return;
+      // The usage popover (and its profile picker) are portals beside the menu:
+      // closing here would unmount them before their buttons get the click.
+      if (e.target instanceof Element && e.target.closest(".plugin-usage-popover, .profile-select-menu")) return;
+      onClose();
     };
     // Escape first empties the search, then closes the menu.
     const onKeyDown = (e: KeyboardEvent) => {
