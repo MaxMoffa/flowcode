@@ -368,7 +368,11 @@ function Shell() {
         <div className="header-right">
           {!isNarrow && headerTools}
           {pluginMenuAnchor && (
-            <PluginMenu items={pluginMenuEntries()} anchorRect={pluginMenuAnchor} onClose={() => setPluginMenuAnchor(null)} />
+            <PluginMenu items={pluginMenuEntries()} anchorRect={pluginMenuAnchor} onClose={() => setPluginMenuAnchor(null)} onManage={() => {
+              // Settings is a local tab: bring the local PC back in front first.
+              setActiveHost(LOCAL_HOST);
+              openSettings();
+            }} />
           )}
           <div className="window-controls">
             <button className="icon-button" aria-label={t("window.minimize")} onClick={() => appWindow.minimize()}>

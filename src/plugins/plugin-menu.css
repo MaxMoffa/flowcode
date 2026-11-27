@@ -1,7 +1,7 @@
 .plugin-menu {
   position: fixed;
   z-index: 1000;
-  width: 320px;
+  width: 290px;
   max-height: min(480px, calc(100vh - 80px));
   display: flex;
   flex-direction: column;
@@ -33,8 +33,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  margin: 10px 10px 4px;
+  height: 36px;
+  margin: 8px 8px;
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -82,59 +82,38 @@
   color: var(--fg-muted);
 }
 
+
+/* Between the search and the list. */
+.plugin-menu-divider {
+  flex: 0 0 auto;
+  height: 1px;
+  background: var(--border);
+}
+
 .plugin-menu-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 6px 6px;
+  padding: 2px 5px 5px;
 }
 
 .plugin-menu-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin: 0;
-  padding: 10px 6px 4px;
+  padding: 8px 8px 3px;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-/* The shortcut bar's features, as tiles. */
-.plugin-menu-pinned {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-  padding: 0 0 4px;
-}
-
-.plugin-menu-tile {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 2px 6px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.plugin-menu-tile:hover,
-.plugin-menu-tile:focus-visible {
-  outline: none;
-  background: var(--sidebar-hover);
-  color: var(--fg);
-}
-
-.plugin-menu-tile > span:last-child {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.plugin-menu-heading-count {
+  font-weight: 500;
+  letter-spacing: 0;
+  opacity: 0.7;
 }
 
 .plugin-menu-badge {
@@ -142,26 +121,27 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
   background: rgb(127 127 127 / 0.14);
   color: var(--fg);
 }
 
 .plugin-menu-badge svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   stroke: currentColor;
   fill: none;
 }
 
+/* One line per feature: the description is the row's tooltip. */
 .plugin-menu-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  border-radius: 8px;
+  height: 30px;
+  border-radius: 7px;
 }
 
 .plugin-menu-item:hover,
@@ -169,19 +149,66 @@
   background: var(--sidebar-hover);
 }
 
+/* The row whose usage popover is open: marked on the side it opens from. */
+.plugin-menu-item.is-open {
+  background: var(--sidebar-hover);
+}
+
+.plugin-menu-item.is-open::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* "‹" on the left: opens the usage popover beside the menu, on that side. */
+.plugin-menu-more,
+.plugin-menu-more-spacer {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 22px;
+  margin-left: 3px;
+}
+
+.plugin-menu-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.plugin-menu-more:hover,
+.plugin-menu-more:focus-visible,
+.plugin-menu-item.is-open .plugin-menu-more {
+  outline: none;
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
 .plugin-menu-item-body {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 8px;
+  height: 100%;
+  padding: 0 6px;
   border: none;
   background: transparent;
   color: var(--fg);
   font: inherit;
+  font-size: 13px;
   text-align: left;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
 }
 
@@ -189,28 +216,34 @@
   outline: none;
 }
 
-.plugin-menu-item-text {
+.plugin-menu-item-label {
   flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.plugin-menu-item-label,
-.plugin-menu-item-desc {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.plugin-menu-item-label {
-  font-size: 13px;
-  font-weight: 500;
+/* The last cached usage reading (session window), never fetched just for the menu. */
+.plugin-menu-gauge {
+  flex: 0 0 auto;
+  display: block;
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  overflow: hidden;
 }
 
-.plugin-menu-item-desc {
-  color: var(--fg-muted);
-  font-size: 11.5px;
+.plugin-menu-gauge > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.plugin-menu-gauge.is-high > span {
+  background: var(--ansi-bright-red);
 }
 
 .plugin-menu-pin {
@@ -218,9 +251,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin-right: 6px;
+  width: 24px;
+  height: 24px;
+  margin-right: 3px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
@@ -250,4 +283,50 @@
   padding: 12px 8px;
   color: var(--fg-muted);
   font-size: 12px;
+}
+
+.plugin-menu-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 6px;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-menu-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.plugin-menu-manage:hover,
+.plugin-menu-manage:focus-visible {
+  outline: none;
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.plugin-menu-foot-keys {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.plugin-menu-foot-keys kbd {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 10.5px;
 }

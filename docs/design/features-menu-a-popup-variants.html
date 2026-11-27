@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — menu Funzionalità A: come appare il popup di utilizzo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.09);
+  --menu:#2a2119; --field:rgba(127,127,127,.12); --badge:rgba(127,127,127,.14); --warn:#e0a23e;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.08);
+  --menu:#fbf6ec; --warn:#b97a14;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1100px}
+.bar{display:flex;gap:8px;margin-bottom:22px;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(620px,1fr));gap:34px 28px;max-width:1300px}
+.var h2{font-size:14px;margin:0 0 2px}
+.var p{margin:0 0 10px;color:var(--fg-muted)}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.now{display:inline-block;font-size:11px;border:1px solid var(--border);color:var(--fg-muted);border-radius:999px;padding:0 8px;margin-left:6px;vertical-align:1px}
+.stage{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:10px 12px 18px;height:600px;overflow:hidden}
+.hb{display:flex;align-items:center;gap:2px;justify-content:flex-end;height:32px;border-bottom:1px solid var(--border);margin:0 -12px 10px;padding:0 10px}
+.hb .ib{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--fg-muted)}
+.hb .ib.open{background:var(--hover);color:var(--fg)}
+svg.i{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.wrap{display:flex;justify-content:flex-end}
+
+/* menu A */
+.menu{width:290px;max-height:540px;background:var(--menu);border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.14);overflow:hidden;display:flex;flex-direction:column;position:relative;z-index:2}
+.search{flex:none;display:flex;align-items:center;gap:9px;height:36px;margin:8px 8px 8px;padding:0 12px;border-radius:9px;background:var(--field);color:var(--fg-muted)}
+.search input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--fg);font:inherit;font-size:13px}
+.search input::placeholder{color:var(--fg-muted)}
+.divider{flex:none;height:1px;background:var(--border);margin:0}
+.kbd{font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--fg-muted)}
+.list{overflow:auto;padding:2px 5px 5px;flex:1;min-height:0}
+.head{padding:8px 8px 3px;color:var(--fg-muted);font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;gap:6px}
+.head .n{font-weight:500;letter-spacing:0;opacity:.7}
+.row{position:relative;display:flex;align-items:center;gap:9px;height:30px;padding:0 4px 0 7px;border-radius:7px;cursor:pointer}
+.row:hover,.row.hot{background:var(--hover)}
+.row.act{background:var(--track)}
+.row.act::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--accent)}
+.badge{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:5px;background:var(--badge);color:var(--fg);font-weight:700;font-size:9px}
+.badge svg{width:13px;height:13px}
+.ag{color:#fff}
+.lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.use{width:34px;height:4px;border-radius:2px;background:var(--track);overflow:hidden;flex:none}
+.use i{display:block;height:100%;background:var(--accent)}
+.use.hi i{background:var(--warn)}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.ok{background:#7fbf6a}.dot.off{background:var(--fg-muted);opacity:.5}
+.pinb{border:none;background:transparent;color:var(--fg-muted);width:22px;height:22px;border-radius:6px;display:grid;place-items:center;cursor:pointer;flex:none;opacity:0}
+.row:hover .pinb,.pinb.on{opacity:1}
+.pinb:hover{background:var(--hover);color:var(--fg)}
+.pinb.on{color:var(--accent)}.pinb.on svg{fill:currentColor}
+.pinb svg{width:13px;height:13px}
+.chev{border:none;background:transparent;color:var(--fg-muted);width:20px;height:22px;border-radius:6px;display:grid;place-items:center;cursor:pointer;flex:none;margin-left:-4px}
+.chev:hover,.row.act .chev{color:var(--fg);background:var(--hover)}
+.chev svg{width:12px;height:12px;transition:transform .15s}
+.chev.down.open svg{transform:rotate(90deg)}
+.tip{flex:none;margin:2px 8px 6px;padding:6px 9px;border-radius:7px;background:var(--field);color:var(--fg-muted);font-size:11.5px;min-height:32px;overflow:hidden;transition:max-height .2s ease}
+.foot{flex:none;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:7px 12px;color:var(--fg-muted);font-size:11.5px}
+.foot .sp{flex:1}
+.empty{padding:18px;text-align:center;color:var(--fg-muted)}
+
+/* popup di utilizzo */
+.pop{position:absolute;width:260px;background:var(--menu);border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.24),0 2px 8px rgba(0,0,0,.14);padding:12px 12px 10px;z-index:3;display:none}
+.pop.on{display:block}
+.pop.anim{animation:popin .14s cubic-bezier(.2,.8,.3,1)}
+@keyframes popin{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:none}}
+.pop .arrow{position:absolute;right:-6px;width:10px;height:10px;background:var(--menu);border-right:1px solid var(--border);border-top:1px solid var(--border);transform:rotate(45deg)}
+.pop .bridge{position:absolute;top:0;bottom:0;right:-14px;width:14px}
+.ph{display:flex;align-items:flex-start;gap:9px;margin-bottom:10px}
+.ph .badge{width:26px;height:26px;font-size:10.5px;border-radius:7px}
+.ph .t{flex:1;min-width:0}
+.ph .t b{display:block;font-size:13px}
+.ph .t span{display:block;font-size:11.5px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof{font-size:11px;border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--fg-muted);white-space:nowrap}
+.m{margin-bottom:9px}
+.m .ln{display:flex;justify-content:space-between;font-size:11.5px}
+.m .ln span:last-child{font-variant-numeric:tabular-nums}
+.m .tr{height:5px;border-radius:3px;background:var(--track);overflow:hidden;margin:3px 0 2px}
+.m .tr i{display:block;height:100%;background:var(--accent)}
+.m.warn .tr i{background:var(--warn)}
+.m.warn .ln span:last-child{color:var(--warn)}
+.m .dt{font-size:11px;color:var(--fg-muted)}
+.ctx{border-top:1px solid var(--border);padding-top:8px;margin-top:2px;font-size:11.5px;color:var(--fg-muted);display:flex;justify-content:space-between}
+.lnk{display:block;margin-top:8px;font-size:11.5px;color:var(--fg-muted);text-decoration:none}
+.lnk:hover{color:var(--fg)}
+
+/* inline (accordion) */
+.inl{margin:0 4px 4px 36px;padding:8px 10px 4px;border-left:2px solid var(--accent);background:var(--field);border-radius:0 7px 7px 0;animation:drop .16s ease-out}
+@keyframes drop{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.inl .m{margin-bottom:7px}
+.inl .acc{font-size:11px;color:var(--fg-muted);margin-bottom:6px;display:flex;justify-content:space-between;gap:6px}
+/* dock */
+.tip.rich{padding:9px 10px 6px}
+.tip .rh{display:flex;align-items:center;gap:7px;margin-bottom:6px;color:var(--fg)}
+.tip .rh span{color:var(--fg-muted);font-size:11px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.tip .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tip .m{margin-bottom:4px}
+.legend{position:absolute;left:14px;bottom:12px;font-size:11px;color:var(--fg-muted);max-width:270px}
+</style>
+</head>
+<body>
+<h1>Menu Funzionalità A — come appare il popup di utilizzo</h1>
+<p class="sub">Variante A con il divisore sotto la ricerca. Cambia solo il modo in cui si apre il popup per le voci che ne hanno uno (oggi Claude Code e Codex CLI; Gemini e gli altri non lo hanno). Prova a scorrere col mouse su e giù sulla lista: è lì che si vedono le differenze (sfarfallio, popup che coprono, popup che si chiudono mentre ci vai sopra).</p>
+<div class="bar"><button id="th">Tema chiaro</button></div>
+
+<div class="grid">
+  <section class="var">
+    <h2>P0 — Come oggi <span class="now">attuale</span></h2>
+    <p>Hover sulla riga = popup subito, a sinistra del menu, alla stessa altezza. Scendendo lungo la lista si apre e chiude a ogni agente; per andarci sopra in diagonale si passa su altre righe.</p>
+    <div class="stage" data-mode="now"></div>
+  </section>
+
+  <section class="var">
+    <h2>P1 — Con intenzione <span class="rec">consigliata</span></h2>
+    <p>Si apre dopo ~300 ms di sosta, entra scivolando dal menu, con una freccia che punta alla riga, che resta segnata a sinistra. Muovendosi verso il popup (anche in diagonale) resta aperto; passare veloci sulla lista non apre nulla. Chiude dopo 250 ms.</p>
+    <div class="stage" data-mode="intent"></div>
+  </section>
+
+  <section class="var">
+    <h2>P2 — Sottomenu su freccia</h2>
+    <p>Le voci con popup hanno una freccetta › a destra. L'hover non apre nulla: il popup si apre cliccando la freccia (o → da tastiera) e resta fisso finché non clicchi altrove o premi Esc. Clic sulla riga = avvia l'agente, come ora.</p>
+    <div class="stage" data-mode="click"></div>
+  </section>
+
+  <section class="var">
+    <h2>P3 — Espansione nella lista</h2>
+    <p>Niente popup esterno: la freccetta ▸ apre i dettagli sotto la riga, dentro il menu (fisarmonica, uno alla volta). Non copre nulla e funziona anche nel layout stretto, ma allunga la lista.</p>
+    <div class="stage" data-mode="inline"></div>
+  </section>
+
+  <section class="var">
+    <h2>P4 — Nella striscia in basso</h2>
+    <p>La striscia di descrizione della variante A diventa il pannello: sugli agenti con utilizzo si allarga e mostra le barre (sessione e settimana). Nessun livello in più, ma meno spazio: il contesto e il link alla console restano sul pulsante della barra.</p>
+    <div class="stage" data-mode="dock"></div>
+  </section>
+</div>
+
+<script>
+const IC={
+  grid:'<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
+  dots:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  pin:'<path d="M14.5 3.5 20.5 9.5 17 13l-1 5-3-3-5 5-1-1 5-5-3-3 5-1z"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m9 6 6 6-6 6"/>',
+  term:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 10 3 2-3 2M12 15h5"/>',
+  clear:'<path d="M4 20h16M7 16 17 6l2 2L9 18H7z"/>',
+  side:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  agent:'<circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+  code:'<path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/>'
+};
+const svg=k=>`<svg class="i" viewBox="0 0 24 24">${IC[k]}</svg>`;
+const ITEMS=[
+  {id:'claude',label:'Claude Code',agent:1,c:'#d97757',ch:'C',use:42,st:'ok',acc:'massimo@… · Max',
+    pop:{prof:'Personale',m:[['Sessione (5 h)',25,'Si azzera alle 14:30'],['Settimana',42,'Si azzera lunedì 09:00'],['Settimana · Opus',61,'']],ctx:'Contesto chat attiva: 61% di 1M'}},
+  {id:'codex',label:'Codex CLI',agent:1,c:'#3d8f7a',ch:'X',use:78,st:'ok',acc:'Plus · massimo@…',
+    pop:{prof:'Personale',m:[['Sessione (5 h)',47,'Si azzera alle 16:10'],['Settimana',78,'Si azzera giovedì']],ctx:'Contesto chat attiva: 33% di 272K'}},
+  {id:'gemini',label:'Gemini CLI',agent:1,c:'#4f7fe0',ch:'G',st:'ok',acc:'Account Google'},
+  {id:'opencode',label:'OpenCode',agent:1,c:'#555',ch:'O',st:'ok',acc:'OpenRouter · chiave ••••3f'},
+  {id:'cline',label:'Cline',agent:1,c:'#8a6bd1',ch:'Cl',st:'off',acc:'Non connesso'},
+  {id:'vibe',label:'Mistral Vibe',agent:1,c:'#e0702e',ch:'M',st:'ok',acc:'Chiave API ••••a1'},
+  {id:'newTab',label:'Nuovo terminale',ic:'term',desc:'di base'},
+  {id:'clear',label:'Pulisci terminale',ic:'clear',desc:'di base'},
+  {id:'side',label:'Mostra/nascondi pannello laterale',ic:'side',desc:'di base'},
+  {id:'agentPanel',label:'Pannello agente',ic:'agent',desc:"Mostra o nasconde il pannello dell'agente attivo (contesto, utilizzo, delegati)"},
+  {id:'browser',label:'Browser',ic:'globe',desc:"Anteprima di server locali, artefatti e pagine web dentro l'app"},
+  {id:'vscode',label:'Apri in VS Code',ic:'code',desc:'Apre la cartella del terminale attivo in Visual Studio Code.'},
+];
+const byId=id=>ITEMS.find(i=>i.id===id);
+let pinned=['claude','codex','browser','agentPanel'];
+const isPinned=id=>pinned.includes(id);
+const badge=it=>it.agent?`<span class="badge ag" style="background:${it.c}">${it.ch}</span>`:`<span class="badge">${svg(it.ic)}</span>`;
+const metric=([l,p,d])=>`<div class="m ${p>70?'warn':''}"><div class="ln"><span>${l}</span><span>${p}%</span></div><div class="tr"><i style="width:${p}%"></i></div>${d?`<div class="dt">${d}</div>`:''}</div>`;
+const popBody=it=>`<div class="ph">${badge(it)}<div class="t"><b>${it.label}</b><span>${it.acc}</span></div><span class="prof">${it.pop.prof} ▾</span></div>${it.pop.m.map(metric).join('')}<div class="ctx"><span>${it.pop.ctx}</span><span>▸</span></div><a class="lnk">Apri la console ↗</a>`;
+const tipText=it=>it?(it.agent?`<b style="color:var(--fg)">${it.label}</b> · ${it.acc}`:it.desc):'Passa sopra una voce per i dettagli · Invio apre la prima';
+
+const instances=[];
+function makeInstance(stage){
+  const mode=stage.dataset.mode;
+  const S={q:'',hover:null,open:null,timer:null,hide:null};
+  stage.innerHTML=`<div class="hb"></div><div class="wrap"><div class="menu"></div></div><div class="pop"></div>`;
+  const menu=stage.querySelector('.menu'),pop=stage.querySelector('.pop');
+  const hasChev=mode==='click'||mode==='inline';
+
+  function rowHTML(it){
+    const ind=it.use!=null?`<span class="use ${it.use>70?'hi':''}"><i style="width:${it.use}%"></i></span>`:it.agent?`<span class="dot ${it.st}"></span>`:'';
+    const chev=hasChev&&it.pop?`<button class="chev ${mode==='inline'?'down':''} ${S.open===it.id?'open':''}" data-chev="${it.id}" title="Dettagli utilizzo">${svg('chev')}</button>`:'';
+    const act=S.open===it.id&&mode!=='inline'?'act':'';
+    let h=`<div class="row ${act}" data-id="${it.id}">${badge(it)}<span class="lb">${it.label}</span>${ind}<button class="pinb ${isPinned(it.id)?'on':''}" data-pin="${it.id}" title="${isPinned(it.id)?'Rimuovi dalla barra':'Aggiungi alla barra'}">${svg('pin')}</button>${chev}</div>`;
+    if(mode==='inline'&&S.open===it.id)h+=`<div class="inl"><div class="acc"><span>${it.acc}</span><span class="prof">${it.pop.prof} ▾</span></div>${it.pop.m.map(metric).join('')}<div class="ctx" style="margin-bottom:6px"><span>${it.pop.ctx}</span></div></div>`;
+    return h;
+  }
+  function tipHTML(){
+    const it=S.hover&&byId(S.hover);
+    if(mode==='dock'&&it&&it.pop)return `<div class="tip rich" style="max-height:140px"><div class="rh">${badge(it)}<b>${it.label}</b><span>${it.acc}</span></div><div class="two">${it.pop.m.slice(0,2).map(metric).join('')}</div></div>`;
+    return `<div class="tip" style="max-height:60px">${tipText(it)}</div>`;
+  }
+  function render(keepFocus){
+    const f=document.activeElement,had=keepFocus&&f&&menu.contains(f)&&f.tagName==='INPUT',pos=had?f.selectionStart:0;
+    const list=ITEMS.filter(i=>i.label.toLowerCase().includes(S.q.trim().toLowerCase()));
+    const ag=list.filter(i=>i.agent),tl=list.filter(i=>!i.agent);
+    const sec=(t,a)=>a.length?`<div class="head">${t} <span class="n">${a.length}</span></div>${a.map(rowHTML).join('')}`:'';
+    const scroll=menu.querySelector('.list')?.scrollTop||0;
+    menu.innerHTML=`<label class="search">${svg('search')}<input placeholder="Cerca funzionalità…" value="${S.q}"><span class="kbd">Ctrl K</span></label><div class="divider"></div>`+
+      `<div class="list">${list.length?sec('Agenti',ag)+sec('Strumenti',tl):'<div class="empty">Nessun risultato</div>'}</div>`+tipHTML()+
+      `<div class="foot"><span style="display:flex;align-items:center;gap:6px">${svg('gear')} Gestisci funzionalità…</span><span class="sp"></span><span class="kbd">↑↓</span><span class="kbd">↵</span></div>`;
+    menu.querySelector('.list').scrollTop=scroll;
+    if(had){const i=menu.querySelector('input');i.focus();i.setSelectionRange(pos,pos);}
+    stage.querySelector('.hb').innerHTML=pinned.map(id=>{const i=byId(id);return `<span class="ib">${i.agent?`<span class="badge ag" style="background:${i.c};width:18px;height:18px;font-size:8.5px">${i.ch}</span>`:svg(i.ic)}</span>`;}).join('')+`<span class="ib open">${svg('grid')}</span><span class="ib">${svg('dots')}</span>`;
+    placePop();
+  }
+  function placePop(){
+    const showPop=S.open&&(mode==='now'||mode==='intent'||mode==='click');
+    const row=showPop&&menu.querySelector(`.row[data-id="${S.open}"]`);
+    if(!row){pop.classList.remove('on');pop.dataset.id='';return;}
+    const sr=stage.getBoundingClientRect(),mr=menu.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    if(pop.dataset.id!==S.open){
+      pop.innerHTML=popBody(byId(S.open))+(mode==='intent'?'<span class="arrow"></span><span class="bridge"></span>':'');
+      pop.dataset.id=S.open;
+      pop.classList.remove('anim');void pop.offsetWidth;if(mode!=='now')pop.classList.add('anim');
+    }
+    pop.classList.add('on');
+    const gap=mode==='intent'?10:6;
+    pop.style.left=(mr.left-sr.left-260-gap)+'px';
+    let top=rr.top-sr.top+(mode==='intent'?-10:0);
+    const h=pop.offsetHeight;top=Math.min(top,sr.height-h-10);pop.style.top=Math.max(8,top)+'px';
+    const ar=pop.querySelector('.arrow');if(ar)ar.style.top=(rr.top-sr.top+rr.height/2-Math.max(8,top)-5)+'px';
+    if(ar)ar.style.right='-6px';
+    const br=pop.querySelector('.bridge');if(br){br.style.right=-(gap+4)+'px';br.style.width=(gap+4)+'px';}
+  }
+  const setOpen=id=>{if(S.open===id)return;S.open=id;render(true);};
+  const cancelHide=()=>{clearTimeout(S.hide);S.hide=null;};
+  const scheduleHide=ms=>{cancelHide();S.hide=setTimeout(()=>{S.open=null;render(true);},ms);};
+
+  menu.addEventListener('input',e=>{S.q=e.target.value;S.open=null;render(true);});
+  menu.addEventListener('mouseover',e=>{
+    const r=e.target.closest('.row');const id=r?r.dataset.id:null;
+    if(id!==S.hover){S.hover=id;const t=menu.querySelector('.tip');if(t){t.outerHTML=tipHTML();}}
+    const it=id&&byId(id);
+    if(mode==='now'){if(it&&it.pop){cancelHide();setOpen(id);}else if(S.open)scheduleHide(160);}
+    if(mode==='intent'){
+      clearTimeout(S.timer);
+      if(it&&it.pop){if(S.open===id){cancelHide();return;}
+        // se un popup è già aperto, cambia solo dopo una sosta più lunga (il mouse sta forse andando verso il popup)
+        S.timer=setTimeout(()=>{cancelHide();setOpen(id);},S.open?380:300);}
+      else if(S.open){S.timer=setTimeout(()=>scheduleHide(0),300);}
+    }
+  });
+  menu.addEventListener('mouseleave',()=>{clearTimeout(S.timer);S.hover=null;const t=menu.querySelector('.tip');if(t)t.outerHTML=tipHTML();
+    if(mode==='now'&&S.open)scheduleHide(160);if(mode==='intent'&&S.open)scheduleHide(250);});
+  pop.addEventListener('mouseenter',()=>{clearTimeout(S.timer);cancelHide();});
+  pop.addEventListener('mouseleave',()=>{if(mode==='now')scheduleHide(160);if(mode==='intent')scheduleHide(250);});
+  stage.addEventListener('click',e=>{
+    const p=e.target.closest('[data-pin]');if(p){e.stopPropagation();const id=p.dataset.pin;pinned=isPinned(id)?pinned.filter(x=>x!==id):[...pinned,id];instances.forEach(i=>i.render());return;}
+    const c=e.target.closest('[data-chev]');if(c){e.stopPropagation();const id=c.dataset.chev;S.open=S.open===id?null:id;render(true);return;}
+    const r=e.target.closest('.row');if(r){menu.style.transition='opacity .12s';menu.style.opacity=.35;setTimeout(()=>menu.style.opacity=1,180);return;}
+    if(mode==='click'&&S.open&&!e.target.closest('.pop')){S.open=null;render(true);}
+  });
+  if(mode==='click')document.addEventListener('click',e=>{if(!stage.contains(e.target)&&S.open){S.open=null;render();}});
+  menu.addEventListener('keydown',e=>{if(e.key==='Escape'&&S.open){S.open=null;render(true);}});
+  const inst={render:()=>render(false)};instances.push(inst);render(false);
+}
+document.querySelectorAll('.stage').forEach(makeInstance);
+document.getElementById('th').onclick=e=>{document.body.classList.toggle('light');e.target.textContent=document.body.classList.contains('light')?'Tema scuro':'Tema chiaro';};
+</script>
+</body>
+</html>

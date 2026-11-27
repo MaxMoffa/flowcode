@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — menu Funzionalità: 4 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.09);
+  --menu:#2a2119; --field:rgba(127,127,127,.12); --badge:rgba(127,127,127,.14);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.08);
+  --menu:#fbf6ec;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1100px}
+.bar{display:flex;gap:8px;margin-bottom:22px;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:34px 28px;max-width:1240px}
+.var h2{font-size:14px;margin:0 0 2px}
+.var p{margin:0 0 10px;color:var(--fg-muted)}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.stage{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:10px 12px 18px;min-height:560px}
+.hb{display:flex;align-items:center;gap:2px;justify-content:flex-end;height:32px;border-bottom:1px solid var(--border);margin:0 -12px 10px;padding:0 10px}
+.hb .ib{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--fg-muted)}
+.hb .ib.open{background:var(--hover);color:var(--fg)}
+.hb .sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+svg.i{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.wrap{display:flex;justify-content:flex-end}
+
+/* comune */
+.menu{background:var(--menu);border:1px solid var(--border);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.14);overflow:hidden;display:flex;flex-direction:column}
+.search{display:flex;align-items:center;gap:9px;height:36px;margin:8px 8px 4px;padding:0 12px;border-radius:9px;background:var(--field);color:var(--fg-muted)}
+.search input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--fg);font:inherit;font-size:13px}
+.search input::placeholder{color:var(--fg-muted)}
+.kbd{font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--fg-muted)}
+.head{padding:9px 8px 3px;color:var(--fg-muted);font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.head .n{font-weight:500;letter-spacing:0;opacity:.7}
+.badge{flex:none;display:grid;place-items:center;border-radius:6px;background:var(--badge);color:var(--fg);font-weight:700;font-size:10px}
+.ag{color:#fff}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.ok{background:#7fbf6a}.dot.warn{background:#e0a23e}.dot.off{background:var(--fg-muted);opacity:.5}
+.foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:7px 12px;color:var(--fg-muted);font-size:11.5px}
+.foot a{color:var(--fg-muted);text-decoration:none;display:flex;align-items:center;gap:6px;cursor:pointer}
+.foot a:hover{color:var(--fg)}
+.foot .sp{flex:1}
+.empty{padding:18px;text-align:center;color:var(--fg-muted)}
+.pinb{border:none;background:transparent;color:var(--fg-muted);width:24px;height:24px;border-radius:6px;display:grid;place-items:center;cursor:pointer;flex:none}
+.pinb:hover{background:var(--hover);color:var(--fg)}
+.pinb.on{color:var(--accent)}
+.pinb.on svg{fill:currentColor}
+
+/* A — lista compatta */
+.A{width:290px;max-height:500px}
+.A .list{overflow:auto;padding:0 5px 5px}
+.A .row{display:flex;align-items:center;gap:9px;height:30px;padding:0 4px 0 7px;border-radius:7px;cursor:pointer}
+.A .row:hover,.A .row.sel{background:var(--hover)}
+.A .row .badge{width:20px;height:20px;font-size:9px;border-radius:5px}
+.A .row .lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.A .row .pinb{opacity:0}
+.A .row:hover .pinb,.A .row .pinb.on{opacity:1}
+.A .use{width:34px;height:4px;border-radius:2px;background:var(--track);overflow:hidden;flex:none}
+.A .use i{display:block;height:100%;background:var(--accent)}
+.A .use.hi i{background:#e0a23e}
+.A .tip{margin:2px 8px 6px;padding:6px 9px;border-radius:7px;background:var(--field);color:var(--fg-muted);font-size:11.5px;min-height:32px}
+
+/* B — palette con anteprima */
+.B{width:540px;height:400px}
+.B .body{display:flex;flex:1;min-height:0;border-top:1px solid var(--border);margin-top:4px}
+.B .list{width:230px;overflow:auto;padding:0 5px 6px;border-right:1px solid var(--border)}
+.B .row{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:7px;cursor:pointer}
+.B .row:hover{background:var(--hover)}
+.B .row.sel{background:var(--track);box-shadow:inset 2px 0 0 var(--accent)}
+.B .row .badge{width:20px;height:20px;font-size:9px;border-radius:5px}
+.B .row .lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.B .row .pm{color:var(--accent)}
+.B .det{flex:1;padding:16px 16px 12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.B .det .top{display:flex;gap:12px;align-items:center}
+.B .det .badge{width:40px;height:40px;font-size:13px;border-radius:10px}
+.B .det h4{margin:0;font-size:14px}
+.B .det .kind{font-size:11.5px;color:var(--fg-muted)}
+.B .det .ds{color:var(--fg-muted);font-size:12.5px}
+.B .meter{display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:var(--fg-muted)}
+.B .meter .ln{display:flex;justify-content:space-between}
+.B .meter .tr{height:5px;border-radius:3px;background:var(--track);overflow:hidden}
+.B .meter .tr i{display:block;height:100%;background:var(--accent)}
+.B .acts{margin-top:auto;display:flex;gap:8px;align-items:center}
+.btn{height:28px;padding:0 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--fg);font:inherit;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.sw{width:28px;height:16px;border-radius:999px;background:var(--track);position:relative;flex:none;cursor:pointer;border:1px solid var(--border)}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--fg-muted);transition:left .15s}
+.sw.on{background:var(--accent);border-color:transparent}
+.sw.on::after{left:14px;background:var(--accent-ink)}
+.swl{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+
+/* C — griglia launcher */
+.C{width:350px;max-height:520px}
+.C .list{overflow:auto;padding:0 8px 8px}
+.C .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.C .tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 4px 8px;border-radius:10px;cursor:pointer;border:1px solid transparent;color:var(--fg-muted);font-size:11px;text-align:center}
+.C .tile:hover{background:var(--hover);color:var(--fg)}
+.C .tile.pinned{border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.C .tile .badge{width:34px;height:34px;font-size:12px;border-radius:9px}
+.C .tile .nm{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.C .ring{position:absolute;top:6px;left:50%;margin-left:-21px;width:42px;height:42px;pointer-events:none}
+.C .ring circle{fill:none;stroke-width:2.2}
+.C .tile .pinb{position:absolute;top:2px;right:2px;width:20px;height:20px;opacity:0}
+.C .tile:hover .pinb,.C .tile .pinb.on{opacity:1}
+.C .tile .pinb svg{width:12px;height:12px}
+.C .tile .dot{position:absolute;top:8px;left:8px}
+
+/* D — schede + interruttori */
+.D{width:320px;max-height:500px}
+.D .tabs{display:flex;gap:2px;margin:4px 8px 4px;padding:2px;border-radius:9px;background:var(--field)}
+.D .tabs button{flex:1;height:26px;border:none;border-radius:7px;background:transparent;color:var(--fg-muted);font:inherit;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+.D .tabs button.on{background:var(--menu);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.D .tabs .n{font-size:10.5px;opacity:.65}
+.D .list{overflow:auto;padding:2px 5px 6px}
+.D .row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer}
+.D .row:hover{background:var(--hover)}
+.D .row .badge{width:28px;height:28px;font-size:10px;border-radius:7px}
+.D .row .tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.D .row .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.D .row .ds{font-size:11px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px}
+.D .grip{color:var(--fg-muted);opacity:.5;cursor:grab;font-size:12px;letter-spacing:-2px;width:10px}
+.D .hint{padding:4px 10px 8px;font-size:11px;color:var(--fg-muted)}
+</style>
+</head>
+<body>
+<h1>Menu Funzionalità — 4 varianti</h1>
+<p class="sub">Il menu che si apre dal pulsante griglia in alto a destra. Oggi: ricerca, tile "Nella barra", sezioni Agenti / Strumenti con righe a due righe (icona, nome, descrizione) e puntina. Le varianti sono interattive: ricerca, puntina (stato condiviso con la barra finta in alto), clic sulle righe. Hover sugli agenti = stato account.</p>
+<div class="bar">
+  <button id="th">Tema chiaro</button>
+  <span style="color:var(--fg-muted);font-size:12px">Puntina / interruttore = aggiunge o toglie dalla barra in alto.</span>
+</div>
+
+<div class="grid">
+  <section class="var">
+    <h2>A — Lista compatta <span class="rec">consigliata</span></h2>
+    <p>Righe da una sola linea (30 px invece di ~46): ci stanno tutte senza scroll. Descrizione in una striscia sotto, per la riga sotto il mouse. Agenti con barretta di utilizzo a destra; puntina visibile solo su hover o se attiva. Footer con "Gestisci…" e scorciatoie.</p>
+    <div class="stage"><div class="hb" data-hb></div><div class="wrap"><div class="menu A" id="mA"></div></div></div>
+  </section>
+
+  <section class="var">
+    <h2>B — Palette con anteprima</h2>
+    <p>Più larga, stile command palette. A sinistra la lista (frecce ↑↓), a destra il dettaglio della voce selezionata: descrizione completa, utilizzo account per gli agenti, interruttore "Nella barra" e pulsante Apri. Il popover di utilizzo affiancato sparisce: è già dentro.</p>
+    <div class="stage"><div class="hb" data-hb></div><div class="wrap"><div class="menu B" id="mB"></div></div></div>
+  </section>
+
+  <section class="var">
+    <h2>C — Launcher a griglia</h2>
+    <p>Tutto a tile 3 per riga, come un launcher. Agenti con anello di utilizzo attorno all'icona e pallino di stato; bordo verde = già nella barra. Puntina nell'angolo su hover. Molto visivo, meno testo.</p>
+    <div class="stage"><div class="hb" data-hb></div><div class="wrap"><div class="menu C" id="mC"></div></div></div>
+  </section>
+
+  <section class="var">
+    <h2>D — Schede + interruttori</h2>
+    <p>Segmentato in alto: Nella barra · Agenti · Strumenti. Ogni riga ha un interruttore chiaro invece della puntina. Nella scheda "Nella barra" le voci hanno la maniglia per riordinare (stesso ordine della barra). Agenti con stato account nella seconda riga.</p>
+    <div class="stage"><div class="hb" data-hb></div><div class="wrap"><div class="menu D" id="mD"></div></div></div>
+  </section>
+</div>
+
+<script>
+const IC={
+  grid:'<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
+  dots:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  pin:'<path d="M14.5 3.5 20.5 9.5 17 13l-1 5-3-3-5 5-1-1 5-5-3-3 5-1z"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.7h4.4l.4-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  term:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 10 3 2-3 2M12 15h5"/>',
+  clear:'<path d="M4 20h16M7 16 17 6l2 2L9 18H7z"/>',
+  side:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  agent:'<circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+  code:'<path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/>'
+};
+const svg=(k,cls='i')=>`<svg class="${cls}" viewBox="0 0 24 24">${IC[k]}</svg>`;
+const ITEMS=[
+  {id:'claude',label:'Claude Code',agent:1,c:'#d97757',ch:'C',use:42,st:'ok',acc:'massimo@… · Max',desc:'Avvia una sessione di Claude Code.'},
+  {id:'codex',label:'Codex CLI',agent:1,c:'#3d8f7a',ch:'X',use:78,st:'warn',acc:'Plus · limite settimanale 78%',desc:'Avvia una sessione di Codex CLI.'},
+  {id:'gemini',label:'Gemini CLI',agent:1,c:'#4f7fe0',ch:'G',use:12,st:'ok',acc:'Account Google',desc:'Avvia una sessione di Gemini CLI.'},
+  {id:'opencode',label:'OpenCode',agent:1,c:'#555',ch:'O',use:null,st:'ok',acc:'OpenRouter · chiave ••••3f',desc:'Avvia una sessione di OpenCode.'},
+  {id:'cline',label:'Cline',agent:1,c:'#8a6bd1',ch:'Cl',use:null,st:'off',acc:'Non connesso',desc:'Avvia una sessione di Cline.'},
+  {id:'vibe',label:'Mistral Vibe',agent:1,c:'#e0702e',ch:'M',use:null,st:'ok',acc:'Chiave API ••••a1',desc:'Avvia una sessione di Mistral Vibe.'},
+  {id:'newTab',label:'Nuovo terminale',ic:'term',desc:'di base'},
+  {id:'clear',label:'Pulisci terminale',ic:'clear',desc:'di base'},
+  {id:'side',label:'Mostra/nascondi pannello laterale',ic:'side',desc:'di base'},
+  {id:'agentPanel',label:'Pannello agente',ic:'agent',desc:"Mostra o nasconde il pannello dell'agente attivo (contesto, utilizzo, delegati)"},
+  {id:'browser',label:'Browser',ic:'globe',desc:"Anteprima di server locali, artefatti e pagine web dentro l'app"},
+  {id:'vscode',label:'Apri in VS Code',ic:'code',desc:'Apre la cartella del terminale attivo in Visual Studio Code.'},
+];
+let pinned=['claude','codex','browser','agentPanel'];
+const isPinned=id=>pinned.includes(id);
+const togglePin=id=>{pinned=isPinned(id)?pinned.filter(x=>x!==id):[...pinned,id];renderAll();};
+const byId=id=>ITEMS.find(i=>i.id===id);
+const badge=(it,extra='')=>it.agent?`<span class="badge ag" style="background:${it.c}" ${extra}>${it.ch}</span>`:`<span class="badge" ${extra}>${svg(it.ic)}</span>`;
+const pinBtn=id=>`<button class="pinb ${isPinned(id)?'on':''}" data-pin="${id}" title="${isPinned(id)?'Rimuovi dalla barra':'Aggiungi alla barra'}">${svg('pin')}</button>`;
+const filt=q=>ITEMS.filter(i=>i.label.toLowerCase().includes(q.trim().toLowerCase()));
+const state={A:{q:'',hover:null},B:{q:'',sel:'claude'},C:{q:''},D:{q:'',tab:'agents'}};
+
+function searchBox(v,ph,kbd){return `<label class="search">${svg('search')}<input data-q="${v}" placeholder="${ph}" value="${state[v].q}">${kbd?`<span class="kbd">${kbd}</span>`:''}</label>`;}
+function footer(extra=''){return `<div class="foot"><a>${svg('gear')} Gestisci funzionalità…</a><span class="sp"></span>${extra}</div>`;}
+
+function renderA(){
+  const s=state.A,list=filt(s.q),ag=list.filter(i=>i.agent),tl=list.filter(i=>!i.agent);
+  const row=it=>`<div class="row" data-run="${it.id}" data-hov="${it.id}">${badge(it)}<span class="lb">${it.label}</span>${it.agent&&it.use!=null?`<span class="use ${it.use>70?'hi':''}" title="Utilizzo ${it.use}%"><i style="width:${it.use}%"></i></span>`:it.agent?`<span class="dot ${it.st}"></span>`:''}${pinBtn(it.id)}</div>`;
+  const sec=(t,a)=>a.length?`<div class="head">${t} <span class="n">${a.length}</span></div>${a.map(row).join('')}`:'';
+  const h=s.hover&&byId(s.hover);
+  return searchBox('A','Cerca funzionalità…','Ctrl K')+
+    `<div class="list">${list.length?sec('Agenti',ag)+sec('Strumenti',tl):'<div class="empty">Nessun risultato</div>'}</div>`+
+    `<div class="tip">${h?(h.agent?`<b style="color:var(--fg)">${h.label}</b> · ${h.acc}`:h.desc):'Passa sopra una voce per i dettagli · Invio apre la prima'}</div>`+
+    footer('<span class="kbd">↑↓</span><span class="kbd">↵</span>');
+}
+function renderB(){
+  const s=state.B,list=filt(s.q);
+  if(!list.find(i=>i.id===s.sel)&&list[0])s.sel=list[0].id;
+  const it=byId(s.sel);
+  const row=i=>`<div class="row ${i.id===s.sel?'sel':''}" data-sel="${i.id}">${badge(i)}<span class="lb">${i.label}</span>${isPinned(i.id)?`<span class="pm">${svg('pin')}</span>`:''}</div>`;
+  const ag=list.filter(i=>i.agent),tl=list.filter(i=>!i.agent);
+  const det=it&&list.length?`<div class="det"><div class="top">${badge(it)}<div><h4>${it.label}</h4><div class="kind">${it.agent?'Agente':'Strumento'}${it.agent?` · <span class="dot ${it.st}" style="display:inline-block;vertical-align:1px"></span> ${it.acc}`:''}</div></div></div>
+    <div class="ds">${it.desc}</div>
+    ${it.agent&&it.use!=null?`<div class="meter"><div class="ln"><span>Sessione 5 h</span><span>${Math.round(it.use*.6)}%</span></div><div class="tr"><i style="width:${Math.round(it.use*.6)}%"></i></div><div class="ln"><span>Settimana</span><span>${it.use}%</span></div><div class="tr"><i style="width:${it.use}%;${it.use>70?'background:#e0a23e':''}"></i></div></div>`:''}
+    <div class="acts"><button class="btn pri" data-run="${it.id}">Apri <span class="kbd" style="border-color:rgba(0,0,0,.2);color:inherit">↵</span></button><span class="swl" data-pin="${it.id}"><span class="sw ${isPinned(it.id)?'on':''}"></span>Nella barra</span></div></div>`:'<div class="det"><div class="empty">Nessun risultato</div></div>';
+  return searchBox('B','Cerca o esegui…','Esc')+
+    `<div class="body"><div class="list">${ag.length?`<div class="head">Agenti</div>${ag.map(row).join('')}`:''}${tl.length?`<div class="head">Strumenti</div>${tl.map(row).join('')}`:''}</div>${det}</div>`+
+    footer('<span class="kbd">↑↓</span> naviga <span class="kbd">↵</span> apri <span class="kbd">Ctrl P</span> fissa');
+}
+function ring(u){if(u==null)return'';const r=19,c=2*Math.PI*r;return `<svg class="ring" viewBox="0 0 42 42"><circle cx="21" cy="21" r="${r}" stroke="var(--track)"/><circle cx="21" cy="21" r="${r}" stroke="${u>70?'#e0a23e':'var(--accent)'}" stroke-dasharray="${c*u/100} ${c}" transform="rotate(-90 21 21)" stroke-linecap="round"/></svg>`;}
+function renderC(){
+  const s=state.C,list=filt(s.q),ag=list.filter(i=>i.agent),tl=list.filter(i=>!i.agent);
+  const short={side:'Pannello laterale',agentPanel:'Pannello agente',vscode:'VS Code',newTab:'Nuovo terminale',clear:'Pulisci'};
+  const tile=i=>`<div class="tile ${isPinned(i.id)?'pinned':''}" data-run="${i.id}" title="${i.label}${i.agent?' · '+i.acc:''}">${ring(i.use)}${i.agent?`<span class="dot ${i.st}"></span>`:''}${badge(i)}<span class="nm">${short[i.id]||i.label}</span>${pinBtn(i.id)}</div>`;
+  const sec=(t,a)=>a.length?`<div class="head">${t}</div><div class="tiles">${a.map(tile).join('')}</div>`:'';
+  return searchBox('C','Cerca funzionalità…')+`<div class="list">${list.length?sec('Agenti',ag)+sec('Strumenti',tl):'<div class="empty">Nessun risultato</div>'}</div>`+footer('<span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;border:1px solid var(--accent)"></span>nella barra</span>');
+}
+function renderD(){
+  const s=state.D;
+  const tabs=[['bar','Nella barra',pinned.length],['agents','Agenti',ITEMS.filter(i=>i.agent).length],['tools','Strumenti',ITEMS.filter(i=>!i.agent).length]];
+  let list=s.q.trim()?filt(s.q):s.tab==='bar'?pinned.map(byId):ITEMS.filter(i=>s.tab==='agents'?!!i.agent:!i.agent);
+  const row=i=>`<div class="row" data-run="${i.id}">${s.tab==='bar'&&!s.q.trim()?'<span class="grip">⋮⋮</span>':''}${badge(i)}<span class="tx"><span class="lb">${i.label}</span><span class="ds">${i.agent?`<span class="dot ${i.st}"></span>${i.acc}`:i.desc}</span></span><span class="sw ${isPinned(i.id)?'on':''}" data-pin="${i.id}" title="Nella barra"></span></div>`;
+  return searchBox('D','Cerca in tutte…')+
+    (s.q.trim()?'':`<div class="tabs">${tabs.map(([k,l,n])=>`<button data-tab="${k}" class="${s.tab===k?'on':''}">${l} <span class="n">${n}</span></button>`).join('')}</div>`)+
+    `<div class="list">${list.length?list.map(row).join(''):'<div class="empty">Nessun risultato</div>'}</div>`+
+    (s.tab==='bar'&&!s.q.trim()?'<div class="hint">Trascina per cambiare l\'ordine nella barra.</div>':'')+footer();
+}
+function renderHB(){
+  const h=pinned.map(id=>{const i=byId(id);return `<span class="ib" title="${i.label}">${i.agent?`<span class="badge ag" style="background:${i.c};width:18px;height:18px;font-size:8.5px;border-radius:5px">${i.ch}</span>`:svg(i.ic)}</span>`;}).join('');
+  document.querySelectorAll('[data-hb]').forEach(el=>el.innerHTML=h+`<span class="sep"></span><span class="ib open">${svg('grid')}</span><span class="ib">${svg('dots')}</span>`);
+}
+const R={A:renderA,B:renderB,C:renderC,D:renderD};
+function render(v){
+  const el=document.getElementById('m'+v),f=document.activeElement,had=f&&f.dataset&&f.dataset.q===v,pos=had?f.selectionStart:0;
+  el.innerHTML=R[v]();
+  if(had){const i=el.querySelector('input');i.focus();i.setSelectionRange(pos,pos);}
+}
+function renderAll(){renderHB();'ABCD'.split('').forEach(render);}
+document.addEventListener('input',e=>{const v=e.target.dataset.q;if(v){state[v].q=e.target.value;render(v);}});
+document.addEventListener('click',e=>{
+  const p=e.target.closest('[data-pin]');if(p){e.stopPropagation();togglePin(p.dataset.pin);return;}
+  const t=e.target.closest('[data-tab]');if(t){state.D.tab=t.dataset.tab;render('D');return;}
+  const s=e.target.closest('[data-sel]');if(s){state.B.sel=s.dataset.sel;render('B');return;}
+  const r=e.target.closest('[data-run]');if(r){const b=r.closest('.menu');b.style.transition='opacity .12s';b.style.opacity=.35;setTimeout(()=>b.style.opacity=1,180);}
+});
+document.addEventListener('mouseover',e=>{const h=e.target.closest('#mA [data-hov]');const id=h?h.dataset.hov:null;if(e.target.closest('#mA')&&id!==state.A.hover){state.A.hover=id;const tip=document.querySelector('#mA .tip');const it=id&&byId(id);if(tip)tip.innerHTML=it?(it.agent?`<b style="color:var(--fg)">${it.label}</b> · ${it.acc}`:it.desc):'Passa sopra una voce per i dettagli · Invio apre la prima';}});
+document.addEventListener('keydown',e=>{
+  if(!(document.activeElement&&document.activeElement.dataset.q==='B'))return;
+  const list=filt(state.B.q),at=list.findIndex(i=>i.id===state.B.sel);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const n=list[Math.max(0,Math.min(list.length-1,at+(e.key==='ArrowDown'?1:-1)))];if(n){state.B.sel=n.id;render('B');}}
+});
+document.getElementById('th').onclick=e=>{document.body.classList.toggle('light');e.target.textContent=document.body.classList.contains('light')?'Tema scuro':'Tema chiaro';};
+renderAll();
+</script>
+</body>
+</html>
