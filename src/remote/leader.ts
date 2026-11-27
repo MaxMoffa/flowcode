@@ -19,7 +19,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 async function recheck() {
   let next = true;
   try {
-    const labels = (await getAllWebviewWindows()).map((w) => w.label);
+    const labels = (await getAllWebviewWindows()).map((w) => w.label).filter((l) => l === "main" || l.startsWith("win-"));
     const lead = labels.includes("main") ? "main" : [...labels].sort()[0];
     next = lead === undefined || lead === ownLabel;
   } catch {

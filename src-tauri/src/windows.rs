@@ -137,7 +137,8 @@ pub struct CursorTarget {
 #[tauri::command]
 pub fn window_at_cursor(app: AppHandle) -> Result<CursorTarget, String> {
     let cursor = app.cursor_position().map_err(|e| e.to_string())?;
-    let windows = app.windows();
+    // A menu popup is not a drop target.
+    let windows: HashMap<String, Window> = app.windows().into_iter().filter(|(l, _)| crate::menu_popup::is_app_window(l)).collect();
     let hit = topmost_at(&windows, cursor);
     let Some(window) = hit else {
         return Ok(CursorTarget { label: None, x: 0.0, y: 0.0 });

@@ -47,7 +47,7 @@ impl SessionStore {
     /// A window was destroyed: its part goes, unless it was the last one open
     /// (the app is quitting with it) or the app is exiting for an update.
     pub fn forget_window(&self, app: &AppHandle, label: &str) {
-        let others_open = app.windows().keys().any(|l| l != label);
+        let others_open = app.windows().keys().any(|l| l != label && crate::menu_popup::is_app_window(l));
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.forget_live_window(label);
         if self.quitting.load(Ordering::SeqCst) || !others_open {
@@ -216,7 +216,7 @@ pub async fn flush_all(app: &AppHandle) -> Result<(), String> {
         while Instant::now() < deadline {
             // New windows must answer too; a window closed during the flush
             // no longer needs an acknowledgement.
-            let live: Vec<String> = app.windows().keys().cloned().collect();
+            let live: Vec<String> = app.windows().keys().filter(|l| crate::menu_popup::is_app_window(l)).cloned().collect();
             let status = {
                 let inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
                 flush_status(&inner, &live, generation)

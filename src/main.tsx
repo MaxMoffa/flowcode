@@ -33,10 +33,14 @@ for (const type of ["dragover", "drop"]) {
 // src-tauri/installer/), whose own tauri.conf.json points its window straight
 // at this hash - one frontend bundle, two different Tauri backends behind it.
 const isInstaller = window.location.hash === "#installer";
+// The window context menus are drawn in (see context-menu/menuPopupClient.ts).
+const isMenuPopup = window.location.hash === "#menu-popup";
 // Each entry point is its own chunk, so neither binary loads the other's code.
 const Root = isInstaller
   ? lazy(() => import("./installer/InstallerFlow").then((m) => ({ default: m.InstallerFlow })))
-  : lazy(() => import("./App"));
+  : isMenuPopup
+    ? lazy(() => import("./context-menu/MenuPopupRoot").then((m) => ({ default: m.MenuPopupRoot })))
+    : lazy(() => import("./App"));
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

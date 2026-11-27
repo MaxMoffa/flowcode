@@ -203,7 +203,7 @@ fn warn(app: &tauri::AppHandle, name: &str, pid: u32, bytes: u64, pct: u64) {
     let label = if app.get_window("main").is_some() {
         "main".to_string()
     } else {
-        let mut labels: Vec<String> = app.windows().into_keys().collect();
+        let mut labels: Vec<String> = app.windows().into_keys().filter(|l| crate::menu_popup::is_app_window(l)).collect();
         labels.sort();
         labels.into_iter().next().unwrap_or_default()
     };

@@ -174,7 +174,7 @@ impl Shared {
         if self.app.get_window("main").is_some() {
             return Some("main".to_string());
         }
-        let mut labels: Vec<String> = self.app.windows().into_keys().collect();
+        let mut labels: Vec<String> = self.app.windows().into_keys().filter(|l| crate::menu_popup::is_app_window(l)).collect();
         labels.sort();
         labels.into_iter().next()
     }

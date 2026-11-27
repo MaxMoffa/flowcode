@@ -47,6 +47,8 @@ import { useExitGhost } from "../hooks/useExitGhost";
 import { DUR_OUT } from "../lib/motion";
 import { DownloadsBar, DownloadsButton, DownloadsPopover, useDownloads } from "./BrowserDownloads";
 import { toHostUrl } from "./mirrorUrl";
+import { setNativeViewLive } from "./nativeLive";
+import { prewarmMenuPopup } from "../context-menu/menuPopupClient";
 import "./browser-panel.css";
 import "./browser-control.css";
 
@@ -692,6 +694,13 @@ export function BrowserPanel({ dragging, motion = "open" }: { dragging: boolean;
   // A failed page is shown by us instead: the native view stays hidden until a load works again.
   // Sliding in, the native view would sit at its final place over a card still on its way: it waits for the end.
   const nativeLive = !!urlPage && visible && motion !== "entering" && !!nativeUrl && !urlPage.error;
+  // Told to the context menu, which then opens in a popup window instead of the DOM.
+  useEffect(() => {
+    if (!nativeLive || !urlId) return;
+    setNativeViewLive(urlId, true);
+    prewarmMenuPopup();
+    return () => setNativeViewLive(urlId, false);
+  }, [nativeLive, urlId]);
   const drawerHeld = tabsOpen && nativeLive && !suspended;
   // An agent drives this page: ring around the view and a bar under it (settings "off" turns the whole thing inert).
   const control = urlPage?.control && controlSetting !== "off" ? urlPage.control : null;

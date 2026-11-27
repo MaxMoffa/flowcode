@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { MenuIcons } from "./menuIcons";
+import { canUsePopup, hidePopupMenu, listenPopupEvents, openPopupMenu, refocusOwner } from "./menuPopupClient";
 import "./context-menu.css";
 
 export interface ContextMenuItem {
@@ -24,6 +25,8 @@ interface MenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /** Set when the menu is drawn in the popup window (over a native browser view) instead of here. */
+  popupId?: number;
 }
 
 interface ContextMenuContextValue {
@@ -137,7 +140,14 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   // stack, so it's automatically torn down whenever `menu` itself closes.
   const [submenuOpenAt, setSubmenuOpenAt] = useState<{ index: number; x: number; y: number; parentLeft: number } | null>(null);
 
+  const popupSeq = useRef(0);
+  /** The menu currently shown in the popup window, for the popup's events. */
+  const popupMenuRef = useRef<MenuState | null>(null);
+
   const hide = useCallback(() => {
+    const popupId = popupMenuRef.current?.popupId;
+    if (popupId !== undefined) hidePopupMenu(popupId);
+    popupMenuRef.current = null;
     returnFocusRef.current?.focus();
     returnFocusRef.current = null;
     setMenu(null);
@@ -146,8 +156,48 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
 
   const show = useCallback((x: number, y: number, items: ContextMenuItem[]) => {
     if (!returnFocusRef.current && document.activeElement instanceof HTMLElement) returnFocusRef.current = document.activeElement;
-    setMenu({ x, y, items });
     setSubmenuOpenAt(null);
+    if (!canUsePopup(items)) {
+      popupMenuRef.current = null;
+      setMenu({ x, y, items });
+      return;
+    }
+    // A native browser view paints above the DOM, so the menu goes in its own window.
+    const popupId = ++popupSeq.current;
+    const state: MenuState = { x, y, items, popupId };
+    popupMenuRef.current = state;
+    setMenu(state);
+    void openPopupMenu(popupId, x, y, items).then((ok) => {
+      if (ok || popupMenuRef.current !== state) return;
+      // The popup failed: this open falls back to the DOM menu.
+      const dom = { x, y, items };
+      popupMenuRef.current = null;
+      setMenu((cur) => (cur === state ? dom : cur));
+    });
+  }, []);
+
+  // The popup reports a picked row or its own closing (focus left it, Escape).
+  useEffect(() => {
+    const finish = async (id: number, refocus: boolean) => {
+      const cur = popupMenuRef.current;
+      if (!cur || cur.popupId !== id) return null;
+      popupMenuRef.current = null;
+      setMenu(null);
+      if (!refocus) {
+        returnFocusRef.current = null;
+        return cur;
+      }
+      await refocusOwner();
+      await new Promise((r) => requestAnimationFrame(r));
+      returnFocusRef.current?.focus();
+      returnFocusRef.current = null;
+      return cur;
+    };
+    const unlisten = listenPopupEvents(
+      (id, index) => void finish(id, true).then((cur) => cur?.items[index]?.onSelect?.()),
+      (id, refocus) => void finish(id, refocus),
+    );
+    return () => void unlisten.then((off) => off());
   }, []);
 
   // Stable across menu open/close, so consumers of the context (every
@@ -172,6 +222,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!menu) return;
+    const inPopup = menu.popupId !== undefined;
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (menuRef.current?.contains(target)) return;
@@ -190,24 +241,26 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       hide();
     };
     window.addEventListener("mousedown", onPointerDown, true);
-    window.addEventListener("blur", hide);
+    // The popup takes the focus, which blurs this window: that is not a dismissal.
+    if (!inPopup) window.addEventListener("blur", hide);
     window.addEventListener("resize", hide);
     window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("mousedown", onPointerDown, true);
-      window.removeEventListener("blur", hide);
+      if (!inPopup) window.removeEventListener("blur", hide);
       window.removeEventListener("resize", hide);
       window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [menu, hide]);
 
+  const domMenu = menu && menu.popupId === undefined ? menu : null;
   let style: { left: number; top: number } | undefined;
-  if (menu) {
+  if (domMenu) {
     const menuWidth = 210;
     const rowHeight = 30;
-    const estHeight = menu.items.length * rowHeight + 8;
-    const left = Math.min(menu.x, window.innerWidth - menuWidth - 8);
-    const top = Math.min(menu.y, window.innerHeight - estHeight - 8);
+    const estHeight = domMenu.items.length * rowHeight + 8;
+    const left = Math.min(domMenu.x, window.innerWidth - menuWidth - 8);
+    const top = Math.min(domMenu.y, window.innerHeight - estHeight - 8);
     style = { left: Math.max(8, left), top: Math.max(8, top) };
   }
 
@@ -283,16 +336,16 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   return (
     <ContextMenuCtx.Provider value={value}>
       {children}
-      {menu && (
+      {domMenu && (
         <div className="context-menu" ref={menuRef} style={style} role="menu" onMouseDown={keepFocus} onKeyDown={onMenuKeyDown}>
-          {renderItems(menu.items.map((item, index) => ({ item, index })), (index, rect) =>
+          {renderItems(domMenu.items.map((item, index) => ({ item, index })), (index, rect) =>
             setSubmenuOpenAt((prev) =>
               prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top, parentLeft: rect.left },
             ),
           )}
         </div>
       )}
-      {menu && submenuOpenAt && activeSubmenu && (
+      {domMenu && submenuOpenAt && activeSubmenu && (
         <div className="context-menu" ref={submenuRef} style={submenuStyle} role="menu" onMouseDown={keepFocus}>
           {renderItems(activeSubmenu.map((item, index) => ({ item, index })))}
         </div>

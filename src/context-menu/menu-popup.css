@@ -1,0 +1,19 @@
+/* The context menu popup window: nothing but the menu, over a transparent page. */
+html.menu-popup-root,
+html.menu-popup-root body,
+html.menu-popup-root #root {
+  background: transparent !important;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* In the popup the menu sits in the flow, inside the padding left for its shadow. */
+.menu-popup-wrap {
+  box-sizing: content-box;
+  /* The window starts 1px wide: the menu must size to its content, not to it. */
+  width: max-content;
+}
+
+.menu-popup-wrap .context-menu {
+  position: static;
+}

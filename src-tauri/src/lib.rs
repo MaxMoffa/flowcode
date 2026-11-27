@@ -51,6 +51,7 @@ mod watcher;
 mod windows;
 mod browser_view;
 mod browser_control;
+mod menu_popup;
 mod browser_downloads;
 
 use pty::PtyState;
@@ -165,6 +166,10 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 let label = window.label();
+                // A menu popup holds none of the state cleaned up below.
+                if !menu_popup::is_app_window(label) {
+                    return;
+                }
                 // A closed window takes its terminals with it - nothing is
                 // left to show them in.
                 app.state::<PtyState>().kill_owned_by(label);
@@ -193,6 +198,9 @@ pub fn run() {
         .manage(watcher::DirWatchers::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
+            menu_popup::menu_popup_ensure,
+            menu_popup::menu_popup_open,
+            menu_popup::menu_popup_hide,
             browser_control::browser_control_reply,
             browser_control::browser_control_release,
             browser_control::browser_control_watch,

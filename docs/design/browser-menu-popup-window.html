@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — menu sopra il browser nativo: oggi vs finestra popup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface2:#251d15; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --danger:#e07a6a; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.09);
+  --menu:rgba(34,26,19,.86); --page:#f4f1ec; --page-fg:#2a2622; --desk:#0d0a07;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface2:#f1e8d7; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --danger:#b8483a; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.08);
+  --menu:rgba(251,246,236,.88); --desk:#cdbfa6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:1080px}
+code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.bar .lab{color:var(--fg-muted);margin-left:10px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(480px,560px));gap:44px;align-items:start}
+.col h2{font-size:14px;margin:0 0 2px}
+.col p.d{margin:0 0 14px;color:var(--fg-muted);min-height:76px}
+.rec{display:inline-block;font-size:11px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+
+/* scrivania + finestra app */
+.desk{position:relative;background:var(--desk);border-radius:12px;padding:26px 46px 26px 26px;overflow:visible}
+.win{position:relative;height:430px;border:1px solid var(--border);border-radius:10px;background:var(--surface);display:flex;overflow:hidden}
+.win.clip-free{overflow:visible}
+.side{width:170px;flex:none;border-right:1px solid var(--border);padding:8px 6px;background:var(--surface2);border-radius:10px 0 0 10px}
+.side .t{font-size:11px;color:var(--fg-muted);padding:2px 6px 6px;text-transform:uppercase;letter-spacing:.06em}
+.file{padding:4px 8px;border-radius:6px;cursor:context-menu;user-select:none;white-space:nowrap}
+.file:hover,.file.sel{background:var(--hover)}
+.file.right{margin-top:6px}
+.bp{flex:1;display:flex;flex-direction:column;min-width:0}
+.bph{height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--border);flex:none}
+.url{flex:1;height:24px;border-radius:6px;background:var(--track);display:flex;align-items:center;padding:0 9px;color:var(--fg-muted);font-size:12px}
+.vp{position:relative;flex:1;background:var(--page);color:var(--page-fg);overflow:hidden}
+/* pagina finta "viva" */
+.pg{padding:16px 18px}
+.pg h3{margin:0 0 8px;font-size:15px}
+.pg .row{height:9px;border-radius:5px;background:#ded7cc;margin:7px 0}
+.pg .row.s{width:60%}
+.live{display:flex;align-items:center;gap:10px;margin:14px 0}
+.spin{width:22px;height:22px;border-radius:50%;border:3px solid #d6cdbf;border-top-color:#5d7e46;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.clock{font:600 13px "JetBrains Mono",ui-monospace,monospace}
+.ticker{height:56px;border-radius:8px;background:linear-gradient(90deg,#e9e2d6,#d9e4cf,#e9e2d6);background-size:200% 100%;animation:tk 2.4s linear infinite}
+@keyframes tk{to{background-position:-200% 0}}
+.vp.frozen .spin,.vp.frozen .ticker{animation-play-state:paused}
+.vp .blank{position:absolute;inset:0;background:var(--surface);display:none;align-items:center;justify-content:center}
+.vp.paused .blank{display:flex}
+.chip{background:var(--track);color:var(--fg-muted);border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px}
+.badge{position:absolute;right:8px;top:8px;font-size:10.5px;padding:2px 7px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;display:none}
+.vp.frozen .badge{display:block}
+
+/* menu: stesso stile di src/context-menu/context-menu.css */
+.context-menu{position:absolute;z-index:20;min-width:190px;padding:5px;background:var(--menu);border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);
+  animation:cm .14s ease-out;color:var(--fg)}
+@keyframes cm{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.context-menu-item{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;font-size:12.5px;cursor:pointer}
+.context-menu-item:hover,.context-menu-item.kb{background:var(--hover)}
+.context-menu-item.is-danger{color:var(--danger)}
+.context-menu-separator{height:1px;margin:5px 6px;background:var(--border)}
+.ico{width:14px;height:14px;opacity:.8;flex:none}
+.popwin{outline:1px dashed transparent;outline-offset:3px}
+body.showwin .popwin{outline-color:var(--accent)}
+.popwin-lab{position:absolute;top:-19px;left:0;font-size:10.5px;color:var(--accent);white-space:nowrap;display:none}
+body.showwin .popwin .popwin-lab{display:block}
+.hint{font-size:11.5px;color:var(--fg-muted);margin-top:10px}
+.notes{max-width:1100px;margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.notes h3{font-size:13.5px;margin:0 0 6px}
+.notes ul{margin:0;padding-left:18px;color:var(--fg-muted)}
+.notes li{margin:3px 0}
+.notes b{color:var(--fg)}
+</style>
+</head>
+<body>
+<h1>Menu sopra il browser nativo: oggi vs menu in finestra popup</h1>
+<p class="sub"><b>Clic (o tasto destro) su un file della barra laterale "Esplora"</b> (📄 README.md, l'ultimo, è il più vicino al browser) in entrambe le colonne: si apre il menu.
+A sinistra il comportamento di oggi: la pagina viene sostituita da un fermo immagine, o su Linux da "Pagina in pausa" (prima del fix di oggi).
+A destra la proposta: <b>lo stesso menu, stesso CSS</b>, ma dentro una piccola finestra trasparente sopra la finestra dell'app; la pagina resta viva sotto.
+Spinner, orologio e banda animata servono a vedere se la pagina è viva.</p>
+
+<div class="bar">
+  <button id="bLight">Tema chiaro</button>
+  <span class="lab">Oggi su:</span>
+  <button class="on" data-os="win">Windows (fermo immagine)</button>
+  <button data-os="linux">Linux prima del fix (in pausa)</button>
+  <span class="lab">Proposta:</span>
+  <button id="bWin">Mostra il bordo della finestra popup</button>
+</div>
+
+<div class="grid">
+  <div class="col">
+    <h2>Oggi</h2>
+    <p class="d">Il menu HTML non può stare sopra la webview nativa: appena la tocca, la pagina viene nascosta e al suo posto c'è uno screenshot (si ferma tutto: video, animazioni, caricamenti visibili). Se lo screenshot fallisce resta l'area vuota con "Pagina in pausa".</p>
+    <div class="desk"><div class="win" id="w0"></div></div>
+  </div>
+  <div class="col">
+    <h2>Proposta: menu in finestra popup<span class="rec">consigliata</span></h2>
+    <p class="d">Il menu vive in una finestra senza bordi, trasparente e sempre sopra. Aspetto identico, la pagina sotto non viene mai toccata. In più il menu può uscire dal bordo della finestra dell'app, come un menu di sistema.</p>
+    <div class="desk"><div class="win clip-free" id="w1"></div></div>
+  </div>
+</div>
+<p class="hint">Tastiera: con un menu aperto prova ↑ ↓ e Esc. Clic fuori o un altro tasto destro lo chiude, come oggi.</p>
+
+<div class="notes">
+  <div>
+    <h3>Cosa cambia per te</h3>
+    <ul>
+      <li><b>Nessuna differenza visiva</b> nel menu: stesso componente, stesso vetro, stessa animazione.</li>
+      <li>La pagina resta <b>viva e interattiva</b> mentre il menu è aperto (video, dev server, login non si fermano).</li>
+      <li>Niente più "Pagina in pausa" né scatto pagina → immagine all'apertura dei menu.</li>
+      <li>Il menu può sbordare oltre la finestra dell'app, come un menu di sistema.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Da decidere</h3>
+    <ul>
+      <li><b>Quali menu</b>: solo i menu contestuali (tasto destro) oppure anche tendine e popover che toccano il browser (⋯ del browser, cassetto schede, menu modello). Consiglio: prima i contestuali, poi gli altri un gruppo alla volta.</li>
+      <li><b>Dialoghi grandi</b> (impostazioni, conferme) restano nella finestra principale con il fermo immagine, ora funzionante anche su Linux.</li>
+      <li>La finestra popup si crea all'avvio e resta nascosta: apertura istantanea, costo circa una webview in più in memoria.</li>
+    </ul>
+  </div>
+</div>
+
+<template id="tpl">
+  <div class="side">
+    <div class="t">Esplora</div>
+    <div class="file">📁 src</div>
+    <div class="file">📄 App.tsx</div>
+    <div class="file">📄 main.rs</div>
+    <div class="file">📄 Cargo.toml</div>
+    <div class="file right">📄 README.md</div>
+  </div>
+  <div class="bp">
+    <div class="bph"><div class="url">localhost:5173</div></div>
+    <div class="vp">
+      <div class="pg">
+        <h3>Dev server · pagina viva</h3>
+        <div class="live"><div class="spin"></div><span class="clock">00:00.0</span></div>
+        <div class="ticker"></div>
+        <div class="row"></div><div class="row"></div><div class="row s"></div><div class="row"></div><div class="row s"></div>
+      </div>
+      <div class="badge">fermo immagine</div>
+      <div class="blank"><span class="chip">Pagina in pausa</span></div>
+    </div>
+  </div>
+</template>
+
+<script>
+const tpl=document.getElementById('tpl');
+const wins=[document.getElementById('w0'),document.getElementById('w1')];
+wins.forEach(w=>w.appendChild(tpl.content.cloneNode(true)));
+let os='win', menu=null, menuMode=-1, frozenClock=null;
+const t0=performance.now();
+function fmt(ms){const s=ms/1000;return String(Math.floor(s/60)).padStart(2,'0')+':'+(s%60).toFixed(1).padStart(4,'0')}
+(function tick(){const now=fmt(performance.now()-t0);
+  wins.forEach((w,i)=>{const c=w.querySelector('.clock');if(!(i===0&&frozenClock))c.textContent=now});
+  requestAnimationFrame(tick)})();
+
+const ICONS={open:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M10 14 21 3M21 14v7H3V3h7"/></svg>',
+ copy:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+ edit:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+ term:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg>',
+ del:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>'};
+function build(){const m=document.createElement('div');m.className='context-menu popwin';
+  m.innerHTML='<span class="popwin-lab">finestra popup (invisibile all\'utente)</span>'+
+  [['open','Apri nell\'editor'],['copy','Copia percorso'],['edit','Rinomina'],['term','Apri nel terminale'],'-',['del','Elimina','is-danger']]
+  .map(x=>x==='-'?'<div class="context-menu-separator"></div>':`<div class="context-menu-item ${x[2]||''}">${ICONS[x[0]]}<span>${x[1]}</span></div>`).join('');
+  return m}
+function close(){if(!menu)return;menu.remove();menu=null;
+  document.querySelectorAll('.file.sel').forEach(f=>f.classList.remove('sel'));
+  const vp=wins[0].querySelector('.vp');vp.classList.remove('frozen','paused');frozenClock=null;menuMode=-1}
+function covers(m,vp){const a=m.getBoundingClientRect(),b=vp.getBoundingClientRect();return a.right>b.left&&a.left<b.right&&a.bottom>b.top&&a.top<b.bottom}
+wins.forEach((w,i)=>{
+  const open=(e,f)=>{e.preventDefault();e.stopPropagation();close();
+    f.classList.add('sel');menu=build();menuMode=i;
+    const r=w.getBoundingClientRect(),fr=f.getBoundingClientRect();
+    const x=e.type==='contextmenu'?e.clientX:fr.right-30,y=e.type==='contextmenu'?e.clientY:fr.top+fr.height/2;
+    menu.style.left=(x-r.left+2)+'px';menu.style.top=(y-r.top+2)+'px';
+    if(i===1)menu.classList.add('is-pop');w.appendChild(menu);
+    if(i===0){const vp=w.querySelector('.vp');
+      // oggi: il menu HTML sta sotto la webview finché lo screenshot non arriva
+      if(covers(menu,vp)){menu.style.clipPath=`inset(0 ${Math.max(0,menu.getBoundingClientRect().right-vp.getBoundingClientRect().left)}px 0 0)`;
+        setTimeout(()=>{if(menuMode!==0)return;menu.style.clipPath='';frozenClock=true;vp.classList.add(os==='win'?'frozen':'paused')},140)}}
+  };
+  w.querySelectorAll('.file').forEach(f=>{
+    f.addEventListener('contextmenu',e=>open(e,f));
+    f.addEventListener('click',e=>open(e,f));
+  });
+});
+document.addEventListener('mousedown',e=>{if(menu&&!menu.contains(e.target)&&!e.target.closest('.file'))close()});
+document.addEventListener('click',e=>{if(menu&&e.target.closest('.context-menu-item'))close()});
+document.addEventListener('keydown',e=>{if(!menu)return;const it=[...menu.querySelectorAll('.context-menu-item')];let k=it.findIndex(x=>x.classList.contains('kb'));
+  if(e.key==='Escape'){close();return}
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();it.forEach(x=>x.classList.remove('kb'));k=e.key==='ArrowDown'?(k+1)%it.length:(k<=0?it.length-1:k-1);it[k].classList.add('kb')}});
+document.querySelectorAll('[data-os]').forEach(b=>b.onclick=()=>{os=b.dataset.os;document.querySelectorAll('[data-os]').forEach(x=>x.classList.toggle('on',x===b));close()});
+document.getElementById('bLight').onclick=e=>{document.body.classList.toggle('light');e.target.classList.toggle('on')};
+document.getElementById('bWin').onclick=e=>{document.body.classList.toggle('showwin');e.target.classList.toggle('on')};
+</script>
+</body>
+</html>

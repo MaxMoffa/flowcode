@@ -151,7 +151,7 @@ pub fn browser_control_reply(window: tauri::Window, req_id: String, ok: bool, va
 
 /// Windows that show the app (`main`, `win-*`), as opposed to the webview-less or auxiliary ones.
 fn is_main_window(label: &str) -> bool {
-    label == "main" || label.starts_with("win-")
+    crate::menu_popup::is_app_window(label)
 }
 
 fn owner_json(owner: &Owner) -> Value {
